@@ -36,13 +36,32 @@ $PAGE->requires->js('/local/question_diagnostic/scripts/main.js', true);
 // Section d'en-tête Moodle standard.
 echo $OUTPUT->header();
 
-// Lien retour vers le menu principal
-echo html_writer::start_tag('div', ['style' => 'margin-bottom: 20px;']);
+// Lien retour vers le menu principal et bouton de purge de cache
+echo html_writer::start_tag('div', ['style' => 'margin-bottom: 20px; display: flex; gap: 10px; align-items: center;']);
 echo html_writer::link(
     new moodle_url('/local/question_diagnostic/index.php'),
     '← ' . get_string('backtomenu', 'local_question_diagnostic'),
     ['class' => 'btn btn-secondary']
 );
+
+// Traiter la purge de cache si demandée
+$purgecache = optional_param('purgecache', 0, PARAM_INT);
+if ($purgecache && confirm_sesskey()) {
+    question_analyzer::purge_all_caches();
+    redirect($PAGE->url, '✅ Cache purgé avec succès.', null, \core\output\notification::NOTIFY_SUCCESS);
+}
+
+// Bouton de purge de cache
+$purgecache_url = new moodle_url($PAGE->url, ['purgecache' => 1, 'sesskey' => sesskey()]);
+echo html_writer::link(
+    $purgecache_url,
+    '🔄 Purger le cache',
+    [
+        'class' => 'btn btn-warning',
+        'title' => 'Vider le cache pour forcer le recalcul des statistiques'
+    ]
+);
+
 echo html_writer::end_tag('div');
 
 // ======================================================================
@@ -58,7 +77,18 @@ echo get_string('loading_stats', 'local_question_diagnostic') . ' ';
 echo html_writer::tag('span', get_string('loading_questions', 'local_question_diagnostic'), ['id' => 'loading-indicator', 'style' => 'font-weight: bold;']);
 echo html_writer::end_tag('div');
 
-$globalstats = question_analyzer::get_global_stats();
+// Charger les statistiques avec gestion d'erreurs
+try {
+    $globalstats = question_analyzer::get_global_stats(true, true);
+} catch (Exception $e) {
+    echo html_writer::start_tag('div', ['class' => 'alert alert-danger']);
+    echo html_writer::tag('strong', '⚠️ Erreur : ');
+    echo 'Impossible de charger les statistiques globales. ';
+    echo html_writer::tag('p', 'Détails : ' . $e->getMessage(), ['style' => 'margin-top: 10px; font-size: 12px;']);
+    echo html_writer::end_tag('div');
+    echo $OUTPUT->footer();
+    exit;
+}
 
 // Masquer l'indicateur de chargement via JavaScript
 echo html_writer::start_tag('script');
@@ -261,7 +291,41 @@ echo html_writer::tag('p', '⏳ Chargement des questions en cours...', ['style' 
 echo html_writer::tag('p', 'Cela peut prendre quelques instants pour les grandes bases de données.', ['style' => 'font-size: 14px; color: #666;']);
 echo html_writer::end_tag('div');
 
-$questions_with_stats = question_analyzer::get_all_questions_with_stats();
+// Charger les questions avec gestion d'erreurs optimisée
+try {
+    // Pour les grandes bases (>5000 questions), on désactive la détection de doublons
+    $include_duplicates = ($globalstats->total_questions < 5000);
+    
+    if (!$include_duplicates) {
+        echo html_writer::start_tag('div', ['class' => 'alert alert-warning', 'style' => 'margin-bottom: 20px;']);
+        echo html_writer::tag('strong', 'ℹ️ Note : ');
+        echo 'La détection détaillée des doublons est désactivée pour les grandes bases de données (>5000 questions) afin d\'améliorer les performances. ';
+        echo 'Seule la détection par nom exact est effectuée.';
+        echo html_writer::end_tag('div');
+    }
+    
+    $questions_with_stats = question_analyzer::get_all_questions_with_stats($include_duplicates, 0);
+    
+} catch (Exception $e) {
+    echo html_writer::start_tag('script');
+    echo "document.getElementById('loading-questions').style.display = 'none';";
+    echo html_writer::end_tag('script');
+    
+    echo html_writer::start_tag('div', ['class' => 'alert alert-danger']);
+    echo html_writer::tag('strong', '⚠️ Erreur : ');
+    echo 'Impossible de charger les questions. Cela peut être dû à une base de données trop volumineuse ou à un timeout. ';
+    echo html_writer::tag('p', 'Détails : ' . $e->getMessage(), ['style' => 'margin-top: 10px; font-size: 12px;']);
+    echo html_writer::tag('p', 'Suggestions :', ['style' => 'margin-top: 10px; font-weight: bold;']);
+    echo html_writer::start_tag('ul');
+    echo html_writer::tag('li', 'Augmenter le timeout PHP dans votre configuration');
+    echo html_writer::tag('li', 'Augmenter la limite de mémoire PHP');
+    echo html_writer::tag('li', 'Vider le cache Moodle (Administration du site > Développement > Purger tous les caches)');
+    echo html_writer::tag('li', 'Contacter votre administrateur système');
+    echo html_writer::end_tag('ul');
+    echo html_writer::end_tag('div');
+    echo $OUTPUT->footer();
+    exit;
+}
 
 echo html_writer::start_tag('script');
 echo "document.getElementById('loading-questions').style.display = 'none';";

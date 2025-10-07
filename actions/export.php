@@ -16,15 +16,32 @@ if (!is_siteadmin()) {
 }
 
 $type = optional_param('type', 'csv', PARAM_ALPHA);
+$ids = optional_param('ids', '', PARAM_TEXT);
 
 if ($type === 'csv') {
     // Export des catégories
     $categories = category_manager::get_all_categories_with_stats();
+    
+    // Si des IDs spécifiques sont fournis, filtrer les catégories
+    if ($ids) {
+        $selectedIds = array_filter(array_map('intval', explode(',', $ids)));
+        $categories = array_filter($categories, function($item) use ($selectedIds) {
+            return in_array($item->category->id, $selectedIds);
+        });
+    }
+    
     $csv = category_manager::export_to_csv($categories);
+    
+    // Nom du fichier selon le contexte
+    $filename = 'categories_questions';
+    if ($ids) {
+        $filename .= '_selection';
+    }
+    $filename .= '_' . date('Y-m-d_H-i-s') . '.csv';
     
     // Envoyer le fichier CSV
     header('Content-Type: text/csv; charset=utf-8');
-    header('Content-Disposition: attachment; filename="categories_questions_' . date('Y-m-d_H-i-s') . '.csv"');
+    header('Content-Disposition: attachment; filename="' . $filename . '"');
     header('Pragma: no-cache');
     header('Expires: 0');
     

@@ -173,14 +173,31 @@ echo html_writer::end_tag('div'); // fin qd-filters
 echo html_writer::start_tag('div', ['class' => 'qd-bulk-actions', 'id' => 'bulk-actions-bar']);
 echo html_writer::start_tag('div', ['class' => 'qd-bulk-actions-content']);
 
-echo html_writer::tag('span', '', ['class' => 'qd-selected-count'], ['id' => 'selected-count']);
+echo html_writer::tag('span', '📋 ', ['style' => 'font-size: 18px;']);
+echo html_writer::tag('span', '', ['class' => 'qd-selected-count', 'id' => 'selected-count']);
 echo html_writer::tag('span', ' ' . get_string('categoriesselected', 'local_question_diagnostic'));
+
+echo html_writer::start_tag('div', ['class' => 'qd-bulk-actions-buttons']);
 
 echo html_writer::tag('button', '🗑️ ' . get_string('bulkdelete', 'local_question_diagnostic'), [
     'id' => 'bulk-delete-btn',
-    'class' => 'btn btn-danger'
+    'class' => 'btn btn-danger',
+    'title' => 'Supprimer les catégories vides sélectionnées'
 ]);
 
+echo html_writer::tag('button', '📤 Exporter la sélection', [
+    'id' => 'bulk-export-btn',
+    'class' => 'btn btn-primary',
+    'title' => 'Exporter les catégories sélectionnées en CSV'
+]);
+
+echo html_writer::tag('button', '❌ Annuler', [
+    'id' => 'bulk-cancel-btn',
+    'class' => 'btn btn-secondary',
+    'title' => 'Désélectionner tout'
+]);
+
+echo html_writer::end_tag('div');
 echo html_writer::end_tag('div');
 echo html_writer::end_tag('div');
 

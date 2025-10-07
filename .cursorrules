@@ -1,0 +1,427 @@
+# Moodle Question Bank Diagnostic Tool - Cursor Rules
+
+## 📋 Contexte du Projet
+
+Ce projet est un **plugin Moodle** (local plugin) pour le diagnostic et la gestion de la banque de questions.
+- **Nom du plugin** : `local_question_diagnostic`
+- **Version actuelle** : v1.2.1
+- **Version Moodle CIBLE** : **Moodle 4.5** (compatible 4.3+)
+- **Langues** : Français (FR) et Anglais (EN)
+
+### ⚠️ CRITIQUE : Vérification de la Structure BDD Moodle 4.5
+
+**AVANT toute modification de code touchant la base de données, tu DOIS :**
+
+1. **Vérifier la structure exacte des tables** dans Moodle 4.5
+2. **Consulter la documentation officielle** Moodle 4.5
+3. **Vérifier les noms de colonnes, types et contraintes**
+4. **Ne JAMAIS supposer qu'une colonne existe sans vérification**
+
+Les structures peuvent changer entre versions de Moodle. Une requête qui fonctionne sur Moodle 4.3 peut échouer sur 4.5.
+
+## 🎯 Fonctionnalités Principales
+
+1. **Gestion des catégories de questions**
+   - Détection des catégories vides, orphelines, doublons
+   - Suppression individuelle et en masse
+   - Fusion de catégories
+   - Export CSV
+
+2. **Vérification des liens cassés** (v1.1.0+)
+   - Détection d'images et fichiers manquants
+   - Support des plugins tiers (drag and drop, markers)
+   - Interface de réparation
+
+3. **Interface moderne**
+   - Dashboard avec statistiques
+   - Filtres et recherche en temps réel
+   - Actions groupées
+   - Design responsive
+
+## 🏗️ Architecture Technique
+
+### Structure des fichiers
+```
+local/question_diagnostic/
+├── index.php                    # Interface principale + dashboard
+├── categories.php               # Gestion des catégories
+├── broken_links.php            # Vérification des liens
+├── questions_cleanup.php       # Statistiques des questions
+├── version.php                 # Métadonnées du plugin
+├── lib.php                     # Fonctions auxiliaires
+├── classes/
+│   ├── category_manager.php   # Logique métier catégories
+│   ├── question_analyzer.php  # Analyse des questions
+│   └── question_link_checker.php # Vérification liens
+├── actions/
+│   ├── delete.php             # Suppression
+│   ├── merge.php              # Fusion
+│   ├── move.php               # Déplacement
+│   └── export.php             # Export CSV
+├── styles/main.css            # Design moderne
+├── scripts/main.js            # JavaScript interactif
+└── lang/
+    ├── en/local_question_diagnostic.php
+    └── fr/local_question_diagnostic.php
+```
+
+### Technologies
+- **Backend** : PHP 7.4+ (API Moodle)
+- **Base de données** : MySQL/MariaDB (via API $DB de Moodle)
+- **Frontend** : Vanilla JavaScript, CSS Grid/Flexbox
+- **Standards** : Moodle Coding Guidelines
+
+## 🔑 Règles de Développement Importantes
+
+### 1. Standards Moodle
+- **TOUJOURS** utiliser l'API Moodle (`$DB`, `$USER`, `$CFG`)
+- **TOUJOURS** commencer les fichiers PHP par le header GPL standard
+- **TOUJOURS** inclure `defined('MOODLE_INTERNAL') || die();` dans les libs
+- **TOUJOURS** utiliser `require_login()` et `require_sesskey()` pour la sécurité
+- **TOUJOURS** utiliser `html_writer` pour générer du HTML (pas d'echo HTML direct)
+- **TOUJOURS** utiliser `get_string()` pour les chaînes traduisibles
+
+### 2. Sécurité
+- **Vérification admin** : `is_siteadmin()` sur toutes les pages
+- **Protection CSRF** : `require_sesskey()` sur toutes les actions
+- **Validation** : `required_param()` et `optional_param()` avec types (PARAM_INT, PARAM_TEXT, etc.)
+- **SQL sécurisé** : UNIQUEMENT l'API $DB (jamais de requêtes brutes)
+- **Échappement** : `format_string()`, `s()`, `format_text()` pour l'affichage
+- **🚨 CRITIQUE : Confirmation utilisateur** : TOUTE modification de la BDD DOIT avoir une confirmation explicite de l'admin
+
+### 3. Conventions de Code
+```php
+// ✅ BON - Style Moodle
+$categories = $DB->get_records('question_categories');
+if (!is_siteadmin()) {
+    print_error('accessdenied', 'admin');
+}
+
+// ❌ MAUVAIS - Non conforme
+$result = mysqli_query($conn, "SELECT * FROM mdl_question_categories");
+if (!$_SESSION['is_admin']) {
+    die('Access denied');
+}
+```
+
+### 4. Chaînes de Langue
+- **Fichiers** : `lang/en/local_question_diagnostic.php` et `lang/fr/local_question_diagnostic.php`
+- **Format** : `$string['cle'] = 'Valeur';`
+- **Usage** : `get_string('cle', 'local_question_diagnostic')`
+- **Placeholders** : `{$a}`, `{$a->name}`, etc.
+
+### 5. CSS et JavaScript
+- **Préfixes** : Toutes les classes CSS doivent commencer par `qd-` (question diagnostic)
+- **Pas de jQuery** : Utiliser Vanilla JavaScript (Moodle standard moderne)
+- **RequireJS** : Pour les modules JS complexes (optionnel)
+- **CSS Variables** : Utiliser pour les couleurs et thèmes
+
+### 6. Base de Données
+
+#### Tables Moodle 4.5 utilisées
+
+**ATTENTION** : Toujours vérifier la structure dans Moodle 4.5 avant modification !
+
+**Tables principales :**
+- `question_categories` : Catégories de questions
+- `question` : Questions
+- `files` : Fichiers (pour vérification liens)
+- `context` : Contextes Moodle
+- `question_bank_entries` : Entrées de la banque de questions (Moodle 4.0+)
+- `question_versions` : Versions des questions (Moodle 4.0+)
+
+#### Règles STRICTES pour la BDD
+
+1. **JAMAIS créer de nouvelles tables** (plugin non-intrusif)
+2. **TOUJOURS vérifier qu'une colonne existe** avant de l'utiliser dans une requête
+3. **Utiliser UNIQUEMENT l'API $DB** de Moodle (jamais de SQL brut)
+4. **Consulter la doc Moodle 4.5** en cas de doute sur une structure
+5. **Tester les requêtes** sur un environnement de dev Moodle 4.5
+
+#### Ressources pour vérifier la structure BDD
+
+- **Documentation officielle** : https://docs.moodle.org/dev/Database_Schema
+- **Moodle 4.5 Release Notes** : https://docs.moodle.org/dev/Moodle_4.5_release_notes
+- **Question Bank API** : https://moodledev.io/docs/apis/subsystems/questionbank
+- **Vérification directe** : Utiliser `$DB->get_columns()` pour inspecter une table
+
+#### Exemple de vérification avant requête
+
+```php
+// ✅ BON - Vérifier la structure avant utilisation
+$columns = $DB->get_columns('question_categories');
+if (isset($columns['newcolumn'])) {
+    // La colonne existe, on peut l'utiliser
+    $data = $DB->get_records('question_categories', ['newcolumn' => $value]);
+} else {
+    // Fallback ou erreur
+    debugging('Column newcolumn does not exist in Moodle 4.5', DEBUG_DEVELOPER);
+}
+
+// ❌ MAUVAIS - Supposer qu'une colonne existe
+$data = $DB->get_records('question_categories', ['newcolumn' => $value]);
+```
+
+### 7. Performance
+- Éviter les boucles de requêtes (N+1 queries)
+- Utiliser `get_records_sql()` avec JOINs si nécessaire
+- Filtrage et tri JavaScript côté client quand possible
+- Debounce sur les recherches en temps réel (300ms)
+
+### 8. Compatibilité
+
+#### Version cible : Moodle 4.5
+- **Version principale** : Moodle 4.5 (LTS)
+- **Compatibilité descendante** : Moodle 4.3, 4.4
+- **PHP** : 7.4+ (8.0+ recommandé pour Moodle 4.5)
+- **Base de données** : MySQL 8.0+, MariaDB 10.6+, PostgreSQL 13+
+- **Navigateurs** : Versions récentes (Chrome, Firefox, Safari, Edge)
+
+#### Changements importants dans Moodle 4.x
+
+**Moodle 4.0+ a introduit une nouvelle architecture pour la banque de questions :**
+- Nouvelle table `question_bank_entries` (entrées de questions)
+- Nouvelle table `question_versions` (versioning des questions)
+- Relations plus complexes entre questions et catégories
+- API Question Bank refactorisée
+
+**Implications pour ce plugin :**
+- Les requêtes sur la table `question` doivent tenir compte du versioning
+- Les jointures peuvent nécessiter `question_bank_entries`
+- Toujours vérifier la compatibilité avec le nouveau système
+
+#### Avant toute modification
+
+```php
+// Vérifier la version de Moodle
+if ($CFG->version >= 2022041900) { // Moodle 4.0+
+    // Utiliser la nouvelle structure avec question_bank_entries
+} else {
+    // Utiliser l'ancienne structure (pour compatibilité 3.x)
+}
+```
+
+## 📝 Exemples de Code Type
+
+### Pattern de Confirmation Utilisateur (OBLIGATOIRE)
+
+**⚠️ CONSULTER** : `USER_CONSENT_PATTERNS.md` pour les exemples complets
+
+```php
+// Étape 1 : Vérifier si confirmation est donnée
+$confirm = optional_param('confirm', 0, PARAM_INT);
+
+if (!$confirm) {
+    // AFFICHER PAGE DE CONFIRMATION
+    echo $OUTPUT->header();
+    
+    // Afficher les détails de ce qui va être modifié
+    echo html_writer::tag('h2', get_string('confirm_action', 'local_question_diagnostic'));
+    echo html_writer::tag('p', 'Détails de l\'action...');
+    
+    // ⚠️ AVERTISSEMENT si irréversible
+    echo html_writer::start_tag('div', ['class' => 'alert alert-danger']);
+    echo '⚠️ ' . get_string('action_irreversible', 'local_question_diagnostic');
+    echo html_writer::end_tag('div');
+    
+    // BOUTONS : Confirmer + Annuler
+    echo html_writer::link(
+        new moodle_url('/action.php', ['id' => $id, 'confirm' => 1, 'sesskey' => sesskey()]),
+        get_string('confirm', 'core'),
+        ['class' => 'btn btn-danger']
+    );
+    echo html_writer::link(
+        new moodle_url('/index.php'),
+        get_string('cancel', 'core'),
+        ['class' => 'btn btn-secondary']
+    );
+    
+    echo $OUTPUT->footer();
+    exit;
+}
+
+// Étape 2 : Si confirmé, exécuter l'action
+try {
+    // Modifier la BDD
+    $DB->delete_records('table', ['id' => $id]);
+    
+    redirect($url, get_string('success', 'local_question_diagnostic'),
+            null, \core\output\notification::NOTIFY_SUCCESS);
+} catch (Exception $e) {
+    redirect($url, get_string('error', 'local_question_diagnostic'),
+            null, \core\output\notification::NOTIFY_ERROR);
+}
+```
+
+### Création d'une nouvelle action
+```php
+<?php
+// This file is part of Moodle - http://moodle.org/
+// (header GPL complet...)
+
+require_once(__DIR__ . '/../../../config.php');
+
+require_login();
+if (!is_siteadmin()) {
+    print_error('accessdenied', 'admin');
+}
+
+$id = required_param('id', PARAM_INT);
+require_sesskey();
+
+// Logique métier...
+
+redirect(new moodle_url('/local/question_diagnostic/index.php'), 
+         get_string('success', 'local_question_diagnostic'), 
+         null, \core\output\notification::NOTIFY_SUCCESS);
+```
+
+### Ajout de chaînes de langue
+```php
+// lang/fr/local_question_diagnostic.php
+$string['nouvelle_cle'] = 'Nouvelle fonctionnalité';
+$string['avec_placeholder'] = 'Il y a {$a} éléments';
+
+// lang/en/local_question_diagnostic.php
+$string['nouvelle_cle'] = 'New feature';
+$string['avec_placeholder'] = 'There are {$a} items';
+```
+
+### Utilisation de l'API DB
+```php
+// ✅ BON
+$categories = $DB->get_records_select('question_categories', 
+    'parent = :parent', 
+    ['parent' => $parentid]
+);
+
+// ✅ BON avec COUNT
+$count = $DB->count_records('question', ['category' => $categoryid]);
+
+// ❌ JAMAIS faire ça
+$sql = "SELECT * FROM mdl_question_categories WHERE parent = $parentid";
+```
+
+## 🚫 Ce qu'il NE faut PAS faire
+
+1. ❌ Modifier les tables Moodle existantes
+2. ❌ Créer de nouvelles tables
+3. ❌ Utiliser du code SQL brut
+4. ❌ Oublier les vérifications de sécurité
+5. ❌ Hardcoder des chaînes au lieu d'utiliser get_string()
+6. ❌ Utiliser jQuery ou des frameworks externes
+7. ❌ Ignorer le cache Moodle (toujours purger après modifs)
+8. ❌ Créer des fichiers de config personnalisés
+
+## 🎨 Design System
+
+### Couleurs principales
+```css
+--qd-primary: #0f6cbf;    /* Bleu Moodle */
+--qd-success: #5cb85c;    /* Vert */
+--qd-warning: #f0ad4e;    /* Orange */
+--qd-danger: #d9534f;     /* Rouge */
+--qd-neutral: #6c757d;    /* Gris */
+```
+
+### Classes CSS communes
+- `.qd-card` : Cartes du dashboard
+- `.qd-table` : Tableaux de données
+- `.qd-badge-*` : Badges de statut
+- `.qd-btn-*` : Boutons d'action
+- `.qd-modal` : Fenêtres modales
+
+## 📚 Documentation Importante
+
+### Fichiers à consulter
+- `README.md` : Vue d'ensemble complète
+- `INSTALLATION.md` : Guide d'installation
+- `PROJECT_OVERVIEW.md` : Architecture détaillée
+- `CHANGELOG.md` : Historique des versions
+- `FEATURE_*.md` : Documentation des fonctionnalités
+- `MOODLE_4.5_DATABASE_REFERENCE.md` : 🚨 Structure BDD Moodle 4.5 (CRITIQUE)
+- `USER_CONSENT_PATTERNS.md` : 🚨 Patterns de confirmation utilisateur (CRITIQUE)
+
+### Ressources Moodle
+- [Moodle Developer Docs](https://moodledev.io/)
+- [Coding Style](https://moodledev.io/general/development/policies/codingstyle)
+- [DB API](https://moodledev.io/docs/apis/core/dml)
+- [String API](https://moodledev.io/docs/apis/subsystems/string)
+
+## 🔍 Debugging
+
+```php
+// Mode débogage (dans config.php)
+$CFG->debug = (E_ALL | E_STRICT);
+$CFG->debugdisplay = 1;
+
+// Logs
+debugging('Message de debug', DEBUG_DEVELOPER);
+mtrace('Message dans CLI');
+
+// Dump de variables
+var_dump($variable); // ou print_r()
+```
+
+## ✅ Checklist avant Commit
+
+- [ ] Code respecte le style Moodle
+- [ ] Sécurité : sesskey, is_siteadmin(), validation params
+- [ ] Chaînes traduites (FR + EN)
+- [ ] Pas de code SQL brut
+- [ ] Préfixes CSS `qd-`
+- [ ] Commentaires en français dans le code
+- [ ] Header GPL sur nouveaux fichiers
+- [ ] Version incrémentée dans version.php si nécessaire
+- [ ] Cache Moodle purgé après test
+- [ ] Testé sur Moodle 4.3+
+
+## 💡 Philosophie du Plugin
+
+Ce plugin est :
+- **Non-intrusif** : Ne modifie JAMAIS les données sans confirmation explicite de l'admin
+- **Sécurisé** : Admin-only, validations strictes, confirmations obligatoires
+- **Performant** : Optimisé pour de grandes bases
+- **User-friendly** : Interface moderne et intuitive
+- **Transparent** : L'utilisateur voit et valide AVANT toute modification
+- **Maintenable** : Code clair, bien documenté
+- **Compatible Moodle 4.5** : Respecte la nouvelle architecture de la banque de questions
+
+### 🚨 RÈGLE FONDAMENTALE : Consentement Utilisateur
+
+**AUCUNE modification de la base de données ne peut être effectuée sans :**
+
+1. ✅ **Confirmation explicite** de l'administrateur
+2. ✅ **Page de confirmation** affichant clairement ce qui va être modifié
+3. ✅ **Avertissement sur l'irréversibilité** (si applicable)
+4. ✅ **Option d'annulation** claire et accessible
+5. ✅ **Message de feedback** après l'action (succès ou erreur)
+
+## ⚠️ CHECKLIST AVANT TOUTE MODIFICATION
+
+Quand tu développes une nouvelle fonctionnalité, tu DOIS vérifier :
+
+1. ✅ **Structure BDD Moodle 4.5** : Les colonnes/tables existent-elles ?
+2. ✅ **Compatibilité version** : Fonctionne avec la nouvelle architecture Question Bank ?
+3. ✅ **Sécurité** : sesskey, is_siteadmin(), validation des paramètres ?
+4. ✅ **🚨 CONFIRMATION UTILISATEUR** : Page de confirmation AVANT toute modification BDD ?
+5. ✅ **Standards Moodle** : Utilise l'API Moodle (pas de SQL brut) ?
+6. ✅ **Performance** : Évite les N+1 queries ?
+7. ✅ **Traduction** : Chaînes en FR et EN ?
+8. ✅ **Tests** : Testé sur environnement Moodle 4.5 ?
+
+### 🚨 RÈGLES D'OR
+
+1. **TOUJOURS rechercher la documentation Moodle 4.5** et vérifier la structure de la base de données AVANT de proposer une modification impliquant des requêtes SQL ou l'API $DB.
+
+2. **TOUJOURS demander confirmation à l'utilisateur** AVANT toute modification de la base de données (suppression, fusion, mise à jour).
+
+3. **JAMAIS modifier la BDD directement** depuis une action utilisateur sans page de confirmation intermédiaire.
+
+Ne jamais supposer. Toujours vérifier. Toujours confirmer.
+
+---
+
+**Version des règles** : v1.0 (Oct 2025)
+**Maintenu par** : Équipe de développement local_question_diagnostic
+

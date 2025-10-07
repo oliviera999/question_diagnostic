@@ -24,25 +24,52 @@ class question_analyzer {
     /**
      * Récupère toutes les questions avec leurs statistiques complètes
      *
+     * @param bool $include_duplicates Inclure la détection de doublons (peut être lent)
+     * @param int $limit Limite du nombre de questions (0 = toutes)
      * @return array Tableau des questions avec métadonnées
      */
-    public static function get_all_questions_with_stats() {
+    public static function get_all_questions_with_stats($include_duplicates = true, $limit = 0) {
         global $DB;
 
         // Récupérer toutes les questions
-        $questions = $DB->get_records('question', null, 'id ASC');
+        $sql = "SELECT * FROM {question} ORDER BY id ASC";
+        if ($limit > 0) {
+            $sql .= " LIMIT " . intval($limit);
+        }
+        
+        $questions = $DB->get_records_sql($sql);
         $result = [];
 
         // Préparer les données en masse pour optimiser les performances
-        $usage_map = self::get_all_questions_usage();
-        $duplicates_map = self::get_duplicates_map();
+        try {
+            $usage_map = self::get_all_questions_usage();
+        } catch (\Exception $e) {
+            debugging('Error loading usage map: ' . $e->getMessage(), DEBUG_DEVELOPER);
+            $usage_map = [];
+        }
+        
+        // Seulement charger les doublons si demandé et si pas trop de questions
+        $duplicates_map = [];
+        if ($include_duplicates && count($questions) < 5000) {
+            try {
+                $duplicates_map = self::get_duplicates_map(true);
+            } catch (\Exception $e) {
+                debugging('Error loading duplicates map: ' . $e->getMessage(), DEBUG_DEVELOPER);
+                $duplicates_map = [];
+            }
+        }
 
         foreach ($questions as $question) {
-            $stats = self::get_question_stats($question, $usage_map, $duplicates_map);
-            $result[] = (object)[
-                'question' => $question,
-                'stats' => $stats,
-            ];
+            try {
+                $stats = self::get_question_stats($question, $usage_map, $duplicates_map);
+                $result[] = (object)[
+                    'question' => $question,
+                    'stats' => $stats,
+                ];
+            } catch (\Exception $e) {
+                debugging('Error loading stats for question ' . $question->id . ': ' . $e->getMessage(), DEBUG_DEVELOPER);
+                // Continuer avec la question suivante
+            }
         }
 
         return $result;
@@ -223,39 +250,56 @@ class question_analyzer {
     private static function get_all_questions_usage() {
         global $DB;
 
+        // Essayer le cache d'abord
+        $cache = \cache::make('local_question_diagnostic', 'questionusage');
+        $cached_usage = $cache->get('usage_map');
+        if ($cached_usage !== false) {
+            return $cached_usage;
+        }
+
         $usage_map = [];
 
         try {
-            // Récupérer toutes les questions dans des quiz
+            // Approche compatible avec tous les SGBD: requête simple + traitement en PHP
             $quiz_usage = $DB->get_records_sql("
-                SELECT q.id, qu.id as quiz_id, qu.name as quiz_name, qu.course
-                FROM {question} q
-                LEFT JOIN {quiz_slots} qs ON qs.questionid = q.id
-                LEFT JOIN {quiz} qu ON qu.id = qs.quizid
-                WHERE qu.id IS NOT NULL
+                SELECT qs.questionid, qu.id as quiz_id, qu.name as quiz_name, qu.course
+                FROM {quiz_slots} qs
+                INNER JOIN {quiz} qu ON qu.id = qs.quizid
+                ORDER BY qs.questionid, qu.id
             ");
 
             foreach ($quiz_usage as $record) {
-                if (!isset($usage_map[$record->id])) {
-                    $usage_map[$record->id] = [
+                $qid = $record->questionid;
+                
+                if (!isset($usage_map[$qid])) {
+                    $usage_map[$qid] = [
                         'quiz_count' => 0,
                         'quiz_list' => [],
                         'attempt_count' => 0,
-                        'is_used' => false
+                        'is_used' => true
                     ];
                 }
                 
-                if ($record->quiz_id && !in_array($record->quiz_id, array_column($usage_map[$record->id]['quiz_list'], 'id'))) {
-                    $usage_map[$record->id]['quiz_list'][] = (object)[
+                // Vérifier si ce quiz n'est pas déjà dans la liste
+                $already_added = false;
+                foreach ($usage_map[$qid]['quiz_list'] as $existing_quiz) {
+                    if ($existing_quiz->id == $record->quiz_id) {
+                        $already_added = true;
+                        break;
+                    }
+                }
+                
+                if (!$already_added) {
+                    $usage_map[$qid]['quiz_list'][] = (object)[
                         'id' => $record->quiz_id,
                         'name' => $record->quiz_name,
                         'course' => $record->course
                     ];
-                    $usage_map[$record->id]['quiz_count']++;
+                    $usage_map[$qid]['quiz_count']++;
                 }
             }
 
-            // Récupérer le nombre de tentatives par question
+            // Récupérer le nombre de tentatives par question (requête optimisée)
             $attempts = $DB->get_records_sql("
                 SELECT qa.questionid, COUNT(DISTINCT qa.id) as attempt_count
                 FROM {question_attempts} qa
@@ -272,14 +316,14 @@ class question_analyzer {
                     ];
                 }
                 $usage_map[$record->questionid]['attempt_count'] = $record->attempt_count;
+                $usage_map[$record->questionid]['is_used'] = true;
             }
 
-            // Calculer is_used pour chaque question
-            foreach ($usage_map as $qid => $usage) {
-                $usage_map[$qid]['is_used'] = ($usage['quiz_count'] > 0 || $usage['attempt_count'] > 0);
-            }
+            // Mettre en cache pour 30 minutes
+            $cache->set('usage_map', $usage_map);
 
         } catch (\Exception $e) {
+            debugging('Error in get_all_questions_usage: ' . $e->getMessage(), DEBUG_DEVELOPER);
             // En cas d'erreur, retourner un map vide
         }
 
@@ -428,21 +472,56 @@ class question_analyzer {
 
     /**
      * Pré-calcule la map des doublons pour toutes les questions
+     * Optimisé avec cache et détection rapide basée sur hash
      *
+     * @param bool $use_cache Utiliser le cache (défaut: true)
+     * @param int $limit Limite de questions à traiter (0 = toutes)
      * @return array Map [question_id => [duplicate_ids]]
      */
-    private static function get_duplicates_map() {
+    private static function get_duplicates_map($use_cache = true, $limit = 0) {
         global $DB;
+
+        // Essayer de récupérer depuis le cache
+        if ($use_cache) {
+            $cache = \cache::make('local_question_diagnostic', 'duplicates');
+            $cached_map = $cache->get('duplicates_map');
+            if ($cached_map !== false) {
+                return $cached_map;
+            }
+        }
 
         $duplicates_map = [];
 
         try {
-            // Récupérer toutes les questions
-            $questions = $DB->get_records('question', null, 'id ASC');
+            // Optimisation: utiliser un hash du nom pour grouper les candidats potentiels
+            // Cela réduit considérablement le nombre de comparaisons
+            $sql = "SELECT id, name, qtype, questiontext 
+                    FROM {question} 
+                    ORDER BY name, id ASC";
+            
+            if ($limit > 0) {
+                $sql .= " LIMIT " . intval($limit);
+            }
+            
+            $questions = $DB->get_records_sql($sql);
+            
+            if (count($questions) > 5000) {
+                // Pour les grandes bases, on ne traite que les noms exacts
+                return self::get_duplicates_map_fast($questions, $use_cache);
+            }
             
             $processed = [];
+            $count = 0;
+            $max_time = 30; // Limite à 30 secondes
+            $start_time = time();
 
             foreach ($questions as $question) {
+                // Vérifier le timeout
+                if (time() - $start_time > $max_time) {
+                    debugging('Duplicate detection timeout - processed ' . $count . ' questions', DEBUG_DEVELOPER);
+                    break;
+                }
+                
                 if (in_array($question->id, $processed)) {
                     continue;
                 }
@@ -467,9 +546,17 @@ class question_analyzer {
                 }
                 
                 $processed[] = $question->id;
+                $count++;
+            }
+
+            // Mettre en cache pour 1 heure
+            if ($use_cache && !empty($duplicates_map)) {
+                $cache = \cache::make('local_question_diagnostic', 'duplicates');
+                $cache->set('duplicates_map', $duplicates_map);
             }
 
         } catch (\Exception $e) {
+            debugging('Error in get_duplicates_map: ' . $e->getMessage(), DEBUG_DEVELOPER);
             // En cas d'erreur, retourner un map vide
         }
 
@@ -477,12 +564,66 @@ class question_analyzer {
     }
 
     /**
+     * Version rapide de la détection de doublons (nom exact uniquement)
+     * Utilisée pour les grandes bases de données
+     *
+     * @param array $questions Tableau de questions
+     * @param bool $use_cache Utiliser le cache
+     * @return array Map des doublons
+     */
+    private static function get_duplicates_map_fast($questions, $use_cache = true) {
+        $duplicates_map = [];
+        $name_groups = [];
+        
+        // Grouper par nom et type
+        foreach ($questions as $question) {
+            $key = strtolower(trim($question->name)) . '|' . $question->qtype;
+            if (!isset($name_groups[$key])) {
+                $name_groups[$key] = [];
+            }
+            $name_groups[$key][] = $question->id;
+        }
+        
+        // Ne garder que les groupes avec plus d'une question
+        foreach ($name_groups as $group) {
+            if (count($group) > 1) {
+                foreach ($group as $qid) {
+                    $others = array_filter($group, function($id) use ($qid) {
+                        return $id != $qid;
+                    });
+                    $duplicates_map[$qid] = array_values($others);
+                }
+            }
+        }
+        
+        // Mettre en cache
+        if ($use_cache && !empty($duplicates_map)) {
+            $cache = \cache::make('local_question_diagnostic', 'duplicates');
+            $cache->set('duplicates_map', $duplicates_map);
+        }
+        
+        return $duplicates_map;
+    }
+
+    /**
      * Génère des statistiques globales
      *
+     * @param bool $use_cache Utiliser le cache (défaut: true)
+     * @param bool $include_duplicates Inclure les doublons (peut être lent)
      * @return object Statistiques globales
      */
-    public static function get_global_stats() {
+    public static function get_global_stats($use_cache = true, $include_duplicates = true) {
         global $DB;
+
+        // Essayer le cache d'abord
+        if ($use_cache) {
+            $cache = \cache::make('local_question_diagnostic', 'globalstats');
+            $cache_key = 'stats_' . ($include_duplicates ? 'full' : 'light');
+            $cached_stats = $cache->get($cache_key);
+            if ($cached_stats !== false) {
+                return $cached_stats;
+            }
+        }
 
         $stats = new \stdClass();
         
@@ -521,25 +662,62 @@ class question_analyzer {
             $stats->used_questions = max($used_in_quiz, $used_in_attempts);
             $stats->unused_questions = $stats->total_questions - $stats->used_questions;
             
-            // Questions en doublon (calcul lourd, on fait une estimation)
-            $duplicates_map = self::get_duplicates_map();
-            $stats->duplicate_questions = count($duplicates_map);
-            $stats->total_duplicates = array_sum(array_map('count', $duplicates_map));
+            // Questions en doublon (calcul lourd, optionnel)
+            if ($include_duplicates && $stats->total_questions < 10000) {
+                try {
+                    $duplicates_map = self::get_duplicates_map($use_cache);
+                    $stats->duplicate_questions = count($duplicates_map);
+                    $stats->total_duplicates = array_sum(array_map('count', $duplicates_map));
+                } catch (\Exception $e) {
+                    debugging('Error calculating duplicates: ' . $e->getMessage(), DEBUG_DEVELOPER);
+                    $stats->duplicate_questions = 0;
+                    $stats->total_duplicates = 0;
+                }
+            } else {
+                // Pour les grandes bases ou si non demandé, utiliser une estimation rapide
+                $exact_name_dupes = $DB->get_records_sql("
+                    SELECT name, qtype, COUNT(*) as count
+                    FROM {question}
+                    GROUP BY name, qtype
+                    HAVING COUNT(*) > 1
+                ");
+                $stats->duplicate_questions = count($exact_name_dupes);
+                $stats->total_duplicates = array_sum(array_map(function($d) { 
+                    return $d->count; 
+                }, $exact_name_dupes));
+            }
             
             // Questions avec liens cassés (si la classe existe)
             if (class_exists('local_question_diagnostic\question_link_checker')) {
-                $broken_stats = question_link_checker::get_global_stats();
-                $stats->questions_with_broken_links = $broken_stats->questions_with_broken_links;
+                try {
+                    $broken_stats = question_link_checker::get_global_stats();
+                    $stats->questions_with_broken_links = $broken_stats->questions_with_broken_links;
+                } catch (\Exception $e) {
+                    $stats->questions_with_broken_links = 0;
+                }
             } else {
                 $stats->questions_with_broken_links = 0;
             }
             
+            // Mettre en cache
+            if ($use_cache) {
+                $cache = \cache::make('local_question_diagnostic', 'globalstats');
+                $cache_key = 'stats_' . ($include_duplicates ? 'full' : 'light');
+                $cache->set($cache_key, $stats);
+            }
+            
         } catch (\Exception $e) {
+            debugging('Error in get_global_stats: ' . $e->getMessage(), DEBUG_DEVELOPER);
             // Valeurs par défaut en cas d'erreur
             $stats->total_questions = 0;
             $stats->used_questions = 0;
             $stats->unused_questions = 0;
             $stats->duplicate_questions = 0;
+            $stats->total_duplicates = 0;
+            $stats->by_type = [];
+            $stats->visible_questions = 0;
+            $stats->hidden_questions = 0;
+            $stats->questions_with_broken_links = 0;
         }
 
         return $stats;
@@ -617,6 +795,29 @@ class question_analyzer {
         }
         
         return $text;
+    }
+
+    /**
+     * Purge tous les caches du plugin
+     *
+     * @return bool Succès de l'opération
+     */
+    public static function purge_all_caches() {
+        try {
+            $cache_duplicates = \cache::make('local_question_diagnostic', 'duplicates');
+            $cache_duplicates->purge();
+            
+            $cache_stats = \cache::make('local_question_diagnostic', 'globalstats');
+            $cache_stats->purge();
+            
+            $cache_usage = \cache::make('local_question_diagnostic', 'questionusage');
+            $cache_usage->purge();
+            
+            return true;
+        } catch (\Exception $e) {
+            debugging('Error purging caches: ' . $e->getMessage(), DEBUG_DEVELOPER);
+            return false;
+        }
     }
 
     /**

@@ -193,7 +193,10 @@
      */
     function initializeBulkActions() {
         const deleteBtn = document.getElementById('bulk-delete-btn');
+        const exportBtn = document.getElementById('bulk-export-btn');
+        const cancelBtn = document.getElementById('bulk-cancel-btn');
         
+        // Bouton de suppression
         if (deleteBtn) {
             deleteBtn.addEventListener('click', function() {
                 if (state.selectedCategories.size === 0) {
@@ -204,6 +207,41 @@
                 const ids = Array.from(state.selectedCategories).join(',');
                 const url = M.cfg.wwwroot + '/local/question_diagnostic/actions/delete.php?ids=' + ids + '&sesskey=' + M.cfg.sesskey;
                 window.location.href = url;
+            });
+        }
+
+        // Bouton d'export
+        if (exportBtn) {
+            exportBtn.addEventListener('click', function() {
+                if (state.selectedCategories.size === 0) {
+                    alert('Veuillez sélectionner au moins une catégorie.');
+                    return;
+                }
+
+                const ids = Array.from(state.selectedCategories).join(',');
+                const url = M.cfg.wwwroot + '/local/question_diagnostic/actions/export.php?type=csv&ids=' + ids + '&sesskey=' + M.cfg.sesskey;
+                window.location.href = url;
+            });
+        }
+
+        // Bouton d'annulation
+        if (cancelBtn) {
+            cancelBtn.addEventListener('click', function() {
+                // Désélectionner toutes les cases
+                const checkboxes = document.querySelectorAll('.category-checkbox');
+                const checkboxAll = document.getElementById('select-all');
+                
+                checkboxes.forEach(cb => {
+                    cb.checked = false;
+                    updateRowSelection(cb);
+                });
+                
+                if (checkboxAll) {
+                    checkboxAll.checked = false;
+                }
+                
+                state.selectedCategories.clear();
+                updateBulkActionsBar();
             });
         }
     }
