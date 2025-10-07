@@ -9,8 +9,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'local_question_diagnostic';
-$plugin->version = 2025100706;  // YYYYMMDDXX format (v1.2.6 - Fix orphan entries counting)
+$plugin->version = 2025100707;  // YYYYMMDDXX format (v1.2.7 - Enhanced diagnostic tool)
 $plugin->requires = 2023100900; // Moodle 4.3+
 $plugin->maturity = MATURITY_STABLE;
-$plugin->release = 'v1.2.6';
+$plugin->release = 'v1.2.7';
 

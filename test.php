@@ -46,6 +46,10 @@ echo html_writer::start_div('alert alert-info');
 echo '<strong>Vérification de la structure Moodle 4.x</strong>';
 echo html_writer::end_div();
 
+// Récupérer les stats de base
+$stats = new stdClass();
+$stats->total_categories = $DB->count_records('question_categories');
+
 // Vérifier les tables
 echo html_writer::tag('h3', '1. Vérification des tables');
 
@@ -72,33 +76,103 @@ try {
     echo html_writer::tag('p', '❌ Erreur : ' . $e->getMessage(), ['style' => 'color: red;']);
 }
 
-// Vérifier une catégorie spécifique
-echo html_writer::tag('h3', '3. Test sur une catégorie');
-$test_category = $DB->get_record('question_categories', [], '*', IGNORE_MULTIPLE);
-if ($test_category) {
-    echo html_writer::tag('p', "Catégorie test : <strong>{$test_category->name}</strong> (ID: {$test_category->id})");
+// Tester plusieurs catégories aléatoires
+echo html_writer::tag('h3', '3. Test sur 10 catégories aléatoires');
+
+// Récupérer 10 catégories aléatoires (compatible MySQL et PostgreSQL)
+$random_sql = "SELECT * FROM {question_categories} ORDER BY ";
+if ($DB->get_dbfamily() == 'postgres') {
+    $random_sql .= "RANDOM()";
+} else {
+    $random_sql .= "RAND()";
+}
+$random_sql .= " LIMIT 10";
+
+$random_categories = $DB->get_records_sql($random_sql);
+
+if ($random_categories) {
+    echo '<table class="generaltable" style="width: 100%; margin-top: 10px;">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Nom de la catégorie</th>
+                    <th>Contexte</th>
+                    <th>Méthode ancienne</th>
+                    <th>Méthode SANS correction</th>
+                    <th>✅ Méthode AVEC correction</th>
+                </tr>
+            </thead>
+            <tbody>';
     
-    // Méthode ancienne (Moodle 3.x) - compter directement dans question
-    $old_sql = "SELECT COUNT(*) FROM {question} WHERE category = :categoryid";
-    try {
-        $old_count = $DB->count_records_sql($old_sql, ['categoryid' => $test_category->id]);
-        echo html_writer::tag('p', "Méthode ancienne (question.category) : {$old_count} questions", ['style' => 'color: blue;']);
-    } catch (Exception $e) {
-        echo html_writer::tag('p', "Méthode ancienne : ERREUR - " . $e->getMessage(), ['style' => 'color: red;']);
+    foreach ($random_categories as $cat) {
+        // Récupérer le nom du contexte
+        try {
+            $context = context::instance_by_id($cat->contextid, IGNORE_MISSING);
+            $context_name = $context ? context_helper::get_level_name($context->contextlevel) : 'Inconnu';
+        } catch (Exception $e) {
+            $context_name = 'Erreur';
+        }
+        
+        // Méthode ancienne (Moodle 3.x) - compter directement dans question
+        $old_sql = "SELECT COUNT(*) FROM {question} WHERE category = :categoryid";
+        try {
+            $old_count = $DB->count_records_sql($old_sql, ['categoryid' => $cat->id]);
+            $old_result = $old_count;
+            $old_style = '';
+        } catch (Exception $e) {
+            $old_result = 'ERREUR';
+            $old_style = 'color: red;';
+        }
+        
+        // Méthode nouvelle SANS correction (avec JOIN simple)
+        $sql_without_fix = "SELECT COUNT(DISTINCT q.id) 
+                           FROM {question} q
+                           JOIN {question_versions} qv ON qv.questionid = q.id
+                           JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
+                           WHERE qbe.questioncategoryid = :categoryid";
+        try {
+            $count_without_fix = $DB->count_records_sql($sql_without_fix, ['categoryid' => $cat->id]);
+            $without_result = $count_without_fix;
+            $without_style = 'color: orange;';
+        } catch (Exception $e) {
+            $without_result = 'ERREUR';
+            $without_style = 'color: red;';
+        }
+        
+        // Méthode nouvelle AVEC correction (avec INNER JOIN + validation catégorie)
+        $sql_with_fix = "SELECT COUNT(DISTINCT q.id) 
+                        FROM {question} q
+                        INNER JOIN {question_versions} qv ON qv.questionid = q.id
+                        INNER JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
+                        INNER JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
+                        WHERE qbe.questioncategoryid = :categoryid";
+        try {
+            $count_with_fix = $DB->count_records_sql($sql_with_fix, ['categoryid' => $cat->id]);
+            $with_result = $count_with_fix;
+            $with_style = $count_with_fix > 0 ? 'color: green; font-weight: bold;' : '';
+        } catch (Exception $e) {
+            $with_result = 'ERREUR';
+            $with_style = 'color: red;';
+        }
+        
+        echo '<tr>
+                <td>' . $cat->id . '</td>
+                <td><strong>' . s($cat->name) . '</strong></td>
+                <td>' . $context_name . '</td>
+                <td style="' . $old_style . '">' . $old_result . '</td>
+                <td style="' . $without_style . '">' . $without_result . '</td>
+                <td style="' . $with_style . '">' . $with_result . ' ✅</td>
+              </tr>';
     }
     
-    // Méthode nouvelle (Moodle 4.x) - via question_bank_entries
-    $new_sql = "SELECT COUNT(DISTINCT q.id) 
-                FROM {question} q
-                JOIN {question_versions} qv ON qv.questionid = q.id
-                JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
-                WHERE qbe.questioncategoryid = :categoryid";
-    try {
-        $new_count = $DB->count_records_sql($new_sql, ['categoryid' => $test_category->id]);
-        echo html_writer::tag('p', "Méthode nouvelle (question_bank_entries) : {$new_count} questions", ['style' => 'color: blue;']);
-    } catch (Exception $e) {
-        echo html_writer::tag('p', "Méthode nouvelle : ERREUR - " . $e->getMessage(), ['style' => 'color: red;']);
-    }
+    echo '</tbody></table>';
+    
+    echo html_writer::start_div('alert alert-info', ['style' => 'margin-top: 15px;']);
+    echo '<strong>Légende :</strong><br>';
+    echo '• <strong>Méthode ancienne</strong> : Colonne "category" dans table question (Moodle 3.x)<br>';
+    echo '• <strong>Sans correction</strong> : JOIN simple (peut retourner 0 à cause des entries orphelines)<br>';
+    echo '• <strong>✅ Avec correction</strong> : INNER JOIN avec validation (comptage correct)';
+    echo html_writer::end_div();
 }
 
 // Vérifier la structure de la table question
@@ -167,16 +241,25 @@ try {
         );
         echo html_writer::end_div();
         
-        // Afficher les détails des entries orphelines
+        // Afficher les détails des entries orphelines avec plus d'informations
         echo html_writer::tag('h4', '📋 Détails des entries orphelines (10 premières)');
         $orphan_entries = $DB->get_records_sql("
-            SELECT qbe.id, qbe.questioncategoryid, qbe.idnumber, 
-                   COUNT(qv.id) as version_count
+            SELECT qbe.id, 
+                   qbe.questioncategoryid, 
+                   qbe.idnumber, 
+                   qbe.ownerid,
+                   COUNT(DISTINCT qv.id) as version_count,
+                   COUNT(DISTINCT q.id) as question_count,
+                   MIN(q.name) as first_question_name,
+                   MIN(q.qtype) as question_type,
+                   MIN(q.timecreated) as created_time
             FROM {question_bank_entries} qbe
             LEFT JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
             LEFT JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+            LEFT JOIN {question} q ON q.id = qv.questionid
             WHERE qc.id IS NULL
-            GROUP BY qbe.id, qbe.questioncategoryid, qbe.idnumber
+            GROUP BY qbe.id, qbe.questioncategoryid, qbe.idnumber, qbe.ownerid
+            ORDER BY qbe.id DESC
             LIMIT 10
         ");
         
@@ -185,21 +268,61 @@ try {
                     <thead>
                         <tr>
                             <th>Entry ID</th>
-                            <th>Catégorie ID (inexistante)</th>
-                            <th>ID Number</th>
+                            <th>Catégorie ID<br>(inexistante)</th>
+                            <th>Questions<br>liées</th>
                             <th>Versions</th>
+                            <th>Exemple de question</th>
+                            <th>Type</th>
+                            <th>Propriétaire</th>
+                            <th>Créée le</th>
                         </tr>
                     </thead>
                     <tbody>';
             foreach ($orphan_entries as $entry) {
+                // Récupérer le nom du propriétaire
+                $owner_name = '-';
+                if ($entry->ownerid) {
+                    try {
+                        $owner = $DB->get_record('user', ['id' => $entry->ownerid], 'firstname, lastname');
+                        if ($owner) {
+                            $owner_name = $owner->firstname . ' ' . $owner->lastname;
+                        }
+                    } catch (Exception $e) {
+                        $owner_name = 'ID: ' . $entry->ownerid;
+                    }
+                }
+                
+                // Formater la date
+                $created_date = '-';
+                if ($entry->created_time) {
+                    $created_date = date('d/m/Y', $entry->created_time);
+                }
+                
+                // Tronquer le nom de la question si trop long
+                $question_name = $entry->first_question_name ? s($entry->first_question_name) : '-';
+                if (strlen($question_name) > 50) {
+                    $question_name = substr($question_name, 0, 50) . '...';
+                }
+                
                 echo '<tr>
-                        <td>' . $entry->id . '</td>
-                        <td style="color: red;">' . $entry->questioncategoryid . ' ❌</td>
-                        <td>' . ($entry->idnumber ?: '-') . '</td>
-                        <td>' . $entry->version_count . '</td>
+                        <td><strong>' . $entry->id . '</strong></td>
+                        <td style="color: red; font-weight: bold;">' . $entry->questioncategoryid . ' ❌</td>
+                        <td style="text-align: center;"><strong>' . $entry->question_count . '</strong></td>
+                        <td style="text-align: center;">' . $entry->version_count . '</td>
+                        <td style="font-size: 0.9em;">' . $question_name . '</td>
+                        <td>' . ($entry->question_type ?: '-') . '</td>
+                        <td style="font-size: 0.9em;">' . $owner_name . '</td>
+                        <td style="font-size: 0.9em;">' . $created_date . '</td>
                       </tr>';
             }
             echo '</tbody></table>';
+            
+            echo html_writer::start_div('alert alert-warning', ['style' => 'margin-top: 15px;']);
+            echo '<strong>💡 Que faire avec ces entries orphelines ?</strong><br>';
+            echo '• Ces ' . $entries_without_category . ' entries pointent vers des catégories qui ont été supprimées<br>';
+            echo '• Les questions associées existent toujours mais sont "invisibles" dans l\'interface<br>';
+            echo '• <strong>Recommandation :</strong> Créer un outil de réassignation vers une catégorie "Récupération" (v1.3.0)';
+            echo html_writer::end_div();
         }
         
         echo html_writer::start_div('alert alert-info', ['style' => 'margin-top: 20px;']);
@@ -248,21 +371,23 @@ try {
         );
     }
     
-    // Test sur une catégorie spécifique avec la nouvelle méthode
-    if ($test_category) {
-        $sql_test = "SELECT COUNT(DISTINCT q.id) 
-                    FROM {question} q
-                    INNER JOIN {question_versions} qv ON qv.questionid = q.id
-                    INNER JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
-                    INNER JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
-                    WHERE qbe.questioncategoryid = :categoryid";
-        $count_fixed = $DB->count_records_sql($sql_test, ['categoryid' => $test_category->id]);
-        
-        echo html_writer::tag('p', 
-            "Test catégorie '{$test_category->name}' avec correction : <strong>{$count_fixed} questions</strong>",
-            ['style' => 'color: blue;']
-        );
-    }
+    // Résumé des catégories avec questions
+    $categories_with_questions_sql = "
+        SELECT COUNT(DISTINCT qbe.questioncategoryid) as cat_count
+        FROM {question_bank_entries} qbe
+        INNER JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
+        INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+        INNER JOIN {question} q ON q.id = qv.questionid
+    ";
+    $cat_with_q = $DB->get_record_sql($categories_with_questions_sql);
+    $cat_count = $cat_with_q ? $cat_with_q->cat_count : 0;
+    
+    echo html_writer::start_div('alert alert-success', ['style' => 'margin-top: 15px;']);
+    echo '<h5>📊 Résumé global après correction :</h5>';
+    echo '• <strong>' . $valid_questions . '</strong> questions valides comptabilisées<br>';
+    echo '• <strong>' . $cat_count . '</strong> catégories contiennent au moins une question<br>';
+    echo '• <strong>' . ($stats->total_categories - $cat_count) . '</strong> catégories sont vides';
+    echo html_writer::end_div();
     
 } catch (Exception $e) {
     echo html_writer::tag('p', 'Erreur : ' . $e->getMessage(), ['style' => 'color: red;']);

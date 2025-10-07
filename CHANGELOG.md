@@ -5,6 +5,35 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.2.7] - 2025-10-07
+
+### ✨ Amélioration de l'outil de diagnostic
+
+**test.php - Affichage enrichi**
+- Test sur **10 catégories aléatoires** au lieu d'une seule
+- Tableau comparatif : Méthode ancienne vs Sans correction vs Avec correction ✅
+- Détails étendus pour les entries orphelines :
+  - Nombre de questions liées par entry
+  - Exemple de question avec nom et type
+  - Propriétaire (créateur)
+  - Date de création
+  - Comptage des versions
+- Résumé global : nombre de catégories avec questions vs vides
+- Compatible MySQL et PostgreSQL (RAND() vs RANDOM())
+
+**Nouveaux insights affichés**
+- Comptage des catégories réellement peuplées
+- Différence entre catégories vides naturelles et celles affectées par les entries orphelines
+- Recommandations pour gérer les questions orphelines (v1.3.0)
+
+### 🔧 Corrections techniques
+
+- Ajout de gestion d'erreur pour les stats
+- Compatibilité multi-SGBD pour les requêtes aléatoires
+- Validation des résultats avant affichage
+
+---
+
 ## [1.2.6] - 2025-10-07
 
 ### 🐛 **CORRECTION CRITIQUE : Catégories vides affichées à tort**
