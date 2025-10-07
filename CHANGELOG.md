@@ -5,6 +5,58 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.2.6] - 2025-10-07
+
+### 🐛 **CORRECTION CRITIQUE : Catégories vides affichées à tort**
+
+**Problème identifié :**
+- 1610 entries dans `question_bank_entries` pointaient vers des catégories supprimées
+- Ces entries "orphelines" faisaient échouer le comptage des questions
+- **Résultat** : Toutes les catégories affichaient 0 questions alors qu'elles en contenaient
+
+**Solution appliquée :**
+- Remplacement de tous les `JOIN` par des `INNER JOIN` dans les requêtes SQL
+- Ajout de jointure systématique avec `question_categories` pour valider l'existence
+- Les entries orphelines sont maintenant automatiquement exclues du comptage
+- **Impact** : Les catégories affichent maintenant le nombre correct de questions ✅
+
+### 🔧 Fichiers corrigés
+
+**classes/category_manager.php**
+- `get_category_stats()` : INNER JOIN pour compter les questions visibles et totales
+- `delete_category()` : INNER JOIN pour vérifier si la catégorie est vide
+- `get_global_stats()` : Comptage global avec exclusion des entries orphelines
+
+**classes/question_analyzer.php**
+- `get_question_stats()` : Récupération catégorie avec INNER JOIN
+- `get_question_usage()` : Usage dans quiz avec validation catégorie
+- `get_question_category_id()` : ID catégorie avec validation existence
+- `get_question_bank_url()` : URL avec vérification catégorie valide
+
+**test.php**
+- Affichage détaillé des entries orphelines détectées
+- Tableau des 10 premières entries cassées avec catégorie ID inexistante
+- Test du comptage avant/après correction
+- Message explicatif sur la solution appliquée
+
+### 📊 Résultats
+
+**Avant correction :**
+- Total catégories : 5835
+- Catégories vides : 5835 ❌
+- Questions affichées : 0
+
+**Après correction :**
+- Total catégories : 5835
+- Questions valides : ~27900 (29512 - 1610 orphelines)
+- Comptage correct dans chaque catégorie ✅
+
+### ⚠️ Note importante
+
+Les 1610 questions liées à des entries orphelines ne sont **pas supprimées**, elles sont simplement exclues du comptage car elles pointent vers des catégories qui n'existent plus dans la base de données. Ces questions peuvent être réassignées à une catégorie valide si nécessaire (fonctionnalité à venir dans v1.3.0).
+
+---
+
 ## [1.2.5] - 2025-10-07
 
 ### ✨ Ajouté

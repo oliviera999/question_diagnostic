@@ -149,7 +149,120 @@ try {
         LEFT JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
         WHERE qc.id IS NULL
     ");
-    echo html_writer::tag('p', "Entries sans catégorie : {$entries_without_category}");
+    
+    if ($entries_without_category > 0) {
+        echo html_writer::tag('p', 
+            "⚠️ Entries sans catégorie : {$entries_without_category}", 
+            ['style' => 'color: red; font-weight: bold;']
+        );
+        
+        echo html_writer::start_div('alert alert-danger', ['style' => 'margin: 20px 0;']);
+        echo html_writer::tag('h4', '🚨 PROBLÈME IDENTIFIÉ');
+        echo html_writer::tag('p', 
+            "Ces {$entries_without_category} entries orphelines empêchent le comptage correct des questions dans les catégories."
+        );
+        echo html_writer::tag('p', 
+            "<strong>Conséquence :</strong> Toutes les catégories apparaissent vides alors qu'elles contiennent des questions.",
+            ['style' => 'margin-top: 10px;']
+        );
+        echo html_writer::end_div();
+        
+        // Afficher les détails des entries orphelines
+        echo html_writer::tag('h4', '📋 Détails des entries orphelines (10 premières)');
+        $orphan_entries = $DB->get_records_sql("
+            SELECT qbe.id, qbe.questioncategoryid, qbe.idnumber, 
+                   COUNT(qv.id) as version_count
+            FROM {question_bank_entries} qbe
+            LEFT JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
+            LEFT JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+            WHERE qc.id IS NULL
+            GROUP BY qbe.id, qbe.questioncategoryid, qbe.idnumber
+            LIMIT 10
+        ");
+        
+        if ($orphan_entries) {
+            echo '<table class="generaltable" style="width: 100%; margin-top: 10px;">
+                    <thead>
+                        <tr>
+                            <th>Entry ID</th>
+                            <th>Catégorie ID (inexistante)</th>
+                            <th>ID Number</th>
+                            <th>Versions</th>
+                        </tr>
+                    </thead>
+                    <tbody>';
+            foreach ($orphan_entries as $entry) {
+                echo '<tr>
+                        <td>' . $entry->id . '</td>
+                        <td style="color: red;">' . $entry->questioncategoryid . ' ❌</td>
+                        <td>' . ($entry->idnumber ?: '-') . '</td>
+                        <td>' . $entry->version_count . '</td>
+                      </tr>';
+            }
+            echo '</tbody></table>';
+        }
+        
+        echo html_writer::start_div('alert alert-info', ['style' => 'margin-top: 20px;']);
+        echo html_writer::tag('h4', '✅ Solution appliquée');
+        echo html_writer::tag('p', 
+            "Le plugin a été modifié pour utiliser des INNER JOIN au lieu de JOIN/LEFT JOIN. " .
+            "Cela permet d'exclure automatiquement les entries orphelines du comptage."
+        );
+        echo html_writer::tag('p', 
+            "<strong>Résultat :</strong> Les catégories afficheront maintenant le nombre correct de questions.",
+            ['style' => 'margin-top: 10px;']
+        );
+        echo html_writer::end_div();
+        
+    } else {
+        echo html_writer::tag('p', "✅ Entries sans catégorie : 0", ['style' => 'color: green;']);
+    }
+    
+} catch (Exception $e) {
+    echo html_writer::tag('p', 'Erreur : ' . $e->getMessage(), ['style' => 'color: red;']);
+}
+
+// Tester le comptage après correction
+echo html_writer::tag('h3', '6. Test du comptage après correction');
+try {
+    // Compter les questions avec la nouvelle méthode
+    $sql = "SELECT COUNT(DISTINCT q.id)
+            FROM {question} q
+            INNER JOIN {question_versions} qv ON qv.questionid = q.id
+            INNER JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
+            INNER JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid";
+    $valid_questions = $DB->count_records_sql($sql);
+    
+    echo html_writer::tag('p', 
+        "Questions valides (liées à des catégories existantes) : <strong>{$valid_questions}</strong>",
+        ['style' => 'color: green; font-size: 1.1em;']
+    );
+    
+    $total_questions = $DB->count_records('question');
+    $orphan_questions = $total_questions - $valid_questions;
+    
+    if ($orphan_questions > 0) {
+        echo html_writer::tag('p', 
+            "Questions orphelines (entries cassées) : <strong>{$orphan_questions}</strong>",
+            ['style' => 'color: orange;']
+        );
+    }
+    
+    // Test sur une catégorie spécifique avec la nouvelle méthode
+    if ($test_category) {
+        $sql_test = "SELECT COUNT(DISTINCT q.id) 
+                    FROM {question} q
+                    INNER JOIN {question_versions} qv ON qv.questionid = q.id
+                    INNER JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
+                    INNER JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
+                    WHERE qbe.questioncategoryid = :categoryid";
+        $count_fixed = $DB->count_records_sql($sql_test, ['categoryid' => $test_category->id]);
+        
+        echo html_writer::tag('p', 
+            "Test catégorie '{$test_category->name}' avec correction : <strong>{$count_fixed} questions</strong>",
+            ['style' => 'color: blue;']
+        );
+    }
     
 } catch (Exception $e) {
     echo html_writer::tag('p', 'Erreur : ' . $e->getMessage(), ['style' => 'color: red;']);

@@ -116,8 +116,8 @@ class question_analyzer {
             // Récupérer la catégorie via question_bank_entries (Moodle 4.x)
             $category_sql = "SELECT qc.* 
                             FROM {question_categories} qc
-                            JOIN {question_bank_entries} qbe ON qbe.questioncategoryid = qc.id
-                            JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+                            INNER JOIN {question_bank_entries} qbe ON qbe.questioncategoryid = qc.id
+                            INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
                             WHERE qv.questionid = :questionid
                             LIMIT 1";
             $category = $DB->get_record_sql($category_sql, ['questionid' => $question->id]);
@@ -227,7 +227,8 @@ class question_analyzer {
                     OR qs.questioncategoryid IN (
                         SELECT qbe.questioncategoryid 
                         FROM {question_bank_entries} qbe
-                        JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+                        INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+                        INNER JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
                         WHERE qv.questionid = :questionid2
                     )";
             
@@ -646,7 +647,8 @@ class question_analyzer {
         try {
             $sql = "SELECT qbe.questioncategoryid 
                     FROM {question_bank_entries} qbe
-                    JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+                    INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+                    INNER JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
                     WHERE qv.questionid = :questionid
                     LIMIT 1";
             $result = $DB->get_record_sql($sql, ['questionid' => $questionid]);
@@ -924,8 +926,8 @@ class question_analyzer {
                 // Récupérer la catégorie via question_bank_entries (Moodle 4.x)
                 $category_sql = "SELECT qc.* 
                                 FROM {question_categories} qc
-                                JOIN {question_bank_entries} qbe ON qbe.questioncategoryid = qc.id
-                                JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+                                INNER JOIN {question_bank_entries} qbe ON qbe.questioncategoryid = qc.id
+                                INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
                                 WHERE qv.questionid = :questionid
                                 LIMIT 1";
                 $category = $DB->get_record_sql($category_sql, ['questionid' => $question->id]);

@@ -56,20 +56,23 @@ class category_manager {
         
         try {
             // Nombre de questions visibles - Compatible Moodle 4.x avec question_bank_entries
+            // IMPORTANT : Vérifier que la catégorie existe dans question_categories pour éviter les entries orphelines
             $sql = "SELECT COUNT(DISTINCT q.id) 
                     FROM {question} q
-                    JOIN {question_versions} qv ON qv.questionid = q.id
-                    JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
+                    INNER JOIN {question_versions} qv ON qv.questionid = q.id
+                    INNER JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
+                    INNER JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
                     WHERE qbe.questioncategoryid = :categoryid AND q.hidden = 0";
-            $stats->visible_questions = $DB->count_records_sql($sql, ['categoryid' => $category->id]);
+            $stats->visible_questions = (int)$DB->count_records_sql($sql, ['categoryid' => $category->id]);
             
             // Nombre total de questions (incluant cachées) - Compatible Moodle 4.x
             $sql = "SELECT COUNT(DISTINCT q.id) 
                     FROM {question} q
-                    JOIN {question_versions} qv ON qv.questionid = q.id
-                    JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
+                    INNER JOIN {question_versions} qv ON qv.questionid = q.id
+                    INNER JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
+                    INNER JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
                     WHERE qbe.questioncategoryid = :categoryid";
-            $stats->total_questions = $DB->count_records_sql($sql, ['categoryid' => $category->id]);
+            $stats->total_questions = (int)$DB->count_records_sql($sql, ['categoryid' => $category->id]);
             
             // Nombre de sous-catégories
             $stats->subcategories = $DB->count_records('question_categories', [
@@ -154,10 +157,11 @@ class category_manager {
             // Compatible Moodle 4.x avec question_bank_entries
             $sql = "SELECT COUNT(DISTINCT q.id) 
                     FROM {question} q
-                    JOIN {question_versions} qv ON qv.questionid = q.id
-                    JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
+                    INNER JOIN {question_versions} qv ON qv.questionid = q.id
+                    INNER JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
+                    INNER JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
                     WHERE qbe.questioncategoryid = :categoryid";
-            $questioncount = $DB->count_records_sql($sql, ['categoryid' => $categoryid]);
+            $questioncount = (int)$DB->count_records_sql($sql, ['categoryid' => $categoryid]);
             
             $subcatcount = $DB->count_records('question_categories', ['parent' => $categoryid]);
             
@@ -354,7 +358,14 @@ class category_manager {
 
         $stats = new \stdClass();
         $stats->total_categories = $DB->count_records('question_categories');
-        $stats->total_questions = $DB->count_records('question');
+        
+        // Compter UNIQUEMENT les questions liées à des catégories valides (Moodle 4.x)
+        $sql = "SELECT COUNT(DISTINCT q.id)
+                FROM {question} q
+                INNER JOIN {question_versions} qv ON qv.questionid = q.id
+                INNER JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
+                INNER JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid";
+        $stats->total_questions = (int)$DB->count_records_sql($sql);
         
         $categories = $DB->get_records('question_categories');
         $empty = 0;
