@@ -5,6 +5,75 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.3.2] - 2025-10-07
+
+### ⚡ NOUVELLE FONCTIONNALITÉ : Actions groupées pour entries orphelines
+
+**Sélection multiple avec checkboxes**
+- ✅ Checkbox sur chaque ligne d'entry avec questions
+- ✅ **Checkbox "Tout sélectionner"** dans le header du tableau
+- ✅ Compteur en temps réel des entries sélectionnées
+- ✅ Désélection individuelle ou collective
+
+**Actions groupées**
+- ✅ Panneau d'actions groupées sous le tableau
+- ✅ **Boutons de réassignation rapide** vers catégories "Récupération"
+- ✅ Détection automatique jusqu'à 5 catégories "Récupération"
+- ✅ Compteur "X entry(ies) sélectionnée(s)" dynamique
+- ✅ Boutons désactivés si aucune sélection
+
+**Page de confirmation groupée**
+- ✅ Liste complète des entries sélectionnées
+- ✅ **Compteur total de questions** à récupérer
+- ✅ Exemple de question pour chaque entry
+- ✅ Récapitulatif clair :
+  - Nombre d'entries à réassigner
+  - Nombre total de questions à récupérer
+  - Catégorie cible
+- ✅ Confirmation explicite avant modification
+- ✅ Possibilité d'annuler
+
+**Traitement groupé**
+- ✅ Réassignation en boucle avec gestion d'erreurs
+- ✅ Comptage des succès et des erreurs
+- ✅ Message de résultat détaillé :
+  - "X entry(ies) réassignée(s) avec succès"
+  - "Y question(s) récupérée(s)"
+  - Liste des erreurs si problèmes
+- ✅ Notification SUCCESS/WARNING selon résultat
+
+### 🎨 Amélioration UX
+
+**Interface intuitive**
+- Checkboxes claires et accessibles
+- JavaScript natif (pas de dépendances)
+- Feedback visuel immédiat
+- Messages explicites à chaque étape
+
+**Gains d'efficacité**
+- Avant : Réassignation 1 par 1 (100 entries = 100 clics)
+- Après : Réassignation groupée (100 entries = 3 clics)
+  1. ☑️ Tout sélectionner
+  2. 🔧 Cliquer sur catégorie cible
+  3. ✅ Confirmer
+
+### 🔒 Sécurité
+
+- ✅ Validation `sesskey` sur toutes les actions
+- ✅ Page de confirmation OBLIGATOIRE avant modification
+- ✅ Vérification existence catégorie cible
+- ✅ Vérification entries encore orphelines
+- ✅ Gestion d'erreurs individuelles (pas de rollback global)
+- ✅ Messages d'erreur explicites par entry
+
+### 📝 Fichiers modifiés
+
+- `orphan_entries.php` : Actions groupées + interface sélection multiple
+- `version.php` : Version 1.3.2 (2025100710)
+- `CHANGELOG.md` : Documentation complète
+
+---
+
 ## [1.3.1] - 2025-10-07
 
 ### 🔍 Amélioration : Filtrage des entries orphelines vides

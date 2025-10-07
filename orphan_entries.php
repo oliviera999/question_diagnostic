@@ -36,6 +36,7 @@ $entryid = optional_param('id', 0, PARAM_INT);
 $action = optional_param('action', '', PARAM_ALPHA);
 $targetcategoryid = optional_param('targetcategory', 0, PARAM_INT);
 $confirm = optional_param('confirm', 0, PARAM_INT);
+$selectedentries = optional_param_array('entries', [], PARAM_INT); // Pour sélection multiple
 
 // Configuration de la page
 $PAGE->set_url(new moodle_url('/local/question_diagnostic/orphan_entries.php', ['id' => $entryid]));
@@ -46,6 +47,78 @@ $PAGE->set_pagelayout('report');
 $PAGE->requires->css('/local/question_diagnostic/styles/main.css');
 
 // Traiter les actions
+// Action groupée : réassigner plusieurs entries
+if ($action === 'bulk_reassign' && !empty($selectedentries) && $targetcategoryid && $confirm) {
+    require_sesskey();
+    
+    try {
+        // Vérifier que la catégorie cible existe
+        $target_category = $DB->get_record('question_categories', ['id' => $targetcategoryid], '*', MUST_EXIST);
+        
+        $success_count = 0;
+        $total_questions = 0;
+        $errors = [];
+        
+        foreach ($selectedentries as $entry_id) {
+            try {
+                $entry = $DB->get_record('question_bank_entries', ['id' => $entry_id]);
+                if (!$entry) {
+                    $errors[] = "Entry #{$entry_id} : introuvable";
+                    continue;
+                }
+                
+                // Vérifier que l'entry est toujours orpheline
+                $old_category_exists = $DB->record_exists('question_categories', ['id' => $entry->questioncategoryid]);
+                
+                if (!$old_category_exists) {
+                    // Compter les questions avant réassignation
+                    $question_count = $DB->count_records_sql("
+                        SELECT COUNT(DISTINCT q.id)
+                        FROM {question} q
+                        INNER JOIN {question_versions} qv ON qv.questionid = q.id
+                        WHERE qv.questionbankentryid = :entryid
+                    ", ['entryid' => $entry_id]);
+                    
+                    // Réassigner l'entry vers la nouvelle catégorie
+                    $entry->questioncategoryid = $targetcategoryid;
+                    $DB->update_record('question_bank_entries', $entry);
+                    
+                    $success_count++;
+                    $total_questions += $question_count;
+                } else {
+                    $errors[] = "Entry #{$entry_id} : n'est plus orpheline";
+                }
+            } catch (Exception $e) {
+                $errors[] = "Entry #{$entry_id} : " . $e->getMessage();
+            }
+        }
+        
+        // Message de résultat
+        $message = "{$success_count} entry(ies) réassignée(s) avec succès vers '{$target_category->name}'. ";
+        $message .= "{$total_questions} question(s) récupérée(s).";
+        
+        if (!empty($errors)) {
+            $message .= " Erreurs : " . implode(', ', $errors);
+        }
+        
+        redirect(
+            new moodle_url('/local/question_diagnostic/orphan_entries.php'),
+            $message,
+            null,
+            empty($errors) ? \core\output\notification::NOTIFY_SUCCESS : \core\output\notification::NOTIFY_WARNING
+        );
+        
+    } catch (Exception $e) {
+        redirect(
+            new moodle_url('/local/question_diagnostic/orphan_entries.php'),
+            "Erreur lors de la réassignation groupée : " . $e->getMessage(),
+            null,
+            \core\output\notification::NOTIFY_ERROR
+        );
+    }
+}
+
+// Action individuelle : réassigner une entry
 if ($action === 'reassign' && $entryid && $targetcategoryid && $confirm) {
     require_sesskey();
     
@@ -499,12 +572,123 @@ if ($entryid > 0) {
         echo '• <strong>' . $count_empty . '</strong> entries sont vides (peuvent être ignorées)';
         echo html_writer::end_div();
         
+        // Page de confirmation pour actions groupées
+        if ($action === 'bulk_reassign' && !empty($selectedentries) && $targetcategoryid && !$confirm) {
+            require_sesskey();
+            
+            $target_category = $DB->get_record('question_categories', ['id' => $targetcategoryid]);
+            
+            if ($target_category) {
+                echo html_writer::tag('h3', '⚠️ Confirmation de réassignation groupée');
+                
+                echo html_writer::start_div('alert alert-warning', ['style' => 'margin: 20px 0;']);
+                echo html_writer::tag('h4', '⚠️ Confirmation requise');
+                echo html_writer::tag('p', 
+                    "Vous êtes sur le point de réassigner <strong>" . count($selectedentries) . " entry(ies)</strong> vers la catégorie <strong>" . s($target_category->name) . "</strong>."
+                );
+                echo html_writer::end_div();
+                
+                // Tableau des entries sélectionnées avec comptage des questions
+                echo html_writer::tag('h4', '📋 Entries sélectionnées');
+                echo '<table class="generaltable" style="width: 100%; margin-top: 10px;">';
+                echo '<thead><tr>
+                        <th>Entry ID</th>
+                        <th>Catégorie ID (inexistante)</th>
+                        <th>Questions</th>
+                        <th>Exemple de question</th>
+                      </tr></thead>';
+                echo '<tbody>';
+                
+                $total_questions_to_recover = 0;
+                
+                foreach ($selectedentries as $entry_id) {
+                    $entry = $DB->get_record('question_bank_entries', ['id' => $entry_id]);
+                    if ($entry) {
+                        // Compter les questions
+                        $question_count = $DB->count_records_sql("
+                            SELECT COUNT(DISTINCT q.id)
+                            FROM {question} q
+                            INNER JOIN {question_versions} qv ON qv.questionid = q.id
+                            WHERE qv.questionbankentryid = :entryid
+                        ", ['entryid' => $entry_id]);
+                        
+                        $total_questions_to_recover += $question_count;
+                        
+                        // Récupérer exemple de question
+                        $sample_question = $DB->get_record_sql("
+                            SELECT q.name
+                            FROM {question} q
+                            INNER JOIN {question_versions} qv ON qv.questionid = q.id
+                            WHERE qv.questionbankentryid = :entryid
+                            LIMIT 1
+                        ", ['entryid' => $entry_id]);
+                        
+                        $question_name = $sample_question ? s($sample_question->name) : '-';
+                        if (strlen($question_name) > 50) {
+                            $question_name = substr($question_name, 0, 50) . '...';
+                        }
+                        
+                        echo '<tr>';
+                        echo '<td><strong>' . $entry_id . '</strong></td>';
+                        echo '<td style="color: red;">' . $entry->questioncategoryid . ' ❌</td>';
+                        echo '<td style="text-align: center;"><strong>' . $question_count . '</strong></td>';
+                        echo '<td style="font-size: 0.9em;">' . $question_name . '</td>';
+                        echo '</tr>';
+                    }
+                }
+                
+                echo '</tbody></table>';
+                
+                echo html_writer::start_div('alert alert-info', ['style' => 'margin-top: 15px;']);
+                echo '<strong>📊 Récapitulatif :</strong><br>';
+                echo '• <strong>' . count($selectedentries) . '</strong> entry(ies) seront réassignées<br>';
+                echo '• <strong>' . $total_questions_to_recover . '</strong> question(s) seront récupérées<br>';
+                echo '• Catégorie cible : <strong>' . s($target_category->name) . '</strong>';
+                echo html_writer::end_div();
+                
+                // Boutons de confirmation
+                echo html_writer::start_div('', ['style' => 'margin-top: 20px;']);
+                
+                // Formulaire de confirmation avec les IDs sélectionnés
+                echo '<form method="post" action="' . new moodle_url('/local/question_diagnostic/orphan_entries.php') . '">';
+                echo '<input type="hidden" name="sesskey" value="' . sesskey() . '">';
+                echo '<input type="hidden" name="action" value="bulk_reassign">';
+                echo '<input type="hidden" name="targetcategory" value="' . $targetcategoryid . '">';
+                echo '<input type="hidden" name="confirm" value="1">';
+                foreach ($selectedentries as $entry_id) {
+                    echo '<input type="hidden" name="entries[]" value="' . $entry_id . '">';
+                }
+                echo '<button type="submit" class="btn btn-danger" style="margin-right: 10px;">✅ Confirmer la réassignation groupée</button>';
+                echo '</form>';
+                
+                echo html_writer::link(
+                    new moodle_url('/local/question_diagnostic/orphan_entries.php'),
+                    '❌ Annuler',
+                    ['class' => 'btn btn-secondary', 'style' => 'margin-left: 10px;']
+                );
+                echo html_writer::end_div();
+                
+                echo $OUTPUT->footer();
+                exit;
+            }
+        }
+        
         // Afficher d'abord les entries AVEC questions
         if ($count_with_questions > 0) {
             echo html_writer::tag('h3', '🔴 Entries avec questions à récupérer (' . $count_with_questions . ')', ['style' => 'color: #d9534f;']);
+            
+            // Formulaire pour actions groupées
+            echo '<form method="post" action="' . new moodle_url('/local/question_diagnostic/orphan_entries.php') . '" id="bulk-form">';
+            echo '<input type="hidden" name="sesskey" value="' . sesskey() . '">';
+            echo '<input type="hidden" name="action" value="bulk_reassign">';
+            echo '<input type="hidden" name="targetcategory" value="" id="bulk-target-category">';
+            
             echo '<table class="generaltable" style="width: 100%; margin-top: 10px; border: 2px solid #d9534f;">';
             echo '<thead>
                     <tr style="background-color: #f2dede;">
+                        <th style="width: 30px;">
+                            <input type="checkbox" id="select-all" title="Tout sélectionner">
+                        </th>
                         <th>Entry ID</th>
                         <th>Catégorie ID<br>(inexistante)</th>
                         <th>Questions</th>
@@ -525,6 +709,9 @@ if ($entryid > 0) {
                 }
                 
                 echo '<tr style="background-color: #fcf8e3;">';
+                echo '<td style="text-align: center;">
+                        <input type="checkbox" name="entries[]" value="' . $entry->id . '" class="entry-checkbox">
+                      </td>';
                 echo '<td><strong>' . $entry->id . '</strong></td>';
                 echo '<td style="color: red; font-weight: bold;">' . $entry->questioncategoryid . ' ❌</td>';
                 echo '<td style="text-align: center;"><strong style="color: #d9534f;">' . $entry->question_count . '</strong></td>';
@@ -535,14 +722,97 @@ if ($entryid > 0) {
                 echo '<td>';
                 echo html_writer::link(
                     new moodle_url('/local/question_diagnostic/orphan_entries.php', ['id' => $entry->id]),
-                    '🔧 Récupérer →',
-                    ['class' => 'btn btn-sm btn-danger', 'style' => 'font-weight: bold;']
+                    'Voir détails →',
+                    ['class' => 'btn btn-sm btn-secondary', 'style' => 'font-size: 0.85em;']
                 );
                 echo '</td>';
                 echo '</tr>';
             }
             
             echo '</tbody></table>';
+            echo '</form>';
+            
+            // Panneau d'actions groupées
+            echo html_writer::start_div('alert alert-info', ['style' => 'margin-top: 20px; background-color: #e8f4f8; border-left: 4px solid #31708f;']);
+            echo '<h4 style="margin-top: 0;">⚡ Actions groupées</h4>';
+            echo '<p><strong><span id="selected-count">0</span></strong> entry(ies) sélectionnée(s)</p>';
+            
+            // Chercher les catégories "Récupération"
+            $recovery_categories = $DB->get_records_sql("
+                SELECT * FROM {question_categories}
+                WHERE " . $DB->sql_like('name', ':pattern', false) . "
+                ORDER BY id DESC
+                LIMIT 5
+            ", ['pattern' => '%récupération%']);
+            
+            if ($recovery_categories) {
+                echo '<p><strong>Réassigner vers :</strong></p>';
+                echo '<div style="margin-bottom: 10px;">';
+                foreach ($recovery_categories as $cat) {
+                    echo '<button type="button" class="btn btn-primary btn-sm bulk-assign-btn" data-categoryid="' . $cat->id . '" style="margin-right: 10px; margin-bottom: 5px;">';
+                    echo '→ ' . s($cat->name) . ' (ID: ' . $cat->id . ')';
+                    echo '</button>';
+                }
+                echo '</div>';
+            } else {
+                echo '<p style="color: #856404; background-color: #fff3cd; padding: 10px; border-radius: 4px;">';
+                echo '⚠️ <strong>Aucune catégorie "Récupération" trouvée.</strong> Créez-en une d\'abord dans votre Moodle.';
+                echo '</p>';
+            }
+            
+            echo html_writer::end_div();
+            
+            // JavaScript pour gérer la sélection multiple
+            echo '<script>
+            document.addEventListener("DOMContentLoaded", function() {
+                const selectAll = document.getElementById("select-all");
+                const checkboxes = document.querySelectorAll(".entry-checkbox");
+                const selectedCount = document.getElementById("selected-count");
+                const bulkForm = document.getElementById("bulk-form");
+                const bulkTargetCategory = document.getElementById("bulk-target-category");
+                const bulkAssignBtns = document.querySelectorAll(".bulk-assign-btn");
+                
+                // Tout sélectionner
+                selectAll.addEventListener("change", function() {
+                    checkboxes.forEach(cb => cb.checked = this.checked);
+                    updateSelectedCount();
+                });
+                
+                // Mettre à jour le compteur
+                checkboxes.forEach(cb => {
+                    cb.addEventListener("change", updateSelectedCount);
+                });
+                
+                function updateSelectedCount() {
+                    const count = document.querySelectorAll(".entry-checkbox:checked").length;
+                    selectedCount.textContent = count;
+                    
+                    // Désactiver/activer les boutons d\'action
+                    bulkAssignBtns.forEach(btn => {
+                        btn.disabled = count === 0;
+                        btn.style.opacity = count === 0 ? "0.5" : "1";
+                    });
+                }
+                
+                // Boutons de réassignation groupée
+                bulkAssignBtns.forEach(btn => {
+                    btn.addEventListener("click", function() {
+                        const count = document.querySelectorAll(".entry-checkbox:checked").length;
+                        if (count === 0) {
+                            alert("Veuillez sélectionner au moins une entry.");
+                            return;
+                        }
+                        
+                        const categoryId = this.dataset.categoryid;
+                        bulkTargetCategory.value = categoryId;
+                        bulkForm.submit();
+                    });
+                });
+                
+                // Initialiser le compteur
+                updateSelectedCount();
+            });
+            </script>';
         } else {
             echo html_writer::div('✅ Aucune entry avec questions à récupérer !', 'alert alert-success');
         }
