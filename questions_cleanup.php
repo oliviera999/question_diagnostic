@@ -5,6 +5,7 @@
 
 // Inclure la configuration de Moodle.
 require_once(__DIR__ . '/../../config.php');
+require_once(__DIR__ . '/lib.php');
 require_once(__DIR__ . '/classes/question_analyzer.php');
 
 use local_question_diagnostic\question_analyzer;
@@ -24,8 +25,9 @@ $context = context_system::instance();
 // Définir le titre et l'URL de la page.
 $PAGE->set_context($context);
 $PAGE->set_url(new moodle_url('/local/question_diagnostic/questions_cleanup.php'));
+$pagetitle = get_string('questions_cleanup_heading', 'local_question_diagnostic');
 $PAGE->set_title(get_string('questions_cleanup', 'local_question_diagnostic'));
-$PAGE->set_heading(get_string('questions_cleanup_heading', 'local_question_diagnostic'));
+$PAGE->set_heading(local_question_diagnostic_get_heading_with_version($pagetitle));
 $PAGE->set_pagelayout('report');
 
 // Ajouter les CSS et JavaScript personnalisés

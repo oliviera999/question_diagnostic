@@ -42,6 +42,32 @@ function local_question_diagnostic_extend_navigation(global_navigation $nav) {
 }
 
 /**
+ * Get the plugin version for display
+ *
+ * @return string Version string (e.g., "v1.2.3")
+ */
+function local_question_diagnostic_get_version() {
+    global $CFG;
+    
+    // Get plugin info from version.php
+    $plugin = new stdClass();
+    require($CFG->dirroot . '/local/question_diagnostic/version.php');
+    
+    return $plugin->release ?? 'v1.0.0';
+}
+
+/**
+ * Get the page heading with version
+ *
+ * @param string $heading The page heading text
+ * @return string Heading with version appended
+ */
+function local_question_diagnostic_get_heading_with_version($heading) {
+    $version = local_question_diagnostic_get_version();
+    return $heading . ' (' . $version . ')';
+}
+
+/**
  * Serve the plugin files
  *
  * @param stdClass $course

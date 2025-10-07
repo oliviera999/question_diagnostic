@@ -5,6 +5,35 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.2.4] - 2025-10-07
+
+### ✨ Ajouté
+
+**Affichage de la version sur toutes les pages**
+- La version du plugin (ex: v1.2.4) est maintenant affichée entre parenthèses après le titre de chaque page
+- Ajout de la fonction `local_question_diagnostic_get_version()` dans `lib.php`
+- Ajout de la fonction `local_question_diagnostic_get_heading_with_version()` pour formater le titre
+- Version récupérée automatiquement depuis `version.php` ($plugin->release)
+
+### 🎨 Amélioré
+
+**Visibilité de la version**
+- Les administrateurs peuvent voir immédiatement quelle version du plugin est installée
+- Format: "Nom de la page (v1.2.4)"
+- Appliqué sur toutes les pages : index, catégories, questions, liens cassés
+
+### 🔧 Modifié
+
+**Fichiers mis à jour**
+- `lib.php` : Ajout des fonctions de récupération de version
+- `index.php` : Affichage version dans le heading
+- `categories.php` : Affichage version dans le heading
+- `questions_cleanup.php` : Affichage version dans le heading
+- `broken_links.php` : Affichage version dans le heading
+- `version.php` : Version 1.2.4 (2025100704)
+
+---
+
 ## [1.2.3] - 2025-10-07
 
 ### 🐛 Corrigé
