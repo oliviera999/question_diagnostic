@@ -5,6 +5,32 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.2.5] - 2025-10-07
+
+### ✨ Ajouté
+
+**Outil de diagnostic de base de données**
+- Ajout d'une page de test avancée pour diagnostiquer les problèmes de structure BDD
+- Vérification des tables Moodle 4.x (question_bank_entries, question_versions)
+- Détection automatique de la méthode de comptage appropriée (Moodle 3.x vs 4.x)
+- Test des relations entre tables pour identifier les données orphelines
+- Comparaison entre méthode ancienne (question.category) et nouvelle (question_bank_entries)
+
+### 🔧 Objectif
+
+**Résolution du problème "Toutes les catégories vides"**
+- Outil pour identifier pourquoi les catégories apparaissent vides alors qu'elles contiennent des questions
+- Détection de migration Moodle 4.x incomplète
+- Vérification de l'intégrité des données
+- Base pour implémenter la correction automatique dans la prochaine version
+
+### 📝 Fichiers modifiés
+
+- `test.php` : Transformation en outil de diagnostic complet
+- `version.php` : Version 1.2.5 (2025100705)
+
+---
+
 ## [1.2.4] - 2025-10-07
 
 ### ✨ Ajouté
