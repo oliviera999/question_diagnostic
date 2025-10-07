@@ -5,6 +5,103 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.3.4] - 2025-10-07
+
+### 🗑️ NOUVELLE FONCTIONNALITÉ : Suppression en masse des entries vides
+
+**Problème résolu**
+- Les entries orphelines **vides** (0 questions) encombrent la base de données sans apporter aucune valeur
+- Elles pointent vers des catégories inexistantes et n'ont aucune question liée
+- Impossibilité de les supprimer en masse auparavant
+
+**Solution implémentée**
+
+**1. Interface de sélection**
+- ✅ Checkbox sur chaque ligne d'entry vide
+- ✅ Checkbox "Tout sélectionner" dans l'en-tête du tableau
+- ✅ Compteur dynamique d'entries sélectionnées
+- ✅ Panneau d'actions groupées dédié avec bouton "🗑️ Supprimer les entries sélectionnées"
+- ✅ JavaScript pour gestion interactive de la sélection
+
+**2. Page de confirmation sécurisée**
+- ✅ Affichage de toutes les entries sélectionnées
+- ✅ **Double vérification de sécurité** : Comptage des questions pour chaque entry avant suppression
+- ✅ Tableau avec statut visuel :
+  - Badge vert "✓ Vide (sûr)" pour entries sans questions
+  - Badge rouge "⚠️ Contient X question(s)" si des questions sont détectées
+- ✅ Avertissement si des entries contiennent des questions (ne seront pas supprimées)
+- ✅ Récapitulatif du nombre d'entries qui seront effectivement supprimées
+- ✅ Informations sur les tables modifiées (`question_bank_entries`, `question_versions`)
+- ✅ Bouton "🗑️ Confirmer la suppression groupée" (rouge, dangereux)
+- ✅ Bouton "❌ Annuler" pour retour sans modification
+
+**3. Logique de suppression sécurisée**
+- ✅ Vérification `require_sesskey()` (protection CSRF)
+- ✅ Boucle sur chaque entry sélectionnée
+- ✅ Validation que l'entry existe toujours
+- ✅ Validation que la catégorie n'existe toujours pas (entry orpheline)
+- ✅ **Vérification critique** : Comptage des questions liées
+  - Si 0 questions → Suppression autorisée
+  - Si > 0 questions → **Suppression refusée** par sécurité
+- ✅ Suppression des `question_versions` liées (si existantes)
+- ✅ Suppression de l'entry `question_bank_entries`
+- ✅ Gestion des erreurs avec messages détaillés
+- ✅ Retour avec statistiques :
+  - Nombre d'entries supprimées
+  - Liste des erreurs (si présentes)
+
+**4. Garanties de sécurité**
+
+**Triple protection :**
+1. **Frontend** : Seules les entries **vides** sont proposées dans le tableau dédié
+2. **Confirmation** : Page de vérification avant toute suppression
+3. **Backend** : Double comptage des questions avant suppression effective
+
+**Impossible de supprimer par erreur une entry contenant des questions !**
+
+**5. Mise à jour de l'interface**
+
+**Changements visuels :**
+- Titre modifié : "Peuvent être supprimées" au lieu de "Peuvent être ignorées"
+- Message informatif : "Elles peuvent être supprimées pour nettoyer la base de données"
+- Panneau d'actions groupées avec fond jaune/orange (`alert alert-warning`)
+- Design cohérent avec le reste du plugin
+
+**6. Impact sur la base de données**
+
+**Tables MODIFIÉES (avec confirmation obligatoire) :**
+- `question_bank_entries` → DELETE d'entries orphelines vides
+- `question_versions` → DELETE des versions liées (si existantes)
+
+**Tables en LECTURE SEULE :**
+- `question` → Comptage pour vérification de sécurité
+- `question_categories` → Vérification d'existence
+
+### 🎯 Utilité pratique
+
+**Avant (v1.3.3) :**
+- Entries vides affichées mais non actionables en masse
+- Nécessité de les traiter une par une
+- Encombrement de la base de données
+
+**Maintenant (v1.3.4) :**
+- Sélection multiple avec "Tout sélectionner"
+- Suppression en masse en 2 clics (sélection + confirmation)
+- Nettoyage rapide de la base de données
+- Aucun risque de supprimer des questions par erreur
+
+### 📝 Fichiers modifiés
+
+- `orphan_entries.php` :
+  - Nouvelle action `bulk_delete_empty` (ligne 122-190)
+  - Page de confirmation de suppression (ligne 750-854)
+  - Interface de sélection avec checkboxes (ligne 1007-1108)
+  - JavaScript pour gestion de la sélection
+- `version.php` : v1.3.4 (2025100712)
+- `CHANGELOG.md` : Documentation complète
+
+---
+
 ## [1.3.3] - 2025-10-07
 
 ### 🔗 Amélioration : Catégories cliquables dans la page de test

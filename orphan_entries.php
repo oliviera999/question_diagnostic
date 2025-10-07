@@ -118,6 +118,77 @@ if ($action === 'bulk_reassign' && !empty($selectedentries) && $targetcategoryid
     }
 }
 
+// Action groupée : supprimer les entries vides (0 questions)
+if ($action === 'bulk_delete_empty' && !empty($selectedentries) && $confirm) {
+    require_sesskey();
+    
+    try {
+        $success_count = 0;
+        $errors = [];
+        
+        foreach ($selectedentries as $entry_id) {
+            try {
+                $entry = $DB->get_record('question_bank_entries', ['id' => $entry_id]);
+                if (!$entry) {
+                    $errors[] = "Entry #{$entry_id} : introuvable";
+                    continue;
+                }
+                
+                // Vérifier que l'entry est bien orpheline
+                $old_category_exists = $DB->record_exists('question_categories', ['id' => $entry->questioncategoryid]);
+                
+                if (!$old_category_exists) {
+                    // SÉCURITÉ : Vérifier que l'entry est bien VIDE (0 questions)
+                    $question_count = $DB->count_records_sql("
+                        SELECT COUNT(DISTINCT q.id)
+                        FROM {question} q
+                        INNER JOIN {question_versions} qv ON qv.questionid = q.id
+                        WHERE qv.questionbankentryid = :entryid
+                    ", ['entryid' => $entry_id]);
+                    
+                    if ($question_count == 0) {
+                        // Supprimer les versions liées (si existantes, normalement aucune)
+                        $DB->delete_records('question_versions', ['questionbankentryid' => $entry_id]);
+                        
+                        // Supprimer l'entry
+                        $DB->delete_records('question_bank_entries', ['id' => $entry_id]);
+                        
+                        $success_count++;
+                    } else {
+                        $errors[] = "Entry #{$entry_id} : contient {$question_count} question(s), NON SUPPRIMÉE par sécurité";
+                    }
+                } else {
+                    $errors[] = "Entry #{$entry_id} : n'est plus orpheline";
+                }
+            } catch (Exception $e) {
+                $errors[] = "Entry #{$entry_id} : " . $e->getMessage();
+            }
+        }
+        
+        // Message de résultat
+        $message = "🗑️ {$success_count} entry(ies) vide(s) supprimée(s) avec succès.";
+        
+        if (!empty($errors)) {
+            $message .= " Erreurs : " . implode(', ', $errors);
+        }
+        
+        redirect(
+            new moodle_url('/local/question_diagnostic/orphan_entries.php'),
+            $message,
+            null,
+            empty($errors) ? \core\output\notification::NOTIFY_SUCCESS : \core\output\notification::NOTIFY_WARNING
+        );
+        
+    } catch (Exception $e) {
+        redirect(
+            new moodle_url('/local/question_diagnostic/orphan_entries.php'),
+            "Erreur lors de la suppression groupée : " . $e->getMessage(),
+            null,
+            \core\output\notification::NOTIFY_ERROR
+        );
+    }
+}
+
 // Action individuelle : réassigner une entry
 if ($action === 'reassign' && $entryid && $targetcategoryid && $confirm) {
     require_sesskey();
@@ -675,6 +746,113 @@ if ($entryid > 0) {
             }
         }
         
+        // Page de confirmation pour suppression groupée des entries vides
+        if ($action === 'bulk_delete_empty' && !empty($selectedentries) && !$confirm) {
+            require_sesskey();
+            
+            echo html_writer::tag('h3', '⚠️ Confirmation de suppression groupée');
+            
+            echo html_writer::start_div('alert alert-danger', ['style' => 'margin: 20px 0;']);
+            echo html_writer::tag('h4', '🗑️ Suppression définitive');
+            echo html_writer::tag('p', 
+                "Vous êtes sur le point de supprimer <strong>" . count($selectedentries) . " entry(ies) VIDE(S)</strong> de la base de données."
+            );
+            echo html_writer::tag('p', '<strong>⚠️ ATTENTION :</strong> Cette action est IRRÉVERSIBLE.', ['style' => 'color: #d9534f; font-weight: bold;']);
+            echo html_writer::end_div();
+            
+            // Tableau des entries sélectionnées
+            echo html_writer::tag('h4', '📋 Entries à supprimer');
+            echo '<table class="generaltable" style="width: 100%; margin-top: 10px;">';
+            echo '<thead><tr>
+                    <th>Entry ID</th>
+                    <th>Catégorie ID (inexistante)</th>
+                    <th>Questions</th>
+                    <th>Statut</th>
+                  </tr></thead>';
+            echo '<tbody>';
+            
+            $verified_empty_count = 0;
+            $has_questions_warning = [];
+            
+            foreach ($selectedentries as $entry_id) {
+                $entry = $DB->get_record('question_bank_entries', ['id' => $entry_id]);
+                if ($entry) {
+                    // Double vérification de sécurité
+                    $question_count = $DB->count_records_sql("
+                        SELECT COUNT(DISTINCT q.id)
+                        FROM {question} q
+                        INNER JOIN {question_versions} qv ON qv.questionid = q.id
+                        WHERE qv.questionbankentryid = :entryid
+                    ", ['entryid' => $entry_id]);
+                    
+                    if ($question_count == 0) {
+                        $verified_empty_count++;
+                        $status = '<span class="badge badge-success">✓ Vide (sûr)</span>';
+                        $status_style = '';
+                    } else {
+                        $status = '<span class="badge badge-danger">⚠️ Contient ' . $question_count . ' question(s)</span>';
+                        $status_style = 'background-color: #f2dede;';
+                        $has_questions_warning[] = $entry_id;
+                    }
+                    
+                    echo '<tr style="' . $status_style . '">';
+                    echo '<td><strong>' . $entry_id . '</strong></td>';
+                    echo '<td style="color: red;">' . $entry->questioncategoryid . ' ❌</td>';
+                    echo '<td style="text-align: center;">' . $question_count . '</td>';
+                    echo '<td>' . $status . '</td>';
+                    echo '</tr>';
+                }
+            }
+            
+            echo '</tbody></table>';
+            
+            // Avertissement si des entries contiennent des questions
+            if (!empty($has_questions_warning)) {
+                echo html_writer::start_div('alert alert-danger', ['style' => 'margin-top: 15px;']);
+                echo '<strong>⚠️ AVERTISSEMENT :</strong> ' . count($has_questions_warning) . ' entry(ies) contiennent des questions et NE SERONT PAS SUPPRIMÉES par sécurité.';
+                echo html_writer::end_div();
+            }
+            
+            // Récapitulatif
+            echo html_writer::start_div('alert alert-info', ['style' => 'margin-top: 15px;']);
+            echo '<strong>📊 Récapitulatif :</strong><br>';
+            echo '• <strong>' . $verified_empty_count . '</strong> entry(ies) vides seront supprimées<br>';
+            if (!empty($has_questions_warning)) {
+                echo '• <strong>' . count($has_questions_warning) . '</strong> entry(ies) avec questions seront IGNORÉES<br>';
+            }
+            echo '• Tables modifiées : <code>question_bank_entries</code>, <code>question_versions</code>';
+            echo html_writer::end_div();
+            
+            echo html_writer::start_div('alert alert-warning', ['style' => 'margin-top: 15px;']);
+            echo '<strong>💡 Impact :</strong> Suppression d\'entries orphelines vides n\'affecte aucune question. ';
+            echo 'C\'est une opération de nettoyage sûre pour libérer de l\'espace dans la base de données.';
+            echo html_writer::end_div();
+            
+            // Boutons de confirmation
+            echo html_writer::start_div('', ['style' => 'margin-top: 20px;']);
+            
+            // Formulaire de confirmation avec les IDs sélectionnés
+            echo '<form method="post" action="' . new moodle_url('/local/question_diagnostic/orphan_entries.php') . '">';
+            echo '<input type="hidden" name="sesskey" value="' . sesskey() . '">';
+            echo '<input type="hidden" name="action" value="bulk_delete_empty">';
+            echo '<input type="hidden" name="confirm" value="1">';
+            foreach ($selectedentries as $entry_id) {
+                echo '<input type="hidden" name="entries[]" value="' . $entry_id . '">';
+            }
+            echo '<button type="submit" class="btn btn-danger" style="margin-right: 10px;">🗑️ Confirmer la suppression groupée</button>';
+            echo '</form>';
+            
+            echo html_writer::link(
+                new moodle_url('/local/question_diagnostic/orphan_entries.php'),
+                '❌ Annuler',
+                ['class' => 'btn btn-secondary', 'style' => 'margin-left: 10px;']
+            );
+            echo html_writer::end_div();
+            
+            echo $OUTPUT->footer();
+            exit;
+        }
+        
         // Afficher d'abord les entries AVEC questions
         if ($count_with_questions > 0) {
             echo html_writer::tag('h3', '🔴 Entries avec questions à récupérer (' . $count_with_questions . ')', ['style' => 'color: #d9534f;']);
@@ -821,14 +999,22 @@ if ($entryid > 0) {
         
         // Afficher ensuite les entries VIDES (moins importantes)
         if ($count_empty > 0) {
-            echo html_writer::tag('h3', 'ℹ️ Entries vides (' . $count_empty . ') - Peuvent être ignorées', ['style' => 'color: #5bc0de; margin-top: 40px;']);
+            echo html_writer::tag('h3', 'ℹ️ Entries vides (' . $count_empty . ') - Peuvent être supprimées', ['style' => 'color: #5bc0de; margin-top: 40px;']);
             echo html_writer::start_div('alert alert-info');
-            echo 'Ces entries ne contiennent aucune question. Elles peuvent être ignorées sans risque.';
+            echo 'Ces entries ne contiennent aucune question. Elles peuvent être supprimées pour nettoyer la base de données.';
             echo html_writer::end_div();
+            
+            // Formulaire pour suppression groupée
+            echo '<form method="post" action="' . new moodle_url('/local/question_diagnostic/orphan_entries.php') . '" id="bulk-form-empty">';
+            echo '<input type="hidden" name="sesskey" value="' . sesskey() . '">';
+            echo '<input type="hidden" name="action" value="bulk_delete_empty">';
             
             echo '<table class="generaltable" style="width: 100%; margin-top: 10px; opacity: 0.7;">';
             echo '<thead>
                     <tr>
+                        <th style="width: 30px;">
+                            <input type="checkbox" id="select-all-empty" title="Tout sélectionner">
+                        </th>
                         <th>Entry ID</th>
                         <th>Catégorie ID<br>(inexistante)</th>
                         <th>Questions</th>
@@ -842,6 +1028,9 @@ if ($entryid > 0) {
                 $created_date = $entry->created_time ? userdate($entry->created_time, '%d/%m/%Y') : '-';
                 
                 echo '<tr>';
+                echo '<td style="text-align: center;">
+                        <input type="checkbox" name="entries[]" value="' . $entry->id . '" class="entry-checkbox-empty">
+                      </td>';
                 echo '<td>' . $entry->id . '</td>';
                 echo '<td style="color: #999;">' . $entry->questioncategoryid . '</td>';
                 echo '<td style="text-align: center; color: #999;"><em>0</em></td>';
@@ -857,6 +1046,66 @@ if ($entryid > 0) {
             }
             
             echo '</tbody></table>';
+            echo '</form>';
+            
+            // Panneau d'actions groupées pour suppression
+            echo html_writer::start_div('alert alert-warning', ['style' => 'margin-top: 20px; background-color: #fcf8e3; border-left: 4px solid #f0ad4e;']);
+            echo '<h4 style="margin-top: 0;">🗑️ Suppression groupée</h4>';
+            echo '<p><strong><span id="selected-count-empty">0</span></strong> entry(ies) vide(s) sélectionnée(s)</p>';
+            echo '<p>Les entries vides n\'ont pas de questions liées. Leur suppression est <strong>sûre</strong> et permet de nettoyer la base de données.</p>';
+            echo '<button type="button" class="btn btn-danger btn-sm" id="bulk-delete-btn">🗑️ Supprimer les entries sélectionnées</button>';
+            echo html_writer::end_div();
+            
+            // JavaScript pour gérer la sélection des entries vides
+            echo '<script>
+            document.addEventListener("DOMContentLoaded", function() {
+                const selectAllEmpty = document.getElementById("select-all-empty");
+                const checkboxesEmpty = document.querySelectorAll(".entry-checkbox-empty");
+                const selectedCountEmpty = document.getElementById("selected-count-empty");
+                const bulkFormEmpty = document.getElementById("bulk-form-empty");
+                const bulkDeleteBtn = document.getElementById("bulk-delete-btn");
+                
+                // Tout sélectionner
+                if (selectAllEmpty) {
+                    selectAllEmpty.addEventListener("change", function() {
+                        checkboxesEmpty.forEach(cb => cb.checked = this.checked);
+                        updateSelectedCountEmpty();
+                    });
+                }
+                
+                // Mettre à jour le compteur
+                checkboxesEmpty.forEach(cb => {
+                    cb.addEventListener("change", updateSelectedCountEmpty);
+                });
+                
+                function updateSelectedCountEmpty() {
+                    const count = document.querySelectorAll(".entry-checkbox-empty:checked").length;
+                    selectedCountEmpty.textContent = count;
+                    
+                    // Désactiver/activer le bouton de suppression
+                    if (bulkDeleteBtn) {
+                        bulkDeleteBtn.disabled = count === 0;
+                        bulkDeleteBtn.style.opacity = count === 0 ? "0.5" : "1";
+                    }
+                }
+                
+                // Bouton de suppression groupée
+                if (bulkDeleteBtn) {
+                    bulkDeleteBtn.addEventListener("click", function() {
+                        const count = document.querySelectorAll(".entry-checkbox-empty:checked").length;
+                        if (count === 0) {
+                            alert("Veuillez sélectionner au moins une entry vide.");
+                            return;
+                        }
+                        
+                        bulkFormEmpty.submit();
+                    });
+                }
+                
+                // Initialiser le compteur
+                updateSelectedCountEmpty();
+            });
+            </script>';
         }
         
         // Instructions
