@@ -5,6 +5,41 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.3.3] - 2025-10-07
+
+### 🔗 Amélioration : Catégories cliquables dans la page de test
+
+**test.php - Section "Test sur 10 catégories aléatoires"**
+- ✅ **Noms de catégories cliquables** - Liens directs vers la banque de questions
+- ✅ Ouverture dans un **nouvel onglet** (target="_blank")
+- ✅ Tooltip au survol : "Ouvrir cette catégorie dans la banque de questions"
+- ✅ Icône 🔗 pour indiquer les liens cliquables
+- ✅ Construction automatique de l'URL correcte :
+  - Détection du contexte (système, cours, module)
+  - Récupération du courseid approprié
+  - Format : `/question/edit.php?courseid=X&cat=categoryid,contextid`
+
+**Utilité**
+- Accès rapide aux catégories testées
+- Vérification visuelle des questions dans Moodle
+- Gain de temps pour l'administrateur
+- Navigation fluide entre diagnostic et banque de questions
+
+**Gestion d'erreurs**
+- Si le contexte est invalide → affichage du nom sans lien
+- Fallback gracieux en cas d'erreur
+
+**Mise à jour de la légende**
+- Ajout : "🔗 Noms de catégories : Cliquables pour ouvrir directement dans la banque de questions"
+
+### 📝 Fichiers modifiés
+
+- `test.php` : Liens cliquables vers banque de questions
+- `version.php` : Version 1.3.3 (2025100711)
+- `CHANGELOG.md` : Documentation
+
+---
+
 ## [1.3.2] - 2025-10-07
 
 ### ⚡ NOUVELLE FONCTIONNALITÉ : Actions groupées pour entries orphelines

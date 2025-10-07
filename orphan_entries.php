@@ -563,7 +563,9 @@ if ($entryid > 0) {
         $count_with_questions = count($orphan_entries_with_questions);
         $count_empty = count($orphan_entries_empty);
         
-        echo html_writer::tag('h3', "📊 {$orphan_count} entry(ies) orpheline(s) détectée(s)");
+        // Vérifier s'il y a des entries orphelines
+        if ($orphan_count > 0) {
+            echo html_writer::tag('h3', "📊 {$orphan_count} entry(ies) orpheline(s) détectée(s)");
         
         // Résumé
         echo html_writer::start_div('alert alert-info', ['style' => 'margin-bottom: 20px;']);

@@ -155,9 +155,41 @@ if ($random_categories) {
             $with_style = 'color: red;';
         }
         
+        // Générer l'URL vers la banque de questions pour cette catégorie
+        try {
+            $context = context::instance_by_id($cat->contextid, IGNORE_MISSING);
+            $courseid = 0; // Par défaut, système
+            
+            // Si c'est un contexte de cours, récupérer l'ID du cours
+            if ($context && $context->contextlevel == CONTEXT_COURSE) {
+                $courseid = $context->instanceid;
+            } else if ($context && $context->contextlevel == CONTEXT_MODULE) {
+                // Si c'est un module, remonter au cours parent
+                $coursecontext = $context->get_course_context(false);
+                if ($coursecontext) {
+                    $courseid = $coursecontext->instanceid;
+                }
+            }
+            
+            // Construire l'URL : /question/edit.php?courseid=X&cat=categoryid,contextid
+            $question_bank_url = new moodle_url('/question/edit.php', [
+                'courseid' => $courseid,
+                'cat' => $cat->id . ',' . $cat->contextid
+            ]);
+            
+            $category_link = html_writer::link(
+                $question_bank_url,
+                '<strong>' . s($cat->name) . '</strong>',
+                ['title' => 'Ouvrir cette catégorie dans la banque de questions', 'target' => '_blank']
+            );
+        } catch (Exception $e) {
+            // Si erreur, afficher juste le nom sans lien
+            $category_link = '<strong>' . s($cat->name) . '</strong>';
+        }
+        
         echo '<tr>
                 <td>' . $cat->id . '</td>
-                <td><strong>' . s($cat->name) . '</strong></td>
+                <td>' . $category_link . ' 🔗</td>
                 <td>' . $context_name . '</td>
                 <td style="' . $old_style . '">' . $old_result . '</td>
                 <td style="' . $without_style . '">' . $without_result . '</td>
@@ -171,8 +203,11 @@ if ($random_categories) {
     echo '<strong>Légende :</strong><br>';
     echo '• <strong>Méthode ancienne</strong> : Colonne "category" dans table question (Moodle 3.x)<br>';
     echo '• <strong>Sans correction</strong> : JOIN simple (peut retourner 0 à cause des entries orphelines)<br>';
-    echo '• <strong>✅ Avec correction</strong> : INNER JOIN avec validation (comptage correct)';
+    echo '• <strong>✅ Avec correction</strong> : INNER JOIN avec validation (comptage correct)<br>';
+    echo '• <strong>🔗 Noms de catégories</strong> : Cliquables pour ouvrir directement dans la banque de questions';
     echo html_writer::end_div();
+} else {
+    echo html_writer::div('Aucune catégorie trouvée pour le test.', 'alert alert-warning');
 }
 
 // Vérifier la structure de la table question
