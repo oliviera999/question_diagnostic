@@ -29,13 +29,72 @@ class category_manager {
     public static function get_all_categories_with_stats() {
         global $DB;
 
-        $categories = $DB->get_records('question_categories', null, 'contextid, parent, name ASC');
+        // VERSION OPTIMISÉE : Une seule requête SQL avec agrégations
+        // Au lieu de 5836 requêtes individuelles !
+        $sql = "SELECT qc.id,
+                       qc.name,
+                       qc.contextid,
+                       qc.parent,
+                       qc.sortorder,
+                       qc.info,
+                       qc.infoformat,
+                       qc.stamp,
+                       qc.idnumber,
+                       COUNT(DISTINCT q.id) as total_questions,
+                       COUNT(DISTINCT CASE WHEN q.hidden = 0 THEN q.id END) as visible_questions,
+                       COUNT(DISTINCT subcat.id) as subcategories,
+                       CASE WHEN ctx.id IS NULL THEN 0 ELSE 1 END as context_valid
+                FROM {question_categories} qc
+                LEFT JOIN {question_bank_entries} qbe ON qbe.questioncategoryid = qc.id
+                LEFT JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+                LEFT JOIN {question} q ON q.id = qv.questionid
+                LEFT JOIN {question_categories} subcat ON subcat.parent = qc.id
+                LEFT JOIN {context} ctx ON ctx.id = qc.contextid
+                GROUP BY qc.id, qc.name, qc.contextid, qc.parent, qc.sortorder, 
+                         qc.info, qc.infoformat, qc.stamp, qc.idnumber, ctx.id
+                ORDER BY qc.contextid, qc.parent, qc.name ASC";
+        
+        $categories_data = $DB->get_records_sql($sql);
+        
         $result = [];
-
-        foreach ($categories as $cat) {
-            $stats = self::get_category_stats($cat);
+        foreach ($categories_data as $data) {
+            // Reconstruire l'objet catégorie
+            $category = (object)[
+                'id' => $data->id,
+                'name' => $data->name,
+                'contextid' => $data->contextid,
+                'parent' => $data->parent,
+                'sortorder' => $data->sortorder,
+                'info' => $data->info,
+                'infoformat' => $data->infoformat,
+                'stamp' => $data->stamp,
+                'idnumber' => $data->idnumber,
+            ];
+            
+            // Construire les stats directement depuis les agrégations SQL
+            $stats = (object)[
+                'total_questions' => (int)$data->total_questions,
+                'visible_questions' => (int)$data->visible_questions,
+                'subcategories' => (int)$data->subcategories,
+                'context_valid' => (bool)$data->context_valid,
+                'is_empty' => ($data->total_questions == 0 && $data->subcategories == 0),
+                'is_orphan' => !$data->context_valid,
+            ];
+            
+            // Nom du contexte (récupéré à la demande, léger)
+            try {
+                if ($stats->context_valid) {
+                    $context = \context::instance_by_id($category->contextid, IGNORE_MISSING);
+                    $stats->context_name = $context ? \context_helper::get_level_name($context->contextlevel) : 'Inconnu';
+                } else {
+                    $stats->context_name = 'Contexte supprimé (ID: ' . $category->contextid . ')';
+                }
+            } catch (\Exception $e) {
+                $stats->context_name = 'Erreur';
+            }
+            
             $result[] = (object)[
-                'category' => $cat,
+                'category' => $category,
                 'stats' => $stats,
             ];
         }
@@ -117,11 +176,54 @@ class category_manager {
     }
 
     /**
-     * Trouve les catégories en doublon
+     * Trouve les catégories en doublon - VERSION OPTIMISÉE
      *
+     * @param int $limit Limite du nombre de doublons à retourner (0 = tous)
      * @return array Tableau des doublons [cat1, cat2]
      */
-    public static function find_duplicates() {
+    public static function find_duplicates($limit = 100) {
+        global $DB;
+
+        // VERSION OPTIMISÉE : Utiliser SQL pour trouver les doublons directement
+        // Au lieu de charger toutes les catégories en mémoire
+        $sql = "SELECT qc1.id as id1, qc1.name as name1, qc1.contextid as context1,
+                       qc2.id as id2, qc2.name as name2, qc2.contextid as context2,
+                       qc1.parent
+                FROM {question_categories} qc1
+                INNER JOIN {question_categories} qc2 
+                    ON LOWER(TRIM(qc1.name)) = LOWER(TRIM(qc2.name))
+                    AND qc1.contextid = qc2.contextid
+                    AND qc1.parent = qc2.parent
+                    AND qc1.id < qc2.id
+                ORDER BY qc1.name, qc1.id";
+        
+        if ($limit > 0) {
+            $duplicates_raw = $DB->get_records_sql($sql, [], 0, $limit);
+        } else {
+            $duplicates_raw = $DB->get_records_sql($sql);
+        }
+        
+        $duplicates = [];
+        foreach ($duplicates_raw as $dup) {
+            $cat1 = $DB->get_record('question_categories', ['id' => $dup->id1]);
+            $cat2 = $DB->get_record('question_categories', ['id' => $dup->id2]);
+            
+            if ($cat1 && $cat2) {
+                $duplicates[] = [$cat1, $cat2];
+            }
+        }
+        
+        return $duplicates;
+    }
+    
+    /**
+     * ANCIENNE VERSION (gardée pour compatibilité) - À NE PLUS UTILISER
+     * Trouve les catégories en doublon en chargeant tout en mémoire
+     * 
+     * @return array Tableau des doublons [cat1, cat2]
+     * @deprecated Utiliser find_duplicates($limit) à la place
+     */
+    private static function find_duplicates_old() {
         global $DB;
 
         $categories = $DB->get_records('question_categories');
@@ -367,22 +469,70 @@ class category_manager {
                 INNER JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid";
         $stats->total_questions = (int)$DB->count_records_sql($sql);
         
-        $categories = $DB->get_records('question_categories');
-        $empty = 0;
-        $orphan = 0;
-        $with_questions = 0;
+        // ===================================================================
+        // OPTIMISATION : Compter directement avec SQL au lieu de boucler
+        // ===================================================================
         
-        foreach ($categories as $cat) {
-            $catstats = self::get_category_stats($cat);
-            if ($catstats->is_empty) $empty++;
-            if ($catstats->is_orphan) $orphan++;
-            if ($catstats->total_questions > 0) $with_questions++;
+        // Compter les catégories avec au moins une question (Moodle 4.x avec INNER JOIN)
+        $sql_with_questions = "SELECT COUNT(DISTINCT qc.id)
+                               FROM {question_categories} qc
+                               INNER JOIN {question_bank_entries} qbe ON qbe.questioncategoryid = qc.id
+                               INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+                               INNER JOIN {question} q ON q.id = qv.questionid";
+        $stats->categories_with_questions = (int)$DB->count_records_sql($sql_with_questions);
+        
+        // Compter les catégories orphelines (contexte invalide)
+        $sql_orphan = "SELECT COUNT(qc.id)
+                       FROM {question_categories} qc
+                       LEFT JOIN {context} ctx ON ctx.id = qc.contextid
+                       WHERE ctx.id IS NULL";
+        $stats->orphan_categories = (int)$DB->count_records_sql($sql_orphan);
+        
+        // Compter les catégories vides (sans questions ET sans sous-catégories)
+        // Sous-requête pour catégories avec questions
+        $sql_empty = "SELECT COUNT(qc.id)
+                      FROM {question_categories} qc
+                      WHERE qc.id NOT IN (
+                          SELECT DISTINCT qbe.questioncategoryid
+                          FROM {question_bank_entries} qbe
+                          INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+                      )
+                      AND qc.id NOT IN (
+                          SELECT DISTINCT parent
+                          FROM {question_categories}
+                          WHERE parent IS NOT NULL AND parent > 0
+                      )";
+        $stats->empty_categories = (int)$DB->count_records_sql($sql_empty);
+        
+        // Compter les doublons - version compatible toutes BDD
+        // Compter les groupes de catégories qui ont des noms identiques (doublons)
+        try {
+            $dbfamily = $DB->get_dbfamily();
+            if ($dbfamily === 'mysql' || $dbfamily === 'mariadb') {
+                // MySQL/MariaDB : sous-requête dans FROM
+                $sql_duplicates = "SELECT COUNT(*) as dup_count
+                                   FROM (
+                                       SELECT COUNT(*) as cnt
+                                       FROM {question_categories}
+                                       GROUP BY LOWER(TRIM(name)), contextid, parent
+                                       HAVING COUNT(*) > 1
+                                   ) AS dups";
+            } else {
+                // PostgreSQL et autres : syntaxe standard
+                $sql_duplicates = "SELECT COUNT(*) as dup_count
+                                   FROM (
+                                       SELECT COUNT(*) as cnt
+                                       FROM {question_categories}
+                                       GROUP BY LOWER(TRIM(name)), contextid, parent
+                                       HAVING COUNT(*) > 1
+                                   ) dups";
+            }
+            $dup_result = $DB->get_record_sql($sql_duplicates);
+            $stats->duplicates = $dup_result ? (int)$dup_result->dup_count : 0;
+        } catch (\Exception $e) {
+            // Si erreur, utiliser l'ancienne méthode (plus lente mais fiable)
+            $stats->duplicates = count(self::find_duplicates());
         }
-        
-        $stats->empty_categories = $empty;
-        $stats->orphan_categories = $orphan;
-        $stats->categories_with_questions = $with_questions;
-        $stats->duplicates = count(self::find_duplicates());
         
         return $stats;
     }
