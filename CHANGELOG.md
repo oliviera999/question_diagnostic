@@ -5,6 +5,38 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.3.4.1] - 2025-10-07
+
+### 🐛 CORRECTIF : Page de confirmation de suppression groupée
+
+**Problème**
+- La page de confirmation pour la suppression groupée d'entries vides ne s'affichait pas
+- Les utilisateurs revenaient sur la même page sans voir la confirmation
+- Causé par un `require_sesskey()` mal placé dans la page de confirmation
+
+**Solution**
+- ✅ Retiré le `require_sesskey()` de la page de confirmation (ligne 751)
+  - Le sesskey est vérifié uniquement lors de l'action finale (ligne 123)
+  - La page de confirmation ne fait qu'afficher, pas de modification
+- ✅ Ajout d'un debug temporaire pour diagnostiquer les problèmes éventuels
+- ✅ Commentaire explicatif ajouté dans le code
+
+**Impact**
+- La page de confirmation s'affiche maintenant correctement
+- Le workflow de suppression groupée fonctionne comme prévu :
+  1. Sélection des entries
+  2. Clic sur "Supprimer"
+  3. **Page de confirmation** (qui s'affiche maintenant)
+  4. Clic sur "Confirmer"
+  5. Suppression effective
+
+### 📝 Fichiers modifiés
+- `orphan_entries.php` : Retrait du `require_sesskey()` mal placé + debug
+- `version.php` : v1.3.4.1 (2025100713)
+- `CHANGELOG.md` : Documentation du correctif
+
+---
+
 ## [1.3.4] - 2025-10-07
 
 ### 🗑️ NOUVELLE FONCTIONNALITÉ : Suppression en masse des entries vides
