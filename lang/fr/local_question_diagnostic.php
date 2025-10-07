@@ -203,3 +203,9 @@ $string['questions_displayed'] = '{$a->visible} question(s) affichée(s) sur {$a
 $string['toggle_columns'] = 'Colonnes';
 $string['analyze_questions'] = 'Analyser les questions';
 
+// Page de test
+$string['test_page_title'] = 'Page de test';
+$string['test_page_heading'] = 'Page de test';
+$string['test_page_desc'] = 'Page de test pour effectuer des vérifications et des tests de fonctionnalités.';
+$string['test_content'] = 'Test';
+
