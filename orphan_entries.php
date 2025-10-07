@@ -38,6 +38,11 @@ $targetcategoryid = optional_param('targetcategory', 0, PARAM_INT);
 $confirm = optional_param('confirm', 0, PARAM_INT);
 $selectedentries = optional_param_array('entries', [], PARAM_INT); // Pour sélection multiple
 
+// Debug temporaire (à retirer après)
+if ($action === 'bulk_delete_empty') {
+    debugging("DEBUG bulk_delete_empty: action=$action, entries count=" . count($selectedentries) . ", confirm=$confirm", DEBUG_DEVELOPER);
+}
+
 // Configuration de la page
 $PAGE->set_url(new moodle_url('/local/question_diagnostic/orphan_entries.php', ['id' => $entryid]));
 $PAGE->set_context(context_system::instance());
@@ -748,7 +753,8 @@ if ($entryid > 0) {
         
         // Page de confirmation pour suppression groupée des entries vides
         if ($action === 'bulk_delete_empty' && !empty($selectedentries) && !$confirm) {
-            require_sesskey();
+            // Note: On ne vérifie pas sesskey ici car on affiche juste la confirmation
+            // Le sesskey sera vérifié lors de la suppression effective
             
             echo html_writer::tag('h3', '⚠️ Confirmation de suppression groupée');
             
