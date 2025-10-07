@@ -5,6 +5,50 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.3.4.3] - 2025-10-07
+
+### 🐛 CORRECTIF CRITIQUE : PARAM_ALPHA ne permet pas les underscores
+
+**Problème identifié**
+- L'action `'bulk_delete_empty'` était transformée en `'bulkdeleteempty'`
+- **Cause** : `PARAM_ALPHA` ne permet QUE les lettres (a-z, A-Z), PAS les underscores
+- L'action envoyée par le formulaire : `'bulk_delete_empty'`
+- L'action reçue par PHP : `'bulkdeleteempty'` (underscores supprimés)
+- Le code vérifiait : `if ($action === 'bulk_delete_empty')` → Jamais vrai !
+- **Résultat** : Aucune action n'était déclenchée, les entries restaient présentes
+
+**Solution**
+- ✅ Ligne 36 : Changement de `PARAM_ALPHA` en `PARAM_ALPHANUMEXT`
+- ✅ `PARAM_ALPHANUMEXT` permet : lettres, chiffres, underscores, tirets
+- ✅ L'action est maintenant correctement reçue : `'bulk_delete_empty'`
+- ✅ La condition `if ($action === 'bulk_delete_empty')` fonctionne maintenant
+
+**Impact**
+- La page de confirmation s'affiche correctement
+- La suppression groupée fonctionne maintenant comme prévu
+- Le workflow complet est opérationnel
+
+**Debug conservé temporairement**
+- L'encadré de debug en haut de page reste actif pour validation
+- Sera retiré dans la version v1.3.5 une fois tout validé
+
+### 📝 Fichiers modifiés
+- `orphan_entries.php` : Ligne 36, `PARAM_ALPHA` → `PARAM_ALPHANUMEXT`
+- `version.php` : v1.3.4.3 (2025100715)
+- `CHANGELOG.md` : Documentation du correctif
+
+---
+
+## [1.3.4.2] - 2025-10-07
+
+### 🔍 DEBUG : Ajout debug complet pour identifier le problème
+
+- Ajout encadré de debug visible en haut de page
+- Ajout console.log dans JavaScript
+- Identification du problème PARAM_ALPHA
+
+---
+
 ## [1.3.4.1] - 2025-10-07
 
 ### 🐛 CORRECTIF : Page de confirmation de suppression groupée

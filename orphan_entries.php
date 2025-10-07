@@ -33,7 +33,7 @@ if (!is_siteadmin()) {
 
 // Paramètres
 $entryid = optional_param('id', 0, PARAM_INT);
-$action = optional_param('action', '', PARAM_ALPHA);
+$action = optional_param('action', '', PARAM_ALPHANUMEXT); // ALPHANUMEXT permet les underscores
 $targetcategoryid = optional_param('targetcategory', 0, PARAM_INT);
 $confirm = optional_param('confirm', 0, PARAM_INT);
 $selectedentries = optional_param_array('entries', [], PARAM_INT); // Pour sélection multiple
