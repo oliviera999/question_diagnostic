@@ -16,8 +16,8 @@
 
 defined('MOODLE_INTERNAL') || die();
 
-$string['pluginname'] = 'Gestion des Catégories de Questions';
-$string['managequestions'] = 'Gérer les catégories';
+$string['pluginname'] = 'Gestion des Catégories de Questions à Supprimer';
+$string['managequestions'] = 'Gérer les catégories à supprimer';
 $string['accessdenied'] = 'Accès refusé. Vous devez être administrateur du site.';
 
 // Dashboard
@@ -74,8 +74,8 @@ $string['backtomenu'] = 'Retour au menu principal';
 $string['overview'] = 'Vue d\'ensemble globale';
 $string['welcomemessage'] = 'Bienvenue dans l\'outil de diagnostic de la banque de questions. Cet outil vous permet de détecter et de corriger les problèmes dans votre base de questions Moodle.';
 
-// Outil 1 : Gestion des catégories
-$string['tool_categories_title'] = 'Gestion des Catégories';
+// Outil 1 : Gestion des catégories à supprimer
+$string['tool_categories_title'] = 'Gestion des Catégories à Supprimer';
 $string['tool_categories_desc'] = 'Gérez les catégories de questions : détectez et corrigez les catégories orphelines, vides ou en doublon. Fusionnez, déplacez ou supprimez les catégories problématiques.';
 
 // Outil 2 : Vérification des liens

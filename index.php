@@ -98,7 +98,7 @@ echo html_writer::tag('h3', '🔧 ' . get_string('toolsmenu', 'local_question_di
 echo html_writer::start_tag('div', ['class' => 'qd-tools-menu']);
 
 // ======================================================================
-// OPTION 1 : Gestion des catégories orphelines
+// OPTION 1 : Gestion des catégories à supprimer
 // ======================================================================
 
 echo html_writer::start_tag('div', ['class' => 'qd-tool-card']);

@@ -1,6 +1,6 @@
 <?php
 // ======================================================================
-// Moodle Question Bank Management Tool - Gestion des catégories
+// Moodle Question Bank Management Tool - Gestion des catégories à supprimer
 // ======================================================================
 
 // Inclure la configuration de Moodle.

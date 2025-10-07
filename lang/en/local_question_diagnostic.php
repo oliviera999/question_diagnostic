@@ -16,8 +16,8 @@
 
 defined('MOODLE_INTERNAL') || die();
 
-$string['pluginname'] = 'Question Category Management';
-$string['managequestions'] = 'Manage categories';
+$string['pluginname'] = 'Question Category Management for Deletion';
+$string['managequestions'] = 'Manage categories to delete';
 $string['accessdenied'] = 'Access denied. You must be a site administrator.';
 
 // Dashboard
@@ -74,8 +74,8 @@ $string['backtomenu'] = 'Back to main menu';
 $string['overview'] = 'Global overview';
 $string['welcomemessage'] = 'Welcome to the question bank diagnostic tool. This tool allows you to detect and fix issues in your Moodle question bank.';
 
-// Tool 1: Category management
-$string['tool_categories_title'] = 'Category Management';
+// Tool 1: Category management for deletion
+$string['tool_categories_title'] = 'Category Management for Deletion';
 $string['tool_categories_desc'] = 'Manage question categories: detect and fix orphan, empty or duplicate categories. Merge, move or delete problematic categories.';
 
 // Tool 2: Link checking
