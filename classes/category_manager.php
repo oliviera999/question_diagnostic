@@ -55,12 +55,20 @@ class category_manager {
         $stats = new \stdClass();
         
         try {
-            // Nombre de questions visibles - Utiliser SQL direct
-            $sql = "SELECT COUNT(*) FROM {question} WHERE category = :categoryid AND hidden = 0";
+            // Nombre de questions visibles - Compatible Moodle 4.x avec question_bank_entries
+            $sql = "SELECT COUNT(DISTINCT q.id) 
+                    FROM {question} q
+                    JOIN {question_versions} qv ON qv.questionid = q.id
+                    JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
+                    WHERE qbe.questioncategoryid = :categoryid AND q.hidden = 0";
             $stats->visible_questions = $DB->count_records_sql($sql, ['categoryid' => $category->id]);
             
-            // Nombre total de questions (incluant cachées) - Utiliser SQL direct
-            $sql = "SELECT COUNT(*) FROM {question} WHERE category = :categoryid";
+            // Nombre total de questions (incluant cachées) - Compatible Moodle 4.x
+            $sql = "SELECT COUNT(DISTINCT q.id) 
+                    FROM {question} q
+                    JOIN {question_versions} qv ON qv.questionid = q.id
+                    JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
+                    WHERE qbe.questioncategoryid = :categoryid";
             $stats->total_questions = $DB->count_records_sql($sql, ['categoryid' => $category->id]);
             
             // Nombre de sous-catégories
@@ -134,8 +142,12 @@ class category_manager {
             $category = $DB->get_record('question_categories', ['id' => $categoryid], '*', MUST_EXIST);
             
             // Vérifier que la catégorie est vide
-            // Utiliser une requête SQL directe pour plus de robustesse
-            $sql = "SELECT COUNT(*) FROM {question} WHERE category = :categoryid";
+            // Compatible Moodle 4.x avec question_bank_entries
+            $sql = "SELECT COUNT(DISTINCT q.id) 
+                    FROM {question} q
+                    JOIN {question_versions} qv ON qv.questionid = q.id
+                    JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
+                    WHERE qbe.questioncategoryid = :categoryid";
             $questioncount = $DB->count_records_sql($sql, ['categoryid' => $categoryid]);
             
             $subcatcount = $DB->count_records('question_categories', ['parent' => $categoryid]);
@@ -194,8 +206,8 @@ class category_manager {
             $source = $DB->get_record('question_categories', ['id' => $sourceid], '*', MUST_EXIST);
             $dest = $DB->get_record('question_categories', ['id' => $destid], '*', MUST_EXIST);
             
-            // Déplacer toutes les questions de source vers dest - Utiliser SQL direct
-            $sql = "UPDATE {question} SET category = :destid WHERE category = :sourceid";
+            // Déplacer toutes les questions de source vers dest - Compatible Moodle 4.x
+            $sql = "UPDATE {question_bank_entries} SET questioncategoryid = :destid WHERE questioncategoryid = :sourceid";
             $DB->execute($sql, ['destid' => $destid, 'sourceid' => $sourceid]);
             
             // Déplacer les sous-catégories

@@ -62,10 +62,16 @@ class question_analyzer {
         $stats = new \stdClass();
         
         try {
-            // Catégorie
-            $category = $DB->get_record('question_categories', ['id' => $question->category]);
+            // Récupérer la catégorie via question_bank_entries (Moodle 4.x)
+            $category_sql = "SELECT qc.* 
+                            FROM {question_categories} qc
+                            JOIN {question_bank_entries} qbe ON qbe.questioncategoryid = qc.id
+                            JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+                            WHERE qv.questionid = :questionid
+                            LIMIT 1";
+            $category = $DB->get_record_sql($category_sql, ['questionid' => $question->id]);
             $stats->category_name = $category ? format_string($category->name) : 'Inconnue';
-            $stats->category_id = $question->category;
+            $stats->category_id = $category ? $category->id : 0;
             
             // Contexte
             if ($category) {
@@ -162,13 +168,16 @@ class question_analyzer {
 
         try {
             // Vérifier si la question est dans des quiz via la table quiz_slots
+            // Compatible Moodle 4.x avec question_bank_entries
             $sql = "SELECT DISTINCT q.id, q.name, q.course
                     FROM {quiz} q
                     INNER JOIN {quiz_slots} qs ON qs.quizid = q.id
                     WHERE qs.questionid = :questionid
                     OR qs.questioncategoryid IN (
-                        SELECT id FROM {question_categories} 
-                        WHERE id = (SELECT category FROM {question} WHERE id = :questionid2)
+                        SELECT qbe.questioncategoryid 
+                        FROM {question_bank_entries} qbe
+                        JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+                        WHERE qv.questionid = :questionid2
                     )";
             
             $quizzes = $DB->get_records_sql($sql, [
@@ -385,12 +394,36 @@ class question_analyzer {
             $score += $weights['type'];
         }
 
-        // Même catégorie
-        if ($q1->category === $q2->category) {
+        // Même catégorie (récupérer via question_bank_entries pour Moodle 4.x)
+        $cat1_id = self::get_question_category_id($q1->id);
+        $cat2_id = self::get_question_category_id($q2->id);
+        if ($cat1_id && $cat2_id && $cat1_id === $cat2_id) {
             $score += $weights['category'];
         }
 
         return round($score, 3);
+    }
+
+    /**
+     * Récupère l'ID de catégorie d'une question (Moodle 4.x compatible)
+     *
+     * @param int $questionid ID de la question
+     * @return int|null ID de la catégorie
+     */
+    private static function get_question_category_id($questionid) {
+        global $DB;
+        
+        try {
+            $sql = "SELECT qbe.questioncategoryid 
+                    FROM {question_bank_entries} qbe
+                    JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+                    WHERE qv.questionid = :questionid
+                    LIMIT 1";
+            $result = $DB->get_record_sql($sql, ['questionid' => $questionid]);
+            return $result ? $result->questioncategoryid : null;
+        } catch (\Exception $e) {
+            return null;
+        }
     }
 
     /**
@@ -524,7 +557,14 @@ class question_analyzer {
         
         try {
             if (!$category) {
-                $category = $DB->get_record('question_categories', ['id' => $question->category]);
+                // Récupérer la catégorie via question_bank_entries (Moodle 4.x)
+                $category_sql = "SELECT qc.* 
+                                FROM {question_categories} qc
+                                JOIN {question_bank_entries} qbe ON qbe.questioncategoryid = qc.id
+                                JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+                                WHERE qv.questionid = :questionid
+                                LIMIT 1";
+                $category = $DB->get_record_sql($category_sql, ['questionid' => $question->id]);
             }
             
             if (!$category) {
