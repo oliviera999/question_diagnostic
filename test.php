@@ -304,8 +304,13 @@ try {
                     $question_name = substr($question_name, 0, 50) . '...';
                 }
                 
-                echo '<tr>
-                        <td><strong>' . $entry->id . '</strong></td>
+                // Créer le lien vers la page de détails
+                $detail_url = new moodle_url('/local/question_diagnostic/orphan_entries.php', ['id' => $entry->id]);
+                $entry_id_link = html_writer::link($detail_url, '<strong>' . $entry->id . '</strong>', 
+                    ['style' => 'color: #0066cc;', 'title' => 'Cliquez pour voir les détails et réassigner']);
+                
+                echo '<tr style="cursor: pointer;" onclick="window.location.href=\'' . $detail_url->out() . '\'">
+                        <td>' . $entry_id_link . '</td>
                         <td style="color: red; font-weight: bold;">' . $entry->questioncategoryid . ' ❌</td>
                         <td style="text-align: center;"><strong>' . $entry->question_count . '</strong></td>
                         <td style="text-align: center;">' . $entry->version_count . '</td>
@@ -321,7 +326,16 @@ try {
             echo '<strong>💡 Que faire avec ces entries orphelines ?</strong><br>';
             echo '• Ces ' . $entries_without_category . ' entries pointent vers des catégories qui ont été supprimées<br>';
             echo '• Les questions associées existent toujours mais sont "invisibles" dans l\'interface<br>';
-            echo '• <strong>Recommandation :</strong> Créer un outil de réassignation vers une catégorie "Récupération" (v1.3.0)';
+            echo '• <strong>👉 Cliquez sur un Entry ID</strong> pour voir les détails et réassigner vers une catégorie "Récupération"';
+            echo html_writer::end_div();
+            
+            // Bouton pour voir toutes les entries orphelines
+            echo html_writer::start_div('', ['style' => 'margin-top: 20px; text-align: center;']);
+            echo html_writer::link(
+                new moodle_url('/local/question_diagnostic/orphan_entries.php'),
+                '🔧 Gérer toutes les entries orphelines (' . $entries_without_category . ')',
+                ['class' => 'btn btn-lg btn-primary']
+            );
             echo html_writer::end_div();
         }
         

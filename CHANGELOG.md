@@ -5,6 +5,75 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.3.0] - 2025-10-07
+
+### 🎉 NOUVELLE FONCTIONNALITÉ MAJEURE : Outil de récupération des questions orphelines
+
+**orphan_entries.php - Nouvelle page dédiée**
+- Page complète de gestion des entries orphelines
+- Affichage de la liste de toutes les entries orphelines
+- Vue détaillée pour chaque entry avec :
+  - Informations complètes (ID, catégorie inexistante, propriétaire)
+  - Liste de toutes les questions liées (nom, type, version, date)
+  - Comptage des questions et versions
+- **Outil de réassignation** vers catégorie "Récupération"
+  - Détection automatique des catégories nommées "Récupération"
+  - Suggestion intelligente de la catégorie cible
+  - Liste de toutes les catégories disponibles comme alternatives
+  - Confirmation avant réassignation (sécurité)
+- Navigation intuitive avec breadcrumb
+- Messages de feedback clairs (succès, erreur, info)
+
+### ✨ Améliorations test.php
+
+**Entries orphelines cliquables**
+- Les Entry ID dans le tableau sont maintenant des **liens cliquables**
+- Survol avec tooltip explicatif
+- Lignes du tableau cliquables pour navigation rapide
+- **Bouton principal** "Gérer toutes les entries orphelines" avec compteur
+- Instructions claires pour l'utilisateur
+
+### 🔧 Workflow de récupération
+
+1. **Créer une catégorie "Récupération"** dans Moodle (contexte au choix)
+2. **Accéder à la page** via test.php ou menu principal
+3. **Cliquer sur une entry orpheline** pour voir ses détails
+4. **Réassigner automatiquement** vers "Récupération" (détection auto)
+5. **Questions récupérées** et visibles dans l'interface Moodle ✅
+
+### 📊 Impact
+
+**Avant v1.3.0 :**
+- Entries orphelines détectées mais non récupérables
+- Questions invisibles et inutilisables
+- Nécessitait une intervention manuelle en base de données
+
+**Après v1.3.0 :**
+- ✅ Interface graphique complète pour gérer les entries
+- ✅ Récupération en quelques clics (pas de SQL manuel)
+- ✅ Questions redeviennent visibles et utilisables
+- ✅ Historique et traçabilité des actions
+
+### 🔒 Sécurité
+
+- ✅ Protection admin stricte (is_siteadmin)
+- ✅ Confirmation obligatoire avant réassignation
+- ✅ Validation sesskey sur toutes les actions
+- ✅ Vérification existence catégorie cible
+- ✅ Messages d'erreur explicites
+
+### 📝 Fichiers ajoutés/modifiés
+
+**Nouveau :**
+- `orphan_entries.php` : Page complète de gestion (500+ lignes)
+
+**Modifiés :**
+- `test.php` : Liens cliquables + bouton principal
+- `version.php` : Version 1.3.0 (2025100708)
+- `CHANGELOG.md` : Documentation complète
+
+---
+
 ## [1.2.7] - 2025-10-07
 
 ### ✨ Amélioration de l'outil de diagnostic
