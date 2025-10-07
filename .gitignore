@@ -1,0 +1,32 @@
+# Moodle specific
+config.php
+/moodledata/
+.moodledata/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Temporary files
+*.tmp
+*.bak
+*.log
+~*
+
+# PHP
+vendor/
+composer.phar
+composer.lock
+
+# Environment
+.env
+.env.local
+.env.*.local

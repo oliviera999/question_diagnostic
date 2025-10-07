@@ -1,0 +1,70 @@
+GNU GENERAL PUBLIC LICENSE
+Version 3, 29 June 2007
+
+Copyright (C) 2025 Question Category Management Tool Contributors
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+---
+
+This Moodle plugin is distributed under the same license as Moodle itself.
+
+For the full text of the GNU General Public License version 3, please visit:
+https://www.gnu.org/licenses/gpl-3.0.html
+
+For more information about Moodle and its licensing, please visit:
+https://moodle.org/
+
+---
+
+ADDITIONAL TERMS FOR MOODLE PLUGINS
+
+This plugin is specifically designed for Moodle (https://moodle.org/)
+and follows Moodle's plugin development guidelines and standards.
+
+As a Moodle plugin, this software:
+- Is compatible with Moodle 4.3 and later versions
+- Follows Moodle coding standards
+- Uses Moodle's APIs and libraries
+- Is distributed through Moodle's plugin directory
+
+---
+
+THIRD-PARTY COMPONENTS
+
+This plugin may use the following components which are also GPL-3.0 licensed:
+- Moodle Core Libraries (https://moodle.org/) - GPL-3.0
+- Moodle APIs and Frameworks - GPL-3.0
+
+---
+
+CONTACT
+
+For questions about this plugin or its license, please:
+- Open an issue on the project repository
+- Contact the maintainers through the plugin page
+- Refer to the README.md for documentation
+
+---
+
+DISCLAIMER
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
