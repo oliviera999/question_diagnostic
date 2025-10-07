@@ -388,3 +388,4 @@ GNU GPL v3 or later
 
 🎉 **Bonne utilisation et gain de temps assuré !** ⚡
 
+

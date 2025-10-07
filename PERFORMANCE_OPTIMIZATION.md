@@ -177,3 +177,4 @@ Administration du site > Développement > Purger tous les caches
 **Date de mise à jour :** 7 octobre 2025
 **Version :** 1.2.1
 
+

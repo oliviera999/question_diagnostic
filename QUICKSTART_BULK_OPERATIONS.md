@@ -249,3 +249,4 @@ Vous êtes maintenant prêt à utiliser les opérations par lot sur les catégor
 
 **Version 1.2.0** | **Dernière mise à jour : 2025**
 
+

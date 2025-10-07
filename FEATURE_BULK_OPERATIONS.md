@@ -268,3 +268,4 @@ echo html_writer::tag('span', '', ['class' => 'qd-selected-count', 'id' => 'sele
 **Développé pour Moodle Question Diagnostic Tool**  
 *Testé sur Moodle 4.5+*
 
+

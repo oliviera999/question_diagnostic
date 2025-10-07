@@ -94,3 +94,4 @@ Pour les très grandes bases (>10000 questions), envisagez de :
 
 Si vous rencontrez encore des problèmes, consultez le fichier `PERFORMANCE_OPTIMIZATION.md` pour plus de détails.
 
+

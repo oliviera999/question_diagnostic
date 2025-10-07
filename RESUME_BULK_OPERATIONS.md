@@ -298,3 +298,4 @@ Votre plugin dispose maintenant d'un système complet et professionnel d'opérat
 **Version 1.2.0** | **Compatible Moodle 4.5+**  
 **Date de mise à jour :** Janvier 2025
 
+
