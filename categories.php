@@ -38,6 +38,18 @@ $PAGE->requires->js('/local/question_diagnostic/scripts/main.js', true);
 // Section d'en-tête Moodle standard.
 echo $OUTPUT->header();
 
+// Alerte sécurité pour les suppressions
+echo html_writer::start_div('alert alert-warning', ['style' => 'margin-bottom: 20px; border-left: 4px solid #d9534f;']);
+echo '<strong>🛡️ ATTENTION</strong> : Cette page permet de supprimer des catégories. ';
+echo 'Consultez la ';
+echo html_writer::link(
+    new moodle_url('/local/question_diagnostic/DATABASE_IMPACT.md'),
+    'documentation DATABASE_IMPACT.md',
+    ['target' => '_blank', 'style' => 'font-weight: bold; text-decoration: underline;']
+);
+echo ' pour les procédures de backup avant toute suppression.';
+echo html_writer::end_div();
+
 // Lien retour vers le menu principal
 echo html_writer::start_tag('div', ['style' => 'margin-bottom: 20px;']);
 echo html_writer::link(

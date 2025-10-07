@@ -40,6 +40,21 @@ $PAGE->requires->css('/local/question_diagnostic/styles/main.css');
 echo $OUTPUT->header();
 
 // ======================================================================
+// ALERTE SÉCURITÉ
+// ======================================================================
+
+echo html_writer::start_div('alert alert-warning', ['style' => 'margin-bottom: 20px; border-left: 4px solid #d9534f;']);
+echo '<strong>🛡️ INFORMATION IMPORTANTE</strong><br>';
+echo 'Ce plugin peut modifier la base de données. Avant toute action de suppression ou réassignation, consultez la ';
+echo html_writer::link(
+    new moodle_url('/local/question_diagnostic/DATABASE_IMPACT.md'),
+    'documentation DATABASE_IMPACT.md',
+    ['target' => '_blank', 'style' => 'font-weight: bold; text-decoration: underline;']
+);
+echo ' pour connaître les impacts et les procédures de backup.';
+echo html_writer::end_div();
+
+// ======================================================================
 // INTRODUCTION
 // ======================================================================
 

@@ -97,7 +97,7 @@ if ($action === 'reassign' && $entryid && $targetcategoryid && $confirm) {
 // Début de la page
 echo $OUTPUT->header();
 
-// Breadcrumb
+// Breadcrumb et liens utiles
 echo html_writer::start_div('breadcrumb-nav', ['style' => 'margin-bottom: 20px;']);
 echo html_writer::link(
     new moodle_url('/local/question_diagnostic/index.php'),
@@ -108,7 +108,31 @@ echo html_writer::link(
     new moodle_url('/local/question_diagnostic/test.php'),
     'Page de diagnostic'
 );
+echo ' | ';
+echo html_writer::link(
+    new moodle_url('/local/question_diagnostic/DATABASE_IMPACT.md'),
+    '🛡️ Impact Base de Données',
+    ['target' => '_blank', 'style' => 'font-weight: bold; color: #d9534f;']
+);
 echo html_writer::end_div();
+
+// Alerte de sécurité en haut de page
+if ($entryid == 0) {
+    echo html_writer::start_div('alert alert-warning', ['style' => 'margin-bottom: 20px; border-left: 4px solid #d9534f;']);
+    echo '<strong>🛡️ SÉCURITÉ DES DONNÉES</strong><br>';
+    echo 'Cette page permet de <strong>modifier la base de données</strong>. ';
+    echo 'Avant toute action, consultez la ';
+    echo html_writer::link(
+        new moodle_url('/local/question_diagnostic/DATABASE_IMPACT.md'),
+        'documentation des impacts sur la BDD',
+        ['target' => '_blank', 'style' => 'font-weight: bold; text-decoration: underline;']
+    );
+    echo ' pour connaître :<br>';
+    echo '• Les tables modifiées<br>';
+    echo '• Les commandes de backup recommandées<br>';
+    echo '• Les procédures de restauration';
+    echo html_writer::end_div();
+}
 
 // Si une entry spécifique est demandée
 if ($entryid > 0) {
@@ -146,10 +170,30 @@ if ($entryid > 0) {
     
     echo html_writer::tag('h2', '🔍 Détails de l\'Entry Orpheline #' . $entryid);
     
-    echo html_writer::start_div('alert alert-warning');
-    echo '<strong>⚠️ Entry orpheline détectée</strong><br>';
-    echo 'Cette entry pointe vers la catégorie ID <strong>' . $entry->questioncategoryid . '</strong> qui n\'existe plus dans la base de données.';
-    echo html_writer::end_div();
+    // Compter les questions AVANT d'afficher l'alerte
+    $questions = $DB->get_records_sql("
+        SELECT q.*, qv.version
+        FROM {question} q
+        INNER JOIN {question_versions} qv ON qv.questionid = q.id
+        WHERE qv.questionbankentryid = :entryid
+        ORDER BY qv.version DESC
+    ", ['entryid' => $entryid]);
+    
+    $question_count = count($questions);
+    
+    if ($question_count == 0) {
+        echo html_writer::start_div('alert alert-info');
+        echo '<strong>ℹ️ Entry orpheline VIDE</strong><br>';
+        echo 'Cette entry pointe vers la catégorie ID <strong>' . $entry->questioncategoryid . '</strong> qui n\'existe plus dans la base de données.<br>';
+        echo '<strong>Important :</strong> Cette entry ne contient <strong>aucune question</strong>. Elle peut être ignorée ou supprimée.';
+        echo html_writer::end_div();
+    } else {
+        echo html_writer::start_div('alert alert-warning');
+        echo '<strong>⚠️ Entry orpheline détectée</strong><br>';
+        echo 'Cette entry pointe vers la catégorie ID <strong>' . $entry->questioncategoryid . '</strong> qui n\'existe plus dans la base de données.<br>';
+        echo '<strong>Impact :</strong> ' . $question_count . ' question(s) sont actuellement invisibles dans Moodle.';
+        echo html_writer::end_div();
+    }
     
     // Informations sur l'entry
     echo html_writer::tag('h3', '📋 Informations générales');
@@ -173,15 +217,7 @@ if ($entryid > 0) {
     // Questions liées à cette entry
     echo html_writer::tag('h3', '📝 Questions liées à cette entry', ['style' => 'margin-top: 30px;']);
     
-    $questions = $DB->get_records_sql("
-        SELECT q.*, qv.version
-        FROM {question} q
-        INNER JOIN {question_versions} qv ON qv.questionid = q.id
-        WHERE qv.questionbankentryid = :entryid
-        ORDER BY qv.version DESC
-    ", ['entryid' => $entryid]);
-    
-    if ($questions) {
+    if ($questions && $question_count > 0) {
         echo '<table class="generaltable" style="width: 100%;">';
         echo '<thead><tr>
                 <th>ID</th>
@@ -217,9 +253,32 @@ if ($entryid > 0) {
         );
     } else {
         echo html_writer::div('Aucune question liée à cette entry.', 'alert alert-warning');
+        
+        // Si l'entry est vide, afficher un message explicatif
+        echo html_writer::start_div('alert alert-info', ['style' => 'margin-top: 20px;']);
+        echo '<h4>💡 Entry vide - Aucune action nécessaire</h4>';
+        echo '<p>Cette entry ne contient aucune question. Cela signifie que :</p>';
+        echo '<ul>';
+        echo '<li>Les questions ont été supprimées manuellement</li>';
+        echo '<li>Ou l\'entry a été créée mais jamais utilisée</li>';
+        echo '</ul>';
+        echo '<p><strong>Recommandation :</strong> Vous pouvez ignorer cette entry. Elle n\'affecte aucune question.</p>';
+        echo html_writer::end_div();
+        
+        // Lien retour pour les entries vides
+        echo html_writer::start_div('', ['style' => 'margin-top: 30px;']);
+        echo html_writer::link(
+            new moodle_url('/local/question_diagnostic/orphan_entries.php'),
+            '← Retour à la liste des entries orphelines',
+            ['class' => 'btn btn-secondary']
+        );
+        echo html_writer::end_div();
+        
+        echo $OUTPUT->footer();
+        exit;
     }
     
-    // Section réassignation
+    // Section réassignation (uniquement si l'entry contient des questions)
     echo html_writer::tag('h3', '🔧 Réassigner cette entry', ['style' => 'margin-top: 40px;']);
     
     // Si confirmation demandée
@@ -234,10 +293,14 @@ if ($entryid > 0) {
             echo html_writer::tag('p', 
                 "Êtes-vous sûr de vouloir réassigner l'entry #{$entryid} vers la catégorie <strong>" . s($target_category->name) . "</strong> ?"
             );
-            echo html_writer::tag('p', 
-                'Cette action modifiera la catégorie de <strong>' . count($questions) . ' question(s)</strong>.',
+             echo html_writer::tag('p', 
+                'Cette action modifiera la catégorie de <strong>' . $question_count . ' question(s)</strong>.',
                 ['style' => 'margin-top: 10px;']
-            );
+             );
+             echo html_writer::tag('p',
+                'Les questions redeviendront immédiatement visibles dans la banque de questions.',
+                ['style' => 'margin-top: 5px; color: green;']
+             );
             echo html_writer::end_div();
             
             // Boutons
@@ -395,11 +458,8 @@ if ($entryid > 0) {
         WHERE qc.id IS NULL
     ");
     
-    echo html_writer::tag('h3', "📊 {$orphan_count} entry(ies) orpheline(s) détectée(s)");
-    
-    if ($orphan_count > 0) {
-        // Récupérer toutes les entries orphelines avec détails
-        $orphan_entries = $DB->get_records_sql("
+    // Séparer les entries avec questions des entries vides
+    $orphan_entries_all = $DB->get_records_sql("
             SELECT qbe.id, 
                    qbe.questioncategoryid, 
                    qbe.idnumber, 
@@ -415,13 +475,36 @@ if ($entryid > 0) {
             LEFT JOIN {question} q ON q.id = qv.questionid
             WHERE qc.id IS NULL
             GROUP BY qbe.id, qbe.questioncategoryid, qbe.idnumber, qbe.ownerid
-            ORDER BY qbe.id DESC
+            ORDER BY question_count DESC, qbe.id DESC
         ");
         
-        if ($orphan_entries) {
-            echo '<table class="generaltable" style="width: 100%; margin-top: 20px;">';
+        // Filtrer les entries avec questions et sans questions
+        $orphan_entries_with_questions = array_filter($orphan_entries_all, function($entry) {
+            return $entry->question_count > 0;
+        });
+        
+        $orphan_entries_empty = array_filter($orphan_entries_all, function($entry) {
+            return $entry->question_count == 0;
+        });
+        
+        $count_with_questions = count($orphan_entries_with_questions);
+        $count_empty = count($orphan_entries_empty);
+        
+        echo html_writer::tag('h3', "📊 {$orphan_count} entry(ies) orpheline(s) détectée(s)");
+        
+        // Résumé
+        echo html_writer::start_div('alert alert-info', ['style' => 'margin-bottom: 20px;']);
+        echo '<strong>Résumé :</strong><br>';
+        echo '• <strong>' . $count_with_questions . '</strong> entries contiennent des questions (à récupérer)<br>';
+        echo '• <strong>' . $count_empty . '</strong> entries sont vides (peuvent être ignorées)';
+        echo html_writer::end_div();
+        
+        // Afficher d'abord les entries AVEC questions
+        if ($count_with_questions > 0) {
+            echo html_writer::tag('h3', '🔴 Entries avec questions à récupérer (' . $count_with_questions . ')', ['style' => 'color: #d9534f;']);
+            echo '<table class="generaltable" style="width: 100%; margin-top: 10px; border: 2px solid #d9534f;">';
             echo '<thead>
-                    <tr>
+                    <tr style="background-color: #f2dede;">
                         <th>Entry ID</th>
                         <th>Catégorie ID<br>(inexistante)</th>
                         <th>Questions</th>
@@ -434,17 +517,17 @@ if ($entryid > 0) {
                   </thead>';
             echo '<tbody>';
             
-            foreach ($orphan_entries as $entry) {
+            foreach ($orphan_entries_with_questions as $entry) {
                 $created_date = $entry->created_time ? userdate($entry->created_time, '%d/%m/%Y') : '-';
                 $question_name = $entry->first_question_name ? s($entry->first_question_name) : '-';
                 if (strlen($question_name) > 50) {
                     $question_name = substr($question_name, 0, 50) . '...';
                 }
                 
-                echo '<tr>';
+                echo '<tr style="background-color: #fcf8e3;">';
                 echo '<td><strong>' . $entry->id . '</strong></td>';
                 echo '<td style="color: red; font-weight: bold;">' . $entry->questioncategoryid . ' ❌</td>';
-                echo '<td style="text-align: center;"><strong>' . $entry->question_count . '</strong></td>';
+                echo '<td style="text-align: center;"><strong style="color: #d9534f;">' . $entry->question_count . '</strong></td>';
                 echo '<td style="text-align: center;">' . $entry->version_count . '</td>';
                 echo '<td style="font-size: 0.9em;">' . $question_name . '</td>';
                 echo '<td>' . ($entry->question_type ?: '-') . '</td>';
@@ -452,8 +535,50 @@ if ($entryid > 0) {
                 echo '<td>';
                 echo html_writer::link(
                     new moodle_url('/local/question_diagnostic/orphan_entries.php', ['id' => $entry->id]),
-                    'Voir détails →',
-                    ['class' => 'btn btn-sm btn-primary']
+                    '🔧 Récupérer →',
+                    ['class' => 'btn btn-sm btn-danger', 'style' => 'font-weight: bold;']
+                );
+                echo '</td>';
+                echo '</tr>';
+            }
+            
+            echo '</tbody></table>';
+        } else {
+            echo html_writer::div('✅ Aucune entry avec questions à récupérer !', 'alert alert-success');
+        }
+        
+        // Afficher ensuite les entries VIDES (moins importantes)
+        if ($count_empty > 0) {
+            echo html_writer::tag('h3', 'ℹ️ Entries vides (' . $count_empty . ') - Peuvent être ignorées', ['style' => 'color: #5bc0de; margin-top: 40px;']);
+            echo html_writer::start_div('alert alert-info');
+            echo 'Ces entries ne contiennent aucune question. Elles peuvent être ignorées sans risque.';
+            echo html_writer::end_div();
+            
+            echo '<table class="generaltable" style="width: 100%; margin-top: 10px; opacity: 0.7;">';
+            echo '<thead>
+                    <tr>
+                        <th>Entry ID</th>
+                        <th>Catégorie ID<br>(inexistante)</th>
+                        <th>Questions</th>
+                        <th>Créée le</th>
+                        <th>Actions</th>
+                    </tr>
+                  </thead>';
+            echo '<tbody>';
+            
+            foreach ($orphan_entries_empty as $entry) {
+                $created_date = $entry->created_time ? userdate($entry->created_time, '%d/%m/%Y') : '-';
+                
+                echo '<tr>';
+                echo '<td>' . $entry->id . '</td>';
+                echo '<td style="color: #999;">' . $entry->questioncategoryid . '</td>';
+                echo '<td style="text-align: center; color: #999;"><em>0</em></td>';
+                echo '<td style="font-size: 0.9em;">' . $created_date . '</td>';
+                echo '<td>';
+                echo html_writer::link(
+                    new moodle_url('/local/question_diagnostic/orphan_entries.php', ['id' => $entry->id]),
+                    'Voir détails',
+                    ['class' => 'btn btn-sm btn-secondary', 'style' => 'font-size: 0.85em;']
                 );
                 echo '</td>';
                 echo '</tr>';
@@ -466,8 +591,16 @@ if ($entryid > 0) {
         echo html_writer::start_div('alert alert-success', ['style' => 'margin-top: 30px;']);
         echo '<h4>✨ Comment récupérer ces questions ?</h4>';
         echo '<ol>';
+        echo '<li><strong>📖 Consultez d\'abord</strong> la ';
+        echo html_writer::link(
+            new moodle_url('/local/question_diagnostic/DATABASE_IMPACT.md'),
+            'documentation DATABASE_IMPACT.md',
+            ['target' => '_blank', 'style' => 'font-weight: bold;']
+        );
+        echo ' pour comprendre les impacts</li>';
+        echo '<li><strong>💾 Faites un backup</strong> de votre base de données (recommandé)</li>';
         echo '<li><strong>Créez une catégorie "Récupération"</strong> dans votre Moodle si elle n\'existe pas encore</li>';
-        echo '<li><strong>Cliquez sur "Voir détails"</strong> pour chaque entry orpheline</li>';
+        echo '<li><strong>Cliquez sur "🔧 Récupérer"</strong> pour chaque entry avec questions</li>';
         echo '<li><strong>Réassignez l\'entry</strong> vers la catégorie "Récupération" (détection automatique)</li>';
         echo '<li>Les questions redeviendront <strong>visibles et utilisables</strong> dans Moodle ✅</li>';
         echo '</ol>';

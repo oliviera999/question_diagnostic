@@ -5,6 +5,72 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.3.1] - 2025-10-07
+
+### 🔍 Amélioration : Filtrage des entries orphelines vides
+
+**Problème identifié :**
+- Certaines entries orphelines ne contiennent aucune question (entries vides)
+- La réassignation de ces entries n'a aucun effet visible
+- L'utilisateur peut perdre du temps à traiter des entries sans impact
+
+**Solution implémentée :**
+
+**orphan_entries.php - Séparation entries vides/pleines**
+- ✅ Détection automatique des entries vides (0 questions)
+- ✅ **Liste séparée** : Entries avec questions (prioritaires) vs Entries vides (ignorables)
+- ✅ Affichage différencié avec codes couleur :
+  - 🔴 Rouge : Entries avec questions à récupérer (priorité haute)
+  - ℹ️ Gris : Entries vides (peuvent être ignorées)
+- ✅ Compteur dans le résumé : "X entries avec questions / Y entries vides"
+- ✅ **Blocage de réassignation** pour entries vides (sortie anticipée)
+- ✅ Message explicatif pour entries vides (aucune action nécessaire)
+
+**Améliorations UX :**
+- Tri automatique par nombre de questions (DESC)
+- Bouton "🔧 Récupérer" au lieu de "Voir détails" pour entries prioritaires
+- Tableau prioritaire mis en évidence visuellement
+- Tableau secondaire (vides) affiché en opacité réduite
+
+### 📚 Nouvelle Documentation : DATABASE_IMPACT.md
+
+**Contenu complet :**
+- ✅ **Liste exhaustive** des tables impactées (lecture vs modification)
+- ✅ **Requêtes SQL exactes** exécutées par le plugin
+- ✅ **Commandes de backup** recommandées (MySQL, PostgreSQL)
+- ✅ **Procédures de restauration** complètes avec exemples
+- ✅ **Checklist de sécurité** avant toute modification
+- ✅ **Garanties du plugin** (ce qui est fait / jamais fait)
+- ✅ **Tables en lecture seule** (garantie aucune modification)
+- ✅ **Procédures de rollback** pour chaque type d'action
+
+**Impact utilisateur :**
+- 🛡️ Transparence totale sur les modifications BDD
+- 💾 Instructions claires pour backup avant action
+- 🔄 Possibilité de retour en arrière documentée
+- 📊 Statistiques de l'installation incluses
+
+### 🔒 Sécurité
+
+**Tables modifiables (avec confirmation obligatoire) :**
+1. `question_bank_entries` - UPDATE du champ `questioncategoryid`
+2. `question_categories` - DELETE de catégories vides uniquement
+
+**Tables en lecture seule (jamais modifiées) :**
+- `question`, `question_versions`, `context`, `user`, `quiz`, `quiz_slots`, `question_attempts`, `files`
+
+### 📝 Fichiers ajoutés/modifiés
+
+**Nouveau :**
+- `DATABASE_IMPACT.md` : Documentation complète des impacts BDD (400+ lignes)
+
+**Modifiés :**
+- `orphan_entries.php` : Filtrage entries vides + amélioration UX
+- `version.php` : Version 1.3.1 (2025100709)
+- `CHANGELOG.md` : Documentation complète
+
+---
+
 ## [1.3.0] - 2025-10-07
 
 ### 🎉 NOUVELLE FONCTIONNALITÉ MAJEURE : Outil de récupération des questions orphelines
