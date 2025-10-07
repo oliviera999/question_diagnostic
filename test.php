@@ -442,6 +442,213 @@ try {
     echo html_writer::tag('p', 'Erreur : ' . $e->getMessage(), ['style' => 'color: red;']);
 }
 
+// ========================================
+// 6. SCAN DES QUESTIONS ORPHELINES
+// ========================================
+echo html_writer::start_div('', ['style' => 'margin-top: 50px; padding: 20px; background-color: #f9f9f9; border: 2px solid #d9534f; border-radius: 8px;']);
+echo html_writer::tag('h3', '6. 🔍 Scan des Questions Orphelines', ['style' => 'color: #d9534f; margin-top: 0;']);
+
+try {
+    // Compter les questions orphelines (via entries sans catégorie)
+    $orphan_questions_count = $DB->count_records_sql("
+        SELECT COUNT(DISTINCT q.id)
+        FROM {question} q
+        INNER JOIN {question_versions} qv ON qv.questionid = q.id
+        INNER JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
+        LEFT JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
+        WHERE qc.id IS NULL
+    ");
+    
+    // Compter les entries orphelines (avec et sans questions)
+    $orphan_entries_with_questions = $DB->count_records_sql("
+        SELECT COUNT(DISTINCT qbe.id)
+        FROM {question_bank_entries} qbe
+        LEFT JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
+        INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+        WHERE qc.id IS NULL
+    ");
+    
+    $orphan_entries_empty = $DB->count_records_sql("
+        SELECT COUNT(qbe.id)
+        FROM {question_bank_entries} qbe
+        LEFT JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
+        LEFT JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+        WHERE qc.id IS NULL AND qv.id IS NULL
+    ");
+    
+    $total_orphan_entries = $orphan_entries_with_questions + $orphan_entries_empty;
+    
+    // Affichage des résultats
+    if ($orphan_questions_count > 0 || $total_orphan_entries > 0) {
+        echo html_writer::start_div('alert alert-danger', ['style' => 'margin-bottom: 20px;']);
+        echo html_writer::tag('h4', '🚨 QUESTIONS ORPHELINES DÉTECTÉES', ['style' => 'margin-top: 0;']);
+        echo html_writer::tag('p', 
+            "<strong>{$orphan_questions_count} question(s)</strong> sont orphelines (invisibles dans la banque de questions Moodle).",
+            ['style' => 'font-size: 16px; margin: 10px 0;']
+        );
+        echo html_writer::end_div();
+        
+        // Tableau récapitulatif
+        echo '<table class="generaltable" style="width: 100%; margin-top: 15px;">';
+        echo '<thead>
+                <tr style="background-color: #f2dede;">
+                    <th>Type</th>
+                    <th>Nombre</th>
+                    <th>Description</th>
+                    <th>Action</th>
+                </tr>
+              </thead>';
+        echo '<tbody>';
+        
+        // Ligne 1 : Questions orphelines
+        echo '<tr>';
+        echo '<td><strong style="color: #d9534f;">Questions orphelines</strong></td>';
+        echo '<td style="text-align: center; font-size: 18px;"><strong style="color: #d9534f;">' . $orphan_questions_count . '</strong></td>';
+        echo '<td>Questions liées à des entries pointant vers des catégories inexistantes</td>';
+        echo '<td>';
+        if ($orphan_questions_count > 0) {
+            echo html_writer::link(
+                new moodle_url('/local/question_diagnostic/orphan_entries.php'),
+                '🔧 Récupérer ces questions',
+                ['class' => 'btn btn-danger', 'style' => 'font-weight: bold;']
+            );
+        } else {
+            echo '<span style="color: #5cb85c;">✓ Aucune</span>';
+        }
+        echo '</td>';
+        echo '</tr>';
+        
+        // Ligne 2 : Entries avec questions
+        echo '<tr style="background-color: #fcf8e3;">';
+        echo '<td><strong>Entries avec questions</strong></td>';
+        echo '<td style="text-align: center; font-size: 16px;"><strong>' . $orphan_entries_with_questions . '</strong></td>';
+        echo '<td>Entries orphelines contenant des questions à récupérer</td>';
+        echo '<td>';
+        if ($orphan_entries_with_questions > 0) {
+            echo html_writer::link(
+                new moodle_url('/local/question_diagnostic/orphan_entries.php'),
+                '→ Gérer',
+                ['class' => 'btn btn-warning btn-sm']
+            );
+        } else {
+            echo '<span style="color: #5cb85c;">✓ Aucune</span>';
+        }
+        echo '</td>';
+        echo '</tr>';
+        
+        // Ligne 3 : Entries vides
+        echo '<tr style="opacity: 0.7;">';
+        echo '<td><strong>Entries vides</strong></td>';
+        echo '<td style="text-align: center;">' . $orphan_entries_empty . '</td>';
+        echo '<td>Entries orphelines sans questions (peuvent être supprimées)</td>';
+        echo '<td>';
+        if ($orphan_entries_empty > 0) {
+            echo html_writer::link(
+                new moodle_url('/local/question_diagnostic/orphan_entries.php'),
+                '🗑️ Supprimer',
+                ['class' => 'btn btn-secondary btn-sm']
+            );
+        } else {
+            echo '<span style="color: #5cb85c;">✓ Aucune</span>';
+        }
+        echo '</td>';
+        echo '</tr>';
+        
+        echo '</tbody></table>';
+        
+        // Instructions
+        echo html_writer::start_div('alert alert-info', ['style' => 'margin-top: 20px;']);
+        echo '<h5 style="margin-top: 0;">💡 Comment résoudre ce problème ?</h5>';
+        echo '<ol style="margin-bottom: 0;">';
+        echo '<li><strong>Consultez DATABASE_IMPACT.md</strong> pour comprendre les impacts sur la base de données</li>';
+        echo '<li><strong>Faites un backup</strong> de votre base de données avant toute action</li>';
+        echo '<li><strong>Cliquez sur "🔧 Récupérer ces questions"</strong> pour accéder à l\'outil de gestion</li>';
+        echo '<li><strong>Créez une catégorie "Récupération"</strong> dans votre Moodle si ce n\'est pas déjà fait</li>';
+        echo '<li><strong>Réassignez les entries avec questions</strong> vers la catégorie "Récupération"</li>';
+        echo '<li><strong>Supprimez les entries vides</strong> pour nettoyer la base de données</li>';
+        echo '<li><strong>Vérifiez les questions récupérées</strong> dans la banque de questions Moodle</li>';
+        echo '</ol>';
+        echo html_writer::end_div();
+        
+        // Statistiques supplémentaires
+        if ($orphan_questions_count > 0) {
+            // Récupérer quelques exemples de questions orphelines
+            $sample_questions = $DB->get_records_sql("
+                SELECT q.id, q.name, q.qtype, qbe.questioncategoryid as orphan_category_id
+                FROM {question} q
+                INNER JOIN {question_versions} qv ON qv.questionid = q.id
+                INNER JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
+                LEFT JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
+                WHERE qc.id IS NULL
+                LIMIT 5
+            ");
+            
+            if ($sample_questions) {
+                echo html_writer::start_div('', ['style' => 'margin-top: 20px; padding: 15px; background-color: #fff; border: 1px solid #ddd; border-radius: 4px;']);
+                echo html_writer::tag('h5', '📋 Exemples de questions orphelines (5 premières)', ['style' => 'margin-top: 0;']);
+                echo '<table class="generaltable" style="width: 100%; font-size: 0.9em;">';
+                echo '<thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Nom de la question</th>
+                            <th>Type</th>
+                            <th>Catégorie orpheline (ID)</th>
+                        </tr>
+                      </thead>';
+                echo '<tbody>';
+                
+                foreach ($sample_questions as $question) {
+                    $question_name = s($question->name);
+                    if (strlen($question_name) > 60) {
+                        $question_name = substr($question_name, 0, 60) . '...';
+                    }
+                    
+                    echo '<tr>';
+                    echo '<td>' . $question->id . '</td>';
+                    echo '<td>' . $question_name . '</td>';
+                    echo '<td>' . $question->qtype . '</td>';
+                    echo '<td style="color: red; font-weight: bold;">' . $question->orphan_category_id . ' ❌</td>';
+                    echo '</tr>';
+                }
+                
+                echo '</tbody></table>';
+                echo html_writer::end_div();
+            }
+        }
+        
+    } else {
+        // Aucune question orpheline
+        echo html_writer::start_div('alert alert-success');
+        echo html_writer::tag('h4', '✅ AUCUNE QUESTION ORPHELINE', ['style' => 'margin-top: 0;']);
+        echo html_writer::tag('p', 
+            'Toutes les questions sont correctement liées à des catégories existantes.',
+            ['style' => 'margin-bottom: 0;']
+        );
+        echo html_writer::end_div();
+        
+        echo '<table class="generaltable" style="width: 100%; margin-top: 15px;">';
+        echo '<tbody>';
+        echo '<tr>';
+        echo '<td><strong>Questions orphelines</strong></td>';
+        echo '<td style="text-align: center; color: #5cb85c; font-weight: bold;">0 ✓</td>';
+        echo '</tr>';
+        echo '<tr>';
+        echo '<td><strong>Entries avec questions</strong></td>';
+        echo '<td style="text-align: center; color: #5cb85c; font-weight: bold;">0 ✓</td>';
+        echo '</tr>';
+        echo '<tr>';
+        echo '<td><strong>Entries vides</strong></td>';
+        echo '<td style="text-align: center; color: #5cb85c; font-weight: bold;">0 ✓</td>';
+        echo '</tr>';
+        echo '</tbody></table>';
+    }
+    
+} catch (Exception $e) {
+    echo html_writer::tag('p', 'Erreur lors du scan : ' . $e->getMessage(), ['style' => 'color: red;']);
+}
+
+echo html_writer::end_div();
+
 // Fin de la page
 echo $OUTPUT->footer();
 

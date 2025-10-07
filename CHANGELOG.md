@@ -5,6 +5,73 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.3.5] - 2025-10-07
+
+### ✨ NOUVELLE FONCTIONNALITÉ : Scan des questions orphelines dans la page de test
+
+**Ajout d'une section complète de diagnostic**
+- ✅ Nouvelle section "6. 🔍 Scan des Questions Orphelines" dans `test.php`
+- ✅ Détection automatique des questions orphelines (invisibles dans Moodle)
+- ✅ Comptage des entries orphelines (avec et sans questions)
+- ✅ Tableau récapitulatif avec actions directes
+- ✅ Instructions pas-à-pas pour résoudre le problème
+- ✅ Affichage de 5 exemples de questions orphelines avec détails
+
+**Informations affichées**
+1. **Questions orphelines** : Nombre total + lien "🔧 Récupérer ces questions"
+2. **Entries avec questions** : Nombre + lien "→ Gérer"
+3. **Entries vides** : Nombre + lien "🗑️ Supprimer"
+
+**Tableau des exemples**
+- ID de la question
+- Nom de la question (tronqué si > 60 caractères)
+- Type de question
+- ID de la catégorie orpheline (en rouge)
+
+**Cas sans problème**
+- Affichage d'un message de succès "✅ AUCUNE QUESTION ORPHELINE"
+- Tableau montrant 0 pour chaque type
+
+**Ergonomie**
+- Encadré avec bordure rouge pour attirer l'attention
+- Fond gris clair pour distinguer la section
+- Couleurs cohérentes avec le reste du plugin
+- Liens directs vers l'outil de gestion
+
+### 🧹 Nettoyage du code de debug
+
+**Retrait complet du debug temporaire dans `orphan_entries.php`**
+- ✅ Suppression de l'encadré de debug en haut de page (lignes 254-264)
+- ✅ Suppression des variables `$debug_info` (lignes 41-49)
+- ✅ Suppression des `console.log()` dans le JavaScript (lignes 1124-1131)
+- ✅ Code propre et production-ready
+
+**Impact**
+- Code plus léger et maintenable
+- Performances optimisées (pas de debug à chaque chargement)
+- Interface utilisateur épurée
+
+### 📝 Fichiers modifiés
+
+- `test.php` : Ajout section complète scan questions orphelines (lignes 445-650)
+- `orphan_entries.php` : Nettoyage du code de debug
+- `version.php` : v1.3.5 (2025100716)
+- `CHANGELOG.md` : Documentation complète
+
+### 🎯 Utilité
+
+**Avant v1.3.5 :**
+- Nécessité d'aller sur la page orphan_entries pour voir s'il y a un problème
+- Pas de vue d'ensemble rapide
+
+**Maintenant v1.3.5 :**
+- Diagnostic complet sur la page de test
+- Vue d'ensemble instantanée des problèmes
+- Liens directs vers les outils de résolution
+- Instructions claires pour l'utilisateur
+
+---
+
 ## [1.3.4.3] - 2025-10-07
 
 ### 🐛 CORRECTIF CRITIQUE : PARAM_ALPHA ne permet pas les underscores

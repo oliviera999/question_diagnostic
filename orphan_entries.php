@@ -38,16 +38,6 @@ $targetcategoryid = optional_param('targetcategory', 0, PARAM_INT);
 $confirm = optional_param('confirm', 0, PARAM_INT);
 $selectedentries = optional_param_array('entries', [], PARAM_INT); // Pour sélection multiple
 
-// Debug temporaire (à retirer après) - Affichage visible à l'écran
-$debug_info = [];
-$debug_info[] = "Action reçue: '$action'";
-$debug_info[] = "Entries count: " . count($selectedentries);
-$debug_info[] = "Confirm: $confirm";
-$debug_info[] = "Target category: $targetcategoryid";
-if (!empty($selectedentries)) {
-    $debug_info[] = "Entries IDs: " . implode(', ', $selectedentries);
-}
-
 // Configuration de la page
 $PAGE->set_url(new moodle_url('/local/question_diagnostic/orphan_entries.php', ['id' => $entryid]));
 $PAGE->set_context(context_system::instance());
@@ -250,18 +240,6 @@ if ($action === 'reassign' && $entryid && $targetcategoryid && $confirm) {
 
 // Début de la page
 echo $OUTPUT->header();
-
-// DEBUG TEMPORAIRE - Afficher les paramètres reçus
-if (!empty($debug_info)) {
-    echo html_writer::start_div('alert alert-info', ['style' => 'background-color: #fff3cd; border: 2px solid #ff6b6b; margin-bottom: 20px;']);
-    echo '<h4 style="color: #d9534f;">🔍 DEBUG - Paramètres reçus</h4>';
-    echo '<ul style="margin: 0; padding-left: 20px;">';
-    foreach ($debug_info as $info) {
-        echo '<li>' . $info . '</li>';
-    }
-    echo '</ul>';
-    echo html_writer::end_div();
-}
 
 // Breadcrumb et liens utiles
 echo html_writer::start_div('breadcrumb-nav', ['style' => 'margin-bottom: 20px;']);
@@ -1120,15 +1098,6 @@ if ($entryid > 0) {
                             alert("Veuillez sélectionner au moins une entry vide.");
                             return;
                         }
-                        
-                        // Debug : Afficher les IDs sélectionnés
-                        const selectedIds = [];
-                        document.querySelectorAll(".entry-checkbox-empty:checked").forEach(cb => {
-                            selectedIds.push(cb.value);
-                        });
-                        console.log("DEBUG: Submitting bulk delete with IDs:", selectedIds);
-                        console.log("DEBUG: Form action:", bulkFormEmpty.action);
-                        console.log("DEBUG: Form method:", bulkFormEmpty.method);
                         
                         bulkFormEmpty.submit();
                     });
