@@ -31,8 +31,8 @@ class question_analyzer {
     public static function get_all_questions_with_stats($include_duplicates = true, $limit = 0) {
         global $DB;
 
-        // Récupérer toutes les questions
-        $sql = "SELECT * FROM {question} ORDER BY id ASC";
+        // Récupérer les questions avec limite
+        $sql = "SELECT * FROM {question} ORDER BY id DESC";
         if ($limit > 0) {
             $sql .= " LIMIT " . intval($limit);
         }
@@ -40,22 +40,46 @@ class question_analyzer {
         $questions = $DB->get_records_sql($sql);
         $result = [];
 
-        // Préparer les données en masse pour optimiser les performances
-        try {
-            $usage_map = self::get_all_questions_usage();
-        } catch (\Exception $e) {
-            debugging('Error loading usage map: ' . $e->getMessage(), DEBUG_DEVELOPER);
-            $usage_map = [];
-        }
-        
-        // Seulement charger les doublons si demandé et si pas trop de questions
-        $duplicates_map = [];
-        if ($include_duplicates && count($questions) < 5000) {
+        // 🚀 OPTIMISATION CRITIQUE : Si limite appliquée, charger UNIQUEMENT les données pour ces questions
+        if ($limit > 0 && count($questions) > 0) {
+            // Extraire les IDs des questions à traiter
+            $question_ids = array_keys($questions);
+            
+            // Charger l'usage UNIQUEMENT pour ces questions
             try {
-                $duplicates_map = self::get_duplicates_map(true);
+                $usage_map = self::get_questions_usage_by_ids($question_ids);
             } catch (\Exception $e) {
-                debugging('Error loading duplicates map: ' . $e->getMessage(), DEBUG_DEVELOPER);
-                $duplicates_map = [];
+                debugging('Error loading usage map: ' . $e->getMessage(), DEBUG_DEVELOPER);
+                $usage_map = [];
+            }
+            
+            // Charger les doublons UNIQUEMENT pour ces questions (si demandé)
+            $duplicates_map = [];
+            if ($include_duplicates && count($questions) < 5000) {
+                try {
+                    $duplicates_map = self::get_duplicates_for_questions($questions);
+                } catch (\Exception $e) {
+                    debugging('Error loading duplicates map: ' . $e->getMessage(), DEBUG_DEVELOPER);
+                    $duplicates_map = [];
+                }
+            }
+        } else {
+            // Mode ancien : charger toutes les données (pour compatibilité)
+            try {
+                $usage_map = self::get_all_questions_usage();
+            } catch (\Exception $e) {
+                debugging('Error loading usage map: ' . $e->getMessage(), DEBUG_DEVELOPER);
+                $usage_map = [];
+            }
+            
+            $duplicates_map = [];
+            if ($include_duplicates && count($questions) < 5000) {
+                try {
+                    $duplicates_map = self::get_duplicates_map(true);
+                } catch (\Exception $e) {
+                    debugging('Error loading duplicates map: ' . $e->getMessage(), DEBUG_DEVELOPER);
+                    $duplicates_map = [];
+                }
             }
         }
 
@@ -240,6 +264,168 @@ class question_analyzer {
         }
 
         return $usage;
+    }
+
+    /**
+     * Récupère l'usage pour un ensemble spécifique de questions (optimisé pour limite)
+     *
+     * @param array $question_ids IDs des questions
+     * @return array Map [question_id => usage_info]
+     */
+    private static function get_questions_usage_by_ids($question_ids) {
+        global $DB;
+
+        if (empty($question_ids)) {
+            return [];
+        }
+
+        $usage_map = [];
+
+        try {
+            // Construire la clause IN pour filtrer uniquement les questions demandées
+            list($insql, $params) = $DB->get_in_or_equal($question_ids, SQL_PARAMS_NAMED);
+            
+            // Quiz usage - UNIQUEMENT pour les IDs demandés
+            $quiz_usage = $DB->get_records_sql("
+                SELECT qs.questionid, qu.id as quiz_id, qu.name as quiz_name, qu.course
+                FROM {quiz_slots} qs
+                INNER JOIN {quiz} qu ON qu.id = qs.quizid
+                WHERE qs.questionid $insql
+                ORDER BY qs.questionid, qu.id
+            ", $params);
+
+            foreach ($quiz_usage as $record) {
+                $qid = $record->questionid;
+                
+                if (!isset($usage_map[$qid])) {
+                    $usage_map[$qid] = [
+                        'quiz_count' => 0,
+                        'quiz_list' => [],
+                        'attempt_count' => 0,
+                        'is_used' => true
+                    ];
+                }
+                
+                // Vérifier si ce quiz n'est pas déjà dans la liste
+                $already_added = false;
+                foreach ($usage_map[$qid]['quiz_list'] as $existing_quiz) {
+                    if ($existing_quiz->id == $record->quiz_id) {
+                        $already_added = true;
+                        break;
+                    }
+                }
+                
+                if (!$already_added) {
+                    $usage_map[$qid]['quiz_list'][] = (object)[
+                        'id' => $record->quiz_id,
+                        'name' => $record->quiz_name,
+                        'course' => $record->course
+                    ];
+                    $usage_map[$qid]['quiz_count']++;
+                }
+            }
+
+            // Attempts - UNIQUEMENT pour les IDs demandés
+            $attempts = $DB->get_records_sql("
+                SELECT qa.questionid, COUNT(DISTINCT qa.id) as attempt_count
+                FROM {question_attempts} qa
+                WHERE qa.questionid $insql
+                GROUP BY qa.questionid
+            ", $params);
+
+            foreach ($attempts as $record) {
+                if (!isset($usage_map[$record->questionid])) {
+                    $usage_map[$record->questionid] = [
+                        'quiz_count' => 0,
+                        'quiz_list' => [],
+                        'attempt_count' => 0,
+                        'is_used' => false
+                    ];
+                }
+                $usage_map[$record->questionid]['attempt_count'] = $record->attempt_count;
+                $usage_map[$record->questionid]['is_used'] = true;
+            }
+
+            // Initialiser les questions sans usage
+            foreach ($question_ids as $qid) {
+                if (!isset($usage_map[$qid])) {
+                    $usage_map[$qid] = [
+                        'quiz_count' => 0,
+                        'quiz_list' => [],
+                        'attempt_count' => 0,
+                        'is_used' => false
+                    ];
+                }
+            }
+
+        } catch (\Exception $e) {
+            debugging('Error in get_questions_usage_by_ids: ' . $e->getMessage(), DEBUG_DEVELOPER);
+        }
+
+        return $usage_map;
+    }
+
+    /**
+     * Détecte les doublons pour un ensemble spécifique de questions (optimisé)
+     *
+     * @param array $questions Tableau d'objets questions
+     * @return array Map [question_id => [duplicate_ids]]
+     */
+    private static function get_duplicates_for_questions($questions) {
+        global $DB;
+
+        $duplicates_map = [];
+        
+        if (empty($questions)) {
+            return $duplicates_map;
+        }
+
+        try {
+            // Créer un index des questions par nom pour recherche rapide
+            $questions_by_name = [];
+            foreach ($questions as $question) {
+                $key = strtolower(trim($question->name)) . '|' . $question->qtype;
+                if (!isset($questions_by_name[$key])) {
+                    $questions_by_name[$key] = [];
+                }
+                $questions_by_name[$key][] = $question;
+            }
+            
+            // Pour chaque groupe de noms, chercher les doublons dans la base complète
+            foreach ($questions_by_name as $key => $local_questions) {
+                list($name_part, $qtype_part) = explode('|', $key, 2);
+                
+                // Récupérer le nom original (non transformé) depuis une des questions
+                $original_name = $local_questions[0]->name;
+                
+                // Trouver TOUTES les questions avec ce nom exact dans la base
+                $all_with_name = $DB->get_records('question', [
+                    'name' => $original_name,
+                    'qtype' => $qtype_part
+                ]);
+                
+                // Si plus d'une question avec ce nom existe
+                if (count($all_with_name) > 1) {
+                    // Pour chaque question locale, lister les autres comme doublons
+                    foreach ($local_questions as $local_question) {
+                        $others = [];
+                        foreach ($all_with_name as $other) {
+                            if ($other->id != $local_question->id) {
+                                $others[] = $other->id;
+                            }
+                        }
+                        if (!empty($others)) {
+                            $duplicates_map[$local_question->id] = $others;
+                        }
+                    }
+                }
+            }
+            
+        } catch (\Exception $e) {
+            debugging('Error in get_duplicates_for_questions: ' . $e->getMessage(), DEBUG_DEVELOPER);
+        }
+
+        return $duplicates_map;
     }
 
     /**

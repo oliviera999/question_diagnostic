@@ -293,18 +293,36 @@ echo html_writer::end_tag('div');
 
 // Charger les questions avec gestion d'erreurs optimisée
 try {
+    // 🚨 PROTECTION : Limiter le nombre de questions affichées pour éviter les timeouts
+    $max_questions_display = 1000; // Limite pour les performances
+    $total_questions = $globalstats->total_questions;
+    
     // Pour les grandes bases (>5000 questions), on désactive la détection de doublons
-    $include_duplicates = ($globalstats->total_questions < 5000);
+    $include_duplicates = ($total_questions < 5000);
+    
+    // Message d'avertissement pour les grandes bases
+    if ($total_questions > $max_questions_display) {
+        echo html_writer::start_tag('div', ['class' => 'alert alert-warning', 'style' => 'margin-bottom: 20px;']);
+        echo html_writer::tag('strong', '⚠️ Attention : ');
+        echo "Votre base contient <strong>" . number_format($total_questions, 0, ',', ' ') . " questions</strong>. ";
+        echo "Pour des raisons de performance, seules les <strong>" . number_format($max_questions_display, 0, ',', ' ') . " premières questions</strong> sont affichées dans le tableau ci-dessous. ";
+        echo '<br><br>';
+        echo '💡 <strong>Recommandation</strong> : Utilisez les filtres de recherche pour affiner les résultats. ';
+        echo 'Les statistiques globales ci-dessus concernent bien <strong>TOUTES les ' . number_format($total_questions, 0, ',', ' ') . ' questions</strong>.';
+        echo html_writer::end_tag('div');
+    }
     
     if (!$include_duplicates) {
-        echo html_writer::start_tag('div', ['class' => 'alert alert-warning', 'style' => 'margin-bottom: 20px;']);
+        echo html_writer::start_tag('div', ['class' => 'alert alert-info', 'style' => 'margin-bottom: 20px;']);
         echo html_writer::tag('strong', 'ℹ️ Note : ');
         echo 'La détection détaillée des doublons est désactivée pour les grandes bases de données (>5000 questions) afin d\'améliorer les performances. ';
         echo 'Seule la détection par nom exact est effectuée.';
         echo html_writer::end_tag('div');
     }
     
-    $questions_with_stats = question_analyzer::get_all_questions_with_stats($include_duplicates, 0);
+    // 🔥 MODIFICATION CRITIQUE : Limiter le nombre de questions chargées
+    $limit = min($max_questions_display, $total_questions);
+    $questions_with_stats = question_analyzer::get_all_questions_with_stats($include_duplicates, $limit);
     
 } catch (Exception $e) {
     echo html_writer::start_tag('script');

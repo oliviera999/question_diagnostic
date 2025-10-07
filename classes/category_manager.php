@@ -78,9 +78,17 @@ class category_manager {
             
             // Contexte
             try {
-                $context = \context::instance_by_id($category->contextid, IGNORE_MISSING);
-                $stats->context_name = $context ? \context_helper::get_level_name($context->contextlevel) : 'Inconnu';
-                $stats->context_valid = (bool)$context;
+                // Vérifier d'abord si le contexte existe dans la table context
+                $context_exists = $DB->record_exists('context', ['id' => $category->contextid]);
+                
+                if ($context_exists) {
+                    $context = \context::instance_by_id($category->contextid, IGNORE_MISSING);
+                    $stats->context_name = $context ? \context_helper::get_level_name($context->contextlevel) : 'Inconnu';
+                    $stats->context_valid = true;
+                } else {
+                    $stats->context_name = 'Contexte supprimé (ID: ' . $category->contextid . ')';
+                    $stats->context_valid = false;
+                }
             } catch (\Exception $e) {
                 $stats->context_name = 'Erreur';
                 $stats->context_valid = false;
@@ -88,6 +96,7 @@ class category_manager {
             
             // Statut
             $stats->is_empty = ($stats->total_questions == 0 && $stats->subcategories == 0);
+            // Une catégorie est orpheline si son contexte n'existe PAS dans la table context
             $stats->is_orphan = !$stats->context_valid;
             
         } catch (\Exception $e) {
