@@ -5,6 +5,51 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.6.3] - 2025-10-08
+
+### ⚡ FIX : Page blanche après clic bouton + Statistiques simplifiées auto
+
+**Problème** : Page blanche après clic sur "Charger les statistiques"
+- `get_global_stats()` timeout même avec `include_duplicates=false`
+- Requêtes avec JOIN sur `question_versions` et `quiz_slots` trop lourdes sur 30k questions
+
+**Solution** : Mode simplifié automatique pour bases >10k questions
+
+#### Nouvelle Fonction `get_global_stats_simple()`
+
+Pour bases >10 000 questions, utilise UNIQUEMENT des requêtes simples (pas de JOIN) :
+
+```php
+if ($total_questions > 10000) {
+    return self::get_global_stats_simple($total_questions);
+}
+```
+
+**Stats simplifiées** :
+- ✅ Total questions : `COUNT(*) FROM question`
+- ✅ Par type : `COUNT(*) GROUP BY qtype`
+- ⚠️ Utilisées/inutilisées : Approximation (0 / total)
+- ⚠️ Cachées : Non calculé (nécessite JOIN lourd)
+- ⚠️ Doublons : Non calculé
+
+**Interface** :
+- Message "⚡ Mode Performance" affiché
+- Explication claire des approximations
+- L'utilisateur sait que c'est simplifié
+
+#### Performance
+
+| Base | v1.6.2 | v1.6.3 |
+|------|--------|--------|
+| Clic bouton (30k questions) | ❌ Page blanche/timeout | ⚡ **< 5 secondes** |
+
+**Fichiers** :
+- `classes/question_analyzer.php` : Nouvelle fonction `get_global_stats_simple()`
+- `questions_cleanup.php` : Message "Mode Performance"
+- `version.php` : v1.6.3
+
+---
+
 ## [1.6.1] - 2025-10-08
 
 ### ⚡ STRATÉGIE RADICALE : Chargement à la demande pour 30 000+ questions

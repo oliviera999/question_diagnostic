@@ -135,6 +135,15 @@ echo html_writer::start_tag('script');
 echo "document.getElementById('loading-indicator').style.display = 'none';";
 echo html_writer::end_tag('script');
 
+// Message si statistiques simplifiées
+if (isset($globalstats->simplified) && $globalstats->simplified) {
+    echo html_writer::start_tag('div', ['class' => 'alert alert-warning', 'style' => 'margin-bottom: 20px;']);
+    echo html_writer::tag('strong', '⚡ Mode Performance : ');
+    echo 'Statistiques simplifiées pour votre grande base de données (' . number_format($globalstats->total_questions, 0, ',', ' ') . ' questions). ';
+    echo 'Certains calculs complexes (questions utilisées, doublons) sont désactivés pour éviter les timeouts.';
+    echo html_writer::end_tag('div');
+}
+
 echo html_writer::start_tag('div', ['class' => 'qd-dashboard']);
 
 // Carte 1 : Total questions

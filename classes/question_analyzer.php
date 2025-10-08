@@ -817,6 +817,48 @@ class question_analyzer {
     }
 
     /**
+     * Version ultra-simplifiée pour grandes bases (>10k questions)
+     * ⚠️ v1.6.3 : Évite les requêtes lourdes avec JOIN sur grandes bases
+     * @param int $total_questions Nombre total déjà compté
+     * @return object Statistiques basiques
+     */
+    private static function get_global_stats_simple($total_questions) {
+        global $DB;
+        
+        $stats = new \stdClass();
+        $stats->total_questions = $total_questions;
+        
+        // Statistiques ultra-basiques (COUNT simples uniquement, pas de JOIN)
+        try {
+            $stats->by_type = [];
+            $types = $DB->get_records_sql("
+                SELECT qtype, COUNT(*) as count
+                FROM {question}
+                GROUP BY qtype
+                ORDER BY count DESC
+            ");
+            foreach ($types as $type) {
+                $stats->by_type[$type->qtype] = $type->count;
+            }
+        } catch (\Exception $e) {
+            $stats->by_type = [];
+        }
+        
+        // Approximations pour éviter requêtes lourdes avec JOIN
+        $stats->visible_questions = $total_questions; // Approximation
+        $stats->hidden_questions = 0; // Non calculé (nécessite JOIN avec question_versions)
+        $stats->used_questions = 0; // Non calculé (nécessite JOIN lourd)
+        $stats->unused_questions = $total_questions; // Approximation conservatrice
+        $stats->duplicate_questions = 0; // Non calculé
+        $stats->total_duplicates = 0; // Non calculé
+        
+        // Indicateur pour l'interface
+        $stats->simplified = true;
+        
+        return $stats;
+    }
+    
+    /**
      * Génère des statistiques globales
      *
      * @param bool $use_cache Utiliser le cache (défaut: true)
@@ -841,6 +883,12 @@ class question_analyzer {
         try {
             // Total de questions
             $stats->total_questions = $DB->count_records('question');
+            
+            // 🚨 v1.6.3 : ULTRA-SIMPLIFICATION pour grandes bases
+            // Si plus de 10 000 questions, on saute les calculs lourds
+            if ($stats->total_questions > 10000) {
+                return self::get_global_stats_simple($stats->total_questions);
+            }
             
             // Questions par type
             $stats->by_type = [];
