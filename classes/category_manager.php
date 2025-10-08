@@ -79,6 +79,33 @@ class category_manager {
                 // Validité du contexte
                 $context_valid = !in_array($cat->id, $invalid_context_ids);
                 
+                // Vérifier si la catégorie est protégée
+                $is_protected = false;
+                $protection_reason = '';
+                
+                // Protection 1 : "Default for..."
+                if (stripos($cat->name, 'Default for') !== false || stripos($cat->name, 'Par défaut pour') !== false) {
+                    $is_protected = true;
+                    $protection_reason = 'Catégorie par défaut Moodle';
+                }
+                // Protection 2 : Catégorie avec description
+                else if (!empty($cat->info)) {
+                    $is_protected = true;
+                    $protection_reason = 'A une description';
+                }
+                // Protection 3 : Racine de cours avec enfants
+                else if ($cat->parent == 0 && $subcategories > 0 && $context_valid) {
+                    try {
+                        $context = \context::instance_by_id($cat->contextid, IGNORE_MISSING);
+                        if ($context && $context->contextlevel == CONTEXT_COURSE) {
+                            $is_protected = true;
+                            $protection_reason = 'Racine de cours';
+                        }
+                    } catch (\Exception $e) {
+                        // Ignorer
+                    }
+                }
+                
                 // Construire les stats
                 $stats = (object)[
                     'total_questions' => $total_questions,
@@ -87,6 +114,8 @@ class category_manager {
                     'context_valid' => $context_valid,
                     'is_empty' => ($total_questions == 0 && $subcategories == 0),
                     'is_orphan' => !$context_valid,
+                    'is_protected' => $is_protected,
+                    'protection_reason' => $protection_reason,
                 ];
                 
                 // Nom du contexte
@@ -196,6 +225,33 @@ class category_manager {
             // Une catégorie est orpheline si son contexte n'existe PAS dans la table context
             $stats->is_orphan = !$stats->context_valid;
             
+            // Vérifier si la catégorie est protégée
+            $stats->is_protected = false;
+            $stats->protection_reason = '';
+            
+            // Protection 1 : "Default for..."
+            if (stripos($category->name, 'Default for') !== false || stripos($category->name, 'Par défaut pour') !== false) {
+                $stats->is_protected = true;
+                $stats->protection_reason = 'Catégorie par défaut Moodle';
+            }
+            // Protection 2 : Catégorie avec description
+            else if (!empty($category->info)) {
+                $stats->is_protected = true;
+                $stats->protection_reason = 'A une description';
+            }
+            // Protection 3 : Racine de cours avec enfants
+            else if ($category->parent == 0 && $stats->subcategories > 0 && $stats->context_valid) {
+                try {
+                    $context_obj = \context::instance_by_id($category->contextid, IGNORE_MISSING);
+                    if ($context_obj && $context_obj->contextlevel == CONTEXT_COURSE) {
+                        $stats->is_protected = true;
+                        $stats->protection_reason = 'Racine de cours';
+                    }
+                } catch (\Exception $e) {
+                    // Ignorer
+                }
+            }
+            
         } catch (\Exception $e) {
             // En cas d'erreur, retourner des stats par défaut
             $stats->visible_questions = 0;
@@ -289,6 +345,28 @@ class category_manager {
 
         try {
             $category = $DB->get_record('question_categories', ['id' => $categoryid], '*', MUST_EXIST);
+            
+            // 🛡️ PROTECTION 1 : Catégories "Default for..." (créées automatiquement par Moodle)
+            if (stripos($category->name, 'Default for') !== false || stripos($category->name, 'Par défaut pour') !== false) {
+                return "❌ PROTÉGÉE : Cette catégorie est créée automatiquement par Moodle et ne doit jamais être supprimée.";
+            }
+            
+            // 🛡️ PROTECTION 2 : Catégories avec description (usage intentionnel)
+            if (!empty($category->info)) {
+                return "❌ PROTÉGÉE : Cette catégorie a une description, indiquant un usage intentionnel. Supprimez d'abord la description si vous êtes certain de vouloir la supprimer.";
+            }
+            
+            // 🛡️ PROTECTION 3 : Catégories racine (parent=0) dans un contexte de cours
+            if ($category->parent == 0) {
+                try {
+                    $context = \context::instance_by_id($category->contextid, IGNORE_MISSING);
+                    if ($context && $context->contextlevel == CONTEXT_COURSE) {
+                        return "❌ PROTÉGÉE : Cette catégorie est à la racine d'un cours (parent=0). Moodle crée automatiquement une catégorie racine pour chaque cours. Ne pas supprimer.";
+                    }
+                } catch (\Exception $e) {
+                    // Si erreur de contexte, continuer (peut-être une catégorie orpheline)
+                }
+            }
             
             // Vérifier que la catégorie est vide
             // Compatible Moodle 4.x avec question_bank_entries
@@ -524,6 +602,7 @@ class category_manager {
         $stats->orphan_categories = (int)$DB->count_records_sql($sql_orphan);
         
         // Compter les catégories vides (sans questions ET sans sous-catégories)
+        // 🛡️ AVEC PROTECTIONS : Exclure les catégories qui ne doivent jamais être supprimées
         // Sous-requête pour catégories avec questions
         $sql_empty = "SELECT COUNT(qc.id)
                       FROM {question_categories} qc
@@ -536,8 +615,25 @@ class category_manager {
                           SELECT DISTINCT parent
                           FROM {question_categories}
                           WHERE parent IS NOT NULL AND parent > 0
-                      )";
-        $stats->empty_categories = (int)$DB->count_records_sql($sql_empty);
+                      )
+                      AND qc.parent != 0
+                      AND (qc.info IS NULL OR qc.info = '')
+                      AND " . $DB->sql_like('qc.name', ':pattern', true, true, true);
+        $stats->empty_categories = (int)$DB->count_records_sql($sql_empty, ['pattern' => '%Default for%']);
+        
+        // Compter les catégories protégées (pour information)
+        $stats->protected_default = (int)$DB->count_records_sql("
+            SELECT COUNT(*)
+            FROM {question_categories}
+            WHERE " . $DB->sql_like('name', ':pattern', false), 
+            ['pattern' => '%Default for%']);
+        
+        
+        $stats->protected_with_info = (int)$DB->count_records_sql("
+            SELECT COUNT(*)
+            FROM {question_categories}
+            WHERE info IS NOT NULL AND info != ''
+        ");
         
         // Compter les doublons - version compatible toutes BDD
         // Compter les groupes de catégories qui ont des noms identiques (doublons)

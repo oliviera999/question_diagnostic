@@ -102,7 +102,33 @@ echo html_writer::tag('div', $globalstats->total_questions, ['class' => 'qd-card
 echo html_writer::tag('div', 'Dans toutes les catégories', ['class' => 'qd-card-subtitle']);
 echo html_writer::end_tag('div');
 
+// Carte 6 : Catégories protégées
+if (isset($globalstats->protected_default) && $globalstats->protected_default > 0) {
+    echo html_writer::start_tag('div', ['class' => 'qd-card', 'style' => 'border: 2px solid #5bc0de;']);
+    echo html_writer::tag('div', 'Catégories Protégées', ['class' => 'qd-card-title']);
+    echo html_writer::tag('div', $globalstats->protected_default, ['class' => 'qd-card-value']);
+    echo html_writer::tag('div', '🛡️ "Default for..." (non supprimables)', ['class' => 'qd-card-subtitle']);
+    echo html_writer::end_tag('div');
+}
+
 echo html_writer::end_tag('div'); // fin dashboard
+
+// ======================================================================
+// AVERTISSEMENT CATÉGORIES PROTÉGÉES
+// ======================================================================
+
+if (isset($globalstats->protected_default) && $globalstats->protected_default > 0) {
+    echo html_writer::start_div('alert alert-info', ['style' => 'margin: 20px 0; border-left: 4px solid #5bc0de;']);
+    echo '<strong>🛡️ PROTECTIONS ACTIVES</strong><br>';
+    echo 'Le plugin protège automatiquement <strong>' . $globalstats->protected_default . ' catégorie(s)</strong> qui ne peuvent pas être supprimées :<br>';
+    echo '<ul style="margin-top: 10px; margin-bottom: 5px;">';
+    echo '<li>Catégories "<strong>Default for...</strong>" (créées par Moodle pour chaque cours)</li>';
+    echo '<li>Catégories <strong>racine</strong> (parent=0) dans les contextes de cours</li>';
+    echo '<li>Catégories avec une <strong>description</strong> (usage intentionnel)</li>';
+    echo '</ul>';
+    echo '<em>Ces protections évitent de casser la structure de votre Moodle.</em>';
+    echo html_writer::end_div();
+}
 
 // ======================================================================
 // BARRE D'ACTIONS ET EXPORT
@@ -306,13 +332,21 @@ foreach ($categories_with_stats as $item) {
     
     // Statut
     echo html_writer::start_tag('td');
+    if ($stats->is_protected) {
+        echo html_writer::tag('span', '🛡️ PROTÉGÉE', [
+            'class' => 'qd-badge', 
+            'style' => 'background: #5bc0de; color: white; font-weight: bold;',
+            'title' => $stats->protection_reason
+        ]);
+        echo '<br><small style="color: #666;">' . $stats->protection_reason . '</small>';
+    }
     if ($stats->is_empty) {
         echo html_writer::tag('span', 'Vide', ['class' => 'qd-badge qd-badge-empty']);
     }
     if ($stats->is_orphan) {
         echo ' ' . html_writer::tag('span', 'Orpheline', ['class' => 'qd-badge qd-badge-orphan']);
     }
-    if (!$stats->is_empty && !$stats->is_orphan) {
+    if (!$stats->is_empty && !$stats->is_orphan && !$stats->is_protected) {
         echo html_writer::tag('span', 'OK', ['class' => 'qd-badge qd-badge-ok']);
     }
     echo html_writer::end_tag('td');
@@ -335,13 +369,19 @@ foreach ($categories_with_stats as $item) {
         );
     }
     
-    // Bouton supprimer (seulement si vide)
-    if ($stats->is_empty) {
+    // Bouton supprimer (seulement si vide ET NON protégée)
+    if ($stats->is_empty && !$stats->is_protected) {
         $deleteurl = new moodle_url('/local/question_diagnostic/actions/delete.php', [
             'id' => $cat->id,
             'sesskey' => sesskey()
         ]);
         echo html_writer::link($deleteurl, '🗑️ Supprimer', ['class' => 'qd-btn qd-btn-delete']);
+    } else if ($stats->is_protected) {
+        echo html_writer::tag('span', '🛡️ Protégée', [
+            'class' => 'qd-btn',
+            'style' => 'background: #d9edf7; color: #31708f; cursor: not-allowed; opacity: 0.6;',
+            'title' => $stats->protection_reason
+        ]);
     }
     
     // Bouton fusionner
