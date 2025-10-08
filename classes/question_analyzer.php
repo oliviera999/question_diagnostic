@@ -584,6 +584,41 @@ class question_analyzer {
     }
 
     /**
+     * Trouve les doublons EXACTS d'une question (même nom, type et texte)
+     * 🆕 v1.7.0 : Pour le test aléatoire
+     * 
+     * @param object $question Objet question
+     * @return array Tableau des questions en doublon strict
+     */
+    public static function find_exact_duplicates($question) {
+        global $DB;
+        
+        try {
+            // Recherche stricte : même nom ET même type ET même texte
+            $sql = "SELECT q.*
+                    FROM {question} q
+                    WHERE q.name = :name
+                    AND q.qtype = :qtype
+                    AND q.questiontext = :questiontext
+                    AND q.id != :questionid
+                    ORDER BY q.id";
+            
+            $duplicates = $DB->get_records_sql($sql, [
+                'name' => $question->name,
+                'qtype' => $question->qtype,
+                'questiontext' => $question->questiontext,
+                'questionid' => $question->id
+            ]);
+            
+            return array_values($duplicates);
+            
+        } catch (\Exception $e) {
+            debugging('Error finding exact duplicates: ' . $e->getMessage(), DEBUG_DEVELOPER);
+            return [];
+        }
+    }
+    
+    /**
      * Trouve les doublons d'une question basés sur plusieurs critères
      *
      * @param object $question Objet question

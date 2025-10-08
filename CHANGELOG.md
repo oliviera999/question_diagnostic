@@ -5,6 +5,100 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.7.0] - 2025-10-08
+
+### 🆕 NOUVELLE FONCTIONNALITÉ : Test Aléatoire de Détection de Doublons
+
+#### Fonctionnalité
+
+Nouveau bouton **"🎲 Test Aléatoire Doublons"** sur la page des questions pour :
+
+1. **Sélectionner une question au hasard** parmi les 29 000+ questions
+2. **Détecter tous les doublons stricts** :
+   - Même nom
+   - Même type (qtype)
+   - Même texte (questiontext)
+3. **Afficher un tableau détaillé** avec :
+   - ID, Nom, Type, Catégorie, Contexte
+   - **Utilisation réelle** : Quiz, Tentatives
+   - Date de création
+   - Bouton "Voir"
+4. **Résumé analytique** :
+   - Total de doublons trouvés
+   - Combien sont utilisés
+   - Combien sont supprimables
+
+#### Interface
+
+**Bouton** : `🎲 Test Aléatoire Doublons` (bleu, à côté de "Purger le cache")
+
+**Page de résultat** :
+
+```
+🎲 Test de Détection de Doublons - Question Aléatoire
+
+🎯 Question Sélectionnée
+ID : 383976
+Nom : Déplacement dans le lycée
+Type : Gapfill
+Texte : [...extrait...]
+
+⚠️ 6 Doublon(s) Strict(s) Trouvé(s)
+Questions avec exactement le même nom, type et texte
+
+📋 Détails des Doublons (tableau)
+┌────────┬─────────┬────────┬──────────┬─────────┬───────┬────────────┬──────────┐
+│ ID     │ Nom     │ Type   │ Catégorie│ Contexte│ Quiz  │ Tentatives │ Créée le │
+├────────┼─────────┼────────┼──────────┼─────────┼───────┼────────────┼──────────┤
+│ 383976🎯│ ...    │ Gapfill│ carto    │ ...     │ 0     │ 6          │ ...      │
+│ 383975 │ ...     │ Gapfill│ carto    │ ...     │ 0     │ 6          │ ...      │
+│ 383974 │ ...     │ Gapfill│ carto    │ ...     │ 0     │ 6          │ ...      │
+└────────┴─────────┴────────┴──────────┴─────────┴───────┴────────────┴──────────┘
+
+📊 Résumé du Test
+Total de doublons stricts : 6
+Total de versions : 7 (1 originale + 6 doublons)
+Versions utilisées : 0
+Versions inutilisées (supprimables) : 7
+```
+
+**Boutons actions** :
+- `🔄 Tester une autre question aléatoire`
+- `← Retour à la liste`
+
+#### Utilité
+
+- 🔍 **Vérifier** la qualité de détection de doublons
+- 📊 **Analyser** des cas réels de duplication
+- 🎯 **Identifier** les patterns de doublons dans votre base
+- 🧹 **Planifier** le nettoyage (voir quels doublons sont inutilisés)
+
+#### Technique
+
+**Nouvelle fonction** : `question_analyzer::find_exact_duplicates()`
+
+```php
+public static function find_exact_duplicates($question) {
+    $sql = "SELECT q.* FROM {question} q
+            WHERE q.name = :name
+            AND q.qtype = :qtype
+            AND q.questiontext = :questiontext
+            AND q.id != :questionid";
+    
+    return $DB->get_records_sql($sql, [...]);
+}
+```
+
+**Compatibilité** : Fonctionne sur bases de 1 000 à 100 000+ questions
+
+**Fichiers** :
+- `questions_cleanup.php` : Bouton + page de résultat test
+- `classes/question_analyzer.php` : Fonction find_exact_duplicates()
+- `version.php` : v1.7.0
+- `CHANGELOG.md` : Documentation
+
+---
+
 ## [1.6.7] - 2025-10-08
 
 ### 🔧 FIX : Erreur "course not found" lors du clic sur bouton "Voir"

@@ -9,8 +9,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'local_question_diagnostic';
-$plugin->version = 2025100840;  // YYYYMMDDXX format (v1.6.7 - Fix: Invalid course error when viewing questions)
+$plugin->version = 2025100841;  // YYYYMMDDXX format (v1.7.0 - NEW FEATURE: Random duplicate detection test)
 $plugin->requires = 2023100900; // Moodle 4.0+
 $plugin->maturity = MATURITY_STABLE;
-$plugin->release = 'v1.6.7';
+$plugin->release = 'v1.7.0';
 

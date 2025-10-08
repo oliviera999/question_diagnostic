@@ -53,6 +53,147 @@ if ($purgecache && confirm_sesskey()) {
     redirect($PAGE->url, '✅ Cache purgé avec succès.', null, \core\output\notification::NOTIFY_SUCCESS);
 }
 
+// 🆕 v1.7.0 : Traiter le test aléatoire si demandé
+$randomtest = optional_param('randomtest', 0, PARAM_INT);
+if ($randomtest && confirm_sesskey()) {
+    // Afficher le header pour ce mode spécial
+    echo $OUTPUT->header();
+    
+    echo html_writer::start_tag('div', ['style' => 'margin-bottom: 20px;']);
+    echo html_writer::link(
+        new moodle_url('/local/question_diagnostic/questions_cleanup.php', ['loadstats' => 1]),
+        '← Retour à la liste des questions',
+        ['class' => 'btn btn-secondary']
+    );
+    echo html_writer::end_tag('div');
+    
+    echo html_writer::tag('h2', '🎲 Test de Détection de Doublons - Question Aléatoire');
+    
+    // Sélectionner une question aléatoire
+    global $DB;
+    $random_question = $DB->get_record_sql("SELECT * FROM {question} ORDER BY RAND() LIMIT 1");
+    
+    if (!$random_question) {
+        echo html_writer::start_tag('div', ['class' => 'alert alert-danger']);
+        echo 'Aucune question trouvée dans la base de données.';
+        echo html_writer::end_tag('div');
+        echo $OUTPUT->footer();
+        exit;
+    }
+    
+    // Trouver tous les doublons stricts (même nom, même type, même texte)
+    $duplicates = question_analyzer::find_exact_duplicates($random_question);
+    
+    echo html_writer::start_tag('div', ['class' => 'alert alert-info', 'style' => 'margin: 20px 0;']);
+    echo html_writer::tag('h3', '🎯 Question Sélectionnée', ['style' => 'margin-top: 0;']);
+    echo html_writer::tag('p', '<strong>ID :</strong> ' . $random_question->id);
+    echo html_writer::tag('p', '<strong>Nom :</strong> ' . format_string($random_question->name));
+    echo html_writer::tag('p', '<strong>Type :</strong> ' . $random_question->qtype);
+    echo html_writer::tag('p', '<strong>Texte :</strong> ' . substr(strip_tags($random_question->questiontext), 0, 200) . '...');
+    echo html_writer::end_tag('div');
+    
+    if (count($duplicates) > 0) {
+        echo html_writer::start_tag('div', ['class' => 'alert alert-warning']);
+        echo html_writer::tag('h3', '⚠️ ' . count($duplicates) . ' Doublon(s) Strict(s) Trouvé(s)');
+        echo 'Questions avec exactement le même nom, type et texte que la question ' . $random_question->id;
+        echo html_writer::end_tag('div');
+        
+        // Tableau détaillé des doublons
+        echo html_writer::tag('h3', '📋 Détails des Doublons');
+        echo html_writer::start_tag('table', ['class' => 'qd-table', 'style' => 'width: 100%;']);
+        
+        // En-tête
+        echo html_writer::start_tag('thead');
+        echo html_writer::start_tag('tr');
+        echo html_writer::tag('th', 'ID');
+        echo html_writer::tag('th', 'Nom');
+        echo html_writer::tag('th', 'Type');
+        echo html_writer::tag('th', 'Catégorie');
+        echo html_writer::tag('th', 'Contexte');
+        echo html_writer::tag('th', 'Utilisée dans Quiz');
+        echo html_writer::tag('th', 'Tentatives');
+        echo html_writer::tag('th', 'Créée le');
+        echo html_writer::tag('th', 'Actions');
+        echo html_writer::end_tag('tr');
+        echo html_writer::end_tag('thead');
+        
+        echo html_writer::start_tag('tbody');
+        
+        // Ajouter la question originale + tous les doublons
+        $all_questions = array_merge([$random_question], $duplicates);
+        
+        foreach ($all_questions as $q) {
+            $stats = question_analyzer::get_question_stats($q);
+            
+            echo html_writer::start_tag('tr', ['style' => $q->id == $random_question->id ? 'background: #d4edda; font-weight: bold;' : '']);
+            echo html_writer::tag('td', $q->id . ($q->id == $random_question->id ? ' 🎯' : ''));
+            echo html_writer::tag('td', format_string($q->name));
+            echo html_writer::tag('td', $q->qtype);
+            echo html_writer::tag('td', $stats->category_name ?? 'N/A');
+            echo html_writer::tag('td', $stats->context_name ?? 'N/A');
+            echo html_writer::tag('td', $stats->quiz_count ?? 0);
+            echo html_writer::tag('td', $stats->attempt_count ?? 0);
+            echo html_writer::tag('td', userdate($q->timecreated, '%d/%m/%Y %H:%M'));
+            
+            // Actions
+            echo html_writer::start_tag('td');
+            $view_url = question_analyzer::get_question_bank_url($q);
+            if ($view_url) {
+                echo html_writer::link($view_url, '👁️ Voir', ['class' => 'btn btn-sm btn-primary', 'target' => '_blank']);
+            }
+            echo html_writer::end_tag('td');
+            
+            echo html_writer::end_tag('tr');
+        }
+        
+        echo html_writer::end_tag('tbody');
+        echo html_writer::end_tag('table');
+        
+        // Résumé
+        echo html_writer::start_tag('div', ['class' => 'alert alert-info', 'style' => 'margin-top: 20px;']);
+        echo html_writer::tag('h4', '📊 Résumé du Test');
+        echo html_writer::tag('p', '<strong>Total de doublons stricts :</strong> ' . count($duplicates));
+        echo html_writer::tag('p', '<strong>Total de versions de cette question :</strong> ' . count($all_questions) . ' (1 originale + ' . count($duplicates) . ' doublon(s))');
+        
+        $used_count = 0;
+        $unused_count = 0;
+        foreach ($all_questions as $q) {
+            $s = question_analyzer::get_question_stats($q);
+            if (($s->quiz_count ?? 0) > 0 || ($s->attempt_count ?? 0) > 0) {
+                $used_count++;
+            } else {
+                $unused_count++;
+            }
+        }
+        echo html_writer::tag('p', '<strong>Versions utilisées :</strong> ' . $used_count);
+        echo html_writer::tag('p', '<strong>Versions inutilisées (supprimables) :</strong> ' . $unused_count);
+        echo html_writer::end_tag('div');
+        
+    } else {
+        echo html_writer::start_tag('div', ['class' => 'alert alert-success']);
+        echo html_writer::tag('h3', '✅ Aucun Doublon Trouvé');
+        echo 'La question sélectionnée (ID: ' . $random_question->id . ') est unique dans votre base de données.';
+        echo html_writer::end_tag('div');
+    }
+    
+    echo html_writer::start_tag('div', ['style' => 'margin-top: 30px;']);
+    echo html_writer::link(
+        $randomtest_url,
+        '🔄 Tester une autre question aléatoire',
+        ['class' => 'btn btn-primary btn-lg']
+    );
+    echo ' ';
+    echo html_writer::link(
+        new moodle_url('/local/question_diagnostic/questions_cleanup.php', ['loadstats' => 1]),
+        '← Retour à la liste',
+        ['class' => 'btn btn-secondary']
+    );
+    echo html_writer::end_tag('div');
+    
+    echo $OUTPUT->footer();
+    exit;
+}
+
 // Bouton de purge de cache
 $purgecache_url = new moodle_url($PAGE->url, ['purgecache' => 1, 'sesskey' => sesskey()]);
 echo html_writer::link(
@@ -61,6 +202,17 @@ echo html_writer::link(
     [
         'class' => 'btn btn-warning',
         'title' => 'Vider le cache pour forcer le recalcul des statistiques'
+    ]
+);
+
+// 🆕 v1.7.0 : Bouton de test aléatoire pour détecter les doublons
+$randomtest_url = new moodle_url($PAGE->url, ['randomtest' => 1, 'sesskey' => sesskey()]);
+echo html_writer::link(
+    $randomtest_url,
+    '🎲 Test Aléatoire Doublons',
+    [
+        'class' => 'btn btn-info',
+        'title' => 'Sélectionner une question au hasard et afficher tous ses doublons stricts'
     ]
 );
 
