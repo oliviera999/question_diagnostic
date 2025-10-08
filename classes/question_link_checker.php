@@ -115,9 +115,9 @@ class question_link_checker {
             // Récupérer les informations spécifiques du plugin
             $ddimageortext = $DB->get_record('qtype_ddimageortext', ['questionid' => $question->id]);
             if ($ddimageortext) {
-                // Le champ bgimage contient le fileitemid pour l'image de fond
-                // On vérifie si les fichiers existent
-                $bg_files = self::get_question_files($question->id, 'bgimage');
+                // 🔧 FIX: Les fichiers bgimage pour ddimageortext sont stockés avec le composant qtype_ddimageortext
+                // et l'itemid peut être différent du questionid (souvent le champ bgimage ou 0)
+                $bg_files = self::get_dd_bgimage_files($question->id, 'qtype_ddimageortext', $ddimageortext->bgimage ?? 0);
                 if (empty($bg_files)) {
                     $broken_links[] = (object)[
                         'field' => 'bgimage (drag and drop)',
@@ -140,7 +140,8 @@ class question_link_checker {
         if ($qtype == 'ddmarker') {
             $ddmarker = $DB->get_record('qtype_ddmarker', ['questionid' => $question->id]);
             if ($ddmarker) {
-                $bg_files = self::get_question_files($question->id, 'bgimage');
+                // 🔧 FIX: Les fichiers bgimage pour ddmarker sont stockés avec le composant qtype_ddmarker
+                $bg_files = self::get_dd_bgimage_files($question->id, 'qtype_ddmarker', $ddmarker->bgimage ?? 0);
                 if (empty($bg_files)) {
                     $broken_links[] = (object)[
                         'field' => 'bgimage (drag and drop markers)',
@@ -365,6 +366,72 @@ class question_link_checker {
             return [];
         }
     }
+    
+    /**
+     * Récupère les fichiers bgimage pour les questions drag and drop (ddmarker, ddimageortext)
+     * 
+     * Ces types de questions stockent les fichiers différemment :
+     * - Composant: qtype_ddmarker ou qtype_ddimageortext (pas 'question')
+     * - ItemID: peut être 0, questionid, ou la valeur du champ bgimage
+     *
+     * @param int $questionid ID de la question
+     * @param string $component Composant (qtype_ddmarker ou qtype_ddimageortext)
+     * @param int $bgimage_itemid ItemID depuis la table qtype_*
+     * @return array Tableau de stored_file
+     */
+    private static function get_dd_bgimage_files($questionid, $component, $bgimage_itemid) {
+        global $DB;
+        
+        $fs = get_file_storage();
+        
+        // Récupérer la catégorie via question_bank_entries (Moodle 4.x)
+        $category_sql = "SELECT qc.* 
+                        FROM {question_categories} qc
+                        INNER JOIN {question_bank_entries} qbe ON qbe.questioncategoryid = qc.id
+                        INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+                        WHERE qv.questionid = :questionid
+                        LIMIT 1";
+        $category = $DB->get_record_sql($category_sql, ['questionid' => $questionid]);
+        
+        if (!$category) {
+            return [];
+        }
+        
+        try {
+            $context = \context::instance_by_id($category->contextid, IGNORE_MISSING);
+            if (!$context) {
+                return [];
+            }
+            
+            // Essayer plusieurs combinaisons pour trouver les fichiers bgimage
+            $files = [];
+            
+            // Tentative 1 : Avec le composant spécifique et itemid du champ bgimage
+            if ($bgimage_itemid > 0) {
+                $files = $fs->get_area_files($context->id, $component, 'bgimage', $bgimage_itemid, 'filename', false);
+            }
+            
+            // Tentative 2 : Si rien trouvé, essayer avec itemid = questionid
+            if (empty($files)) {
+                $files = $fs->get_area_files($context->id, $component, 'bgimage', $questionid, 'filename', false);
+            }
+            
+            // Tentative 3 : Si toujours rien, essayer avec itemid = 0
+            if (empty($files)) {
+                $files = $fs->get_area_files($context->id, $component, 'bgimage', 0, 'filename', false);
+            }
+            
+            // Tentative 4 : Fallback avec composant 'question' (anciennes versions)
+            if (empty($files)) {
+                $files = $fs->get_area_files($context->id, 'question', 'bgimage', $questionid, 'filename', false);
+            }
+            
+            return $files;
+            
+        } catch (\Exception $e) {
+            return [];
+        }
+    }
 
     /**
      * Obtient les statistiques globales sur les liens cassés
@@ -439,6 +506,8 @@ class question_link_checker {
      * @return \moodle_url|null URL vers la banque de questions
      */
     public static function get_question_bank_url($question, $category) {
+        global $DB;
+        
         if (!$category) {
             return null;
         }
@@ -459,6 +528,16 @@ class question_link_checker {
                 if ($coursecontext) {
                     $courseid = $coursecontext->instanceid;
                 }
+            } else if ($context->contextlevel == CONTEXT_SYSTEM) {
+                // 🔧 FIX: Pour contexte système, utiliser SITEID au lieu de 0
+                // courseid=0 cause l'erreur "course not found"
+                $courseid = SITEID;
+            }
+            
+            // Vérifier que le cours existe avant de générer l'URL
+            if ($courseid > 0 && !$DB->record_exists('course', ['id' => $courseid])) {
+                // Si le cours n'existe pas, utiliser SITEID comme fallback
+                $courseid = SITEID;
             }
             
             // URL vers la banque de questions avec filtre sur la catégorie

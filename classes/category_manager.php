@@ -675,6 +675,8 @@ class category_manager {
      * @return \moodle_url URL vers la banque de questions
      */
     public static function get_question_bank_url($category) {
+        global $DB;
+        
         try {
             // Déterminer le courseid à partir du contexte
             $context = \context::instance_by_id($category->contextid, IGNORE_MISSING);
@@ -695,6 +697,16 @@ class category_manager {
                 if ($coursecontext) {
                     $courseid = $coursecontext->instanceid;
                 }
+            } else if ($context->contextlevel == CONTEXT_SYSTEM) {
+                // 🔧 FIX: Pour contexte système, utiliser SITEID au lieu de 0
+                // courseid=0 cause l'erreur "course not found"
+                $courseid = SITEID;
+            }
+            
+            // Vérifier que le cours existe avant de générer l'URL
+            if ($courseid > 0 && !$DB->record_exists('course', ['id' => $courseid])) {
+                // Si le cours n'existe pas, utiliser SITEID comme fallback
+                $courseid = SITEID;
             }
             
             // Construire l'URL : /question/edit.php?courseid=X&cat=categoryid,contextid

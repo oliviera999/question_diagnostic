@@ -955,6 +955,16 @@ class question_analyzer {
                 if ($coursecontext) {
                     $courseid = $coursecontext->instanceid;
                 }
+            } else if ($context->contextlevel == CONTEXT_SYSTEM) {
+                // 🔧 FIX: Pour contexte système, utiliser SITEID au lieu de 0
+                // courseid=0 cause l'erreur "course not found"
+                $courseid = SITEID;
+            }
+            
+            // Vérifier que le cours existe avant de générer l'URL
+            if ($courseid > 0 && !$DB->record_exists('course', ['id' => $courseid])) {
+                // Si le cours n'existe pas, utiliser SITEID comme fallback
+                $courseid = SITEID;
             }
             
             $url = new \moodle_url('/question/edit.php', [
