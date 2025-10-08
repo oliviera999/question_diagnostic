@@ -5,6 +5,72 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.5.0] - 2025-10-08
+
+### ✨ Nouvelles fonctionnalités : Filtres avancés
+
+**Ajout de 2 nouveaux filtres dans la page de gestion des catégories**
+
+1. **Filtre "Sans questions ni sous-catégories (supprimables)"**
+   - Affiche uniquement les catégories complètement vides (0 questions ET 0 sous-catégories)
+   - Permet d'identifier rapidement les catégories qui peuvent être supprimées sans risque
+   - Idéal pour le nettoyage massif de la base de questions
+
+2. **Filtre "Doublons"**
+   - Détecte automatiquement les catégories en doublon
+   - Critères : même nom (insensible à la casse) + même contexte + même parent
+   - Badge orange "Doublon" visible dans la colonne Statut
+   - Facilite l'identification pour fusion ultérieure
+
+### 🔧 Améliorations techniques
+
+**Backend (PHP)**
+- Nouvelle requête SQL optimisée pour détecter tous les doublons en 1 seule requête
+- Ajout de `is_duplicate` dans les statistiques de chaque catégorie (`category_manager.php`)
+- Performance optimale même avec des milliers de catégories
+
+**Frontend (JavaScript)**
+- Logique de filtrage améliorée dans `scripts/main.js`
+- Ajout de l'attribut `data-duplicate` aux lignes du tableau
+- Filtres combinables : recherche + statut + contexte simultanément
+
+**Design (CSS)**
+- Nouvelle classe `qd-badge-warning` avec couleur orange (#ff9800) pour les doublons
+- Badge visuel clair et distinctif
+
+### 🐛 Corrections de bugs
+
+**Fix : Filtre et sélection par lot**
+- La fonction "Sélectionner tout" ne sélectionne maintenant que les catégories visibles après filtrage
+- Les filtres "Vides" et "Orphelines" affichent le bon nombre de catégories (correspondant au dashboard)
+- Utilisation de `getAttribute()` au lieu de `dataset` pour une détection fiable des attributs HTML
+
+### 📋 Liste complète des filtres
+
+1. **Tous** - Affiche toutes les catégories
+2. **Sans questions ni sous-catégories (supprimables)** ⭐ NOUVEAU
+3. **Catégories vides** - 0 questions et 0 sous-catégories
+4. **Doublons** ⭐ NOUVEAU
+5. **Catégories orphelines** - Contexte invalide
+6. **OK** - Catégories sans problème
+
+### 📊 Impact utilisateur
+
+- Gain de temps considérable pour identifier les catégories à nettoyer
+- Détection visuelle immédiate des doublons
+- Facilite le nettoyage massif de la base de questions
+- Les nombres affichés dans les filtres correspondent aux cartes du dashboard
+
+### 📁 Fichiers modifiés
+
+- `classes/category_manager.php` : Détection des doublons via SQL
+- `categories.php` : Ajout des nouveaux filtres et attributs HTML
+- `scripts/main.js` : Logique de filtrage améliorée
+- `styles/main.css` : Badge orange pour les doublons
+- `version.php` : v1.5.0 (2025100823)
+
+---
+
 ## [1.3.6.1] - 2025-10-07
 
 ### 🐛 CORRECTIF : Compatibilité SQL pour get_all_categories_with_stats()
