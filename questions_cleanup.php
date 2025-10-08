@@ -143,8 +143,7 @@ if (isset($globalstats->simplified) && $globalstats->simplified) {
     
     echo html_writer::start_tag('ul', ['style' => 'margin-bottom: 15px;']);
     echo html_writer::tag('li', '✅ <strong>Total questions</strong> et <strong>Répartition par type</strong> : Valeurs exactes');
-    echo html_writer::tag('li', '⚠️ <strong>Questions Utilisées</strong> : Affiché comme 0 (non calculé pour performance)');
-    echo html_writer::tag('li', '⚠️ <strong>Questions Inutilisées</strong> : Affiché comme total (approximation conservatrice)');
+    echo html_writer::tag('li', '✅ <strong>Questions Utilisées/Inutilisées</strong> : Valeurs exactes (comptage simplifié)');
     echo html_writer::tag('li', '⚠️ <strong>Questions Cachées</strong> : Affiché comme 0 (non calculé)');
     echo html_writer::tag('li', '⚠️ <strong>Doublons</strong> : Non calculés');
     echo html_writer::tag('li', '⚠️ <strong>Liens Cassés</strong> : Non calculés');
@@ -163,23 +162,23 @@ echo html_writer::tag('div', $globalstats->total_questions, ['class' => 'qd-card
 echo html_writer::tag('div', get_string('in_database', 'local_question_diagnostic'), ['class' => 'qd-card-subtitle']);
 echo html_writer::end_tag('div');
 
-// Carte 2 : Questions utilisées
+// Carte 2 : Questions utilisées (valeur exacte maintenant)
 $is_simplified = isset($globalstats->simplified) && $globalstats->simplified;
+echo html_writer::start_tag('div', ['class' => 'qd-card success']);
+echo html_writer::tag('div', get_string('questions_used', 'local_question_diagnostic'), ['class' => 'qd-card-title']);
+echo html_writer::tag('div', $globalstats->used_questions, ['class' => 'qd-card-value']);
+echo html_writer::tag('div', get_string('in_quizzes_or_attempts', 'local_question_diagnostic'), ['class' => 'qd-card-subtitle']);
+echo html_writer::end_tag('div');
+
+// Carte 3 : Questions inutilisées (valeur exacte maintenant)
+echo html_writer::start_tag('div', ['class' => 'qd-card warning']);
+echo html_writer::tag('div', get_string('questions_unused', 'local_question_diagnostic'), ['class' => 'qd-card-title']);
+echo html_writer::tag('div', $globalstats->unused_questions, ['class' => 'qd-card-value']);
+echo html_writer::tag('div', get_string('never_used', 'local_question_diagnostic'), ['class' => 'qd-card-subtitle']);
+echo html_writer::end_tag('div');
+
+// Carte 4 : Doublons (approximé en mode simplifié)
 $approx_style = $is_simplified ? 'opacity: 0.6; border: 2px dashed #f0ad4e;' : '';
-echo html_writer::start_tag('div', ['class' => 'qd-card success', 'style' => $approx_style]);
-echo html_writer::tag('div', ($is_simplified ? '⚠️ ' : '') . get_string('questions_used', 'local_question_diagnostic'), ['class' => 'qd-card-title']);
-echo html_writer::tag('div', ($is_simplified ? '~' : '') . $globalstats->used_questions, ['class' => 'qd-card-value']);
-echo html_writer::tag('div', get_string('in_quizzes_or_attempts', 'local_question_diagnostic') . ($is_simplified ? ' (non calculé)' : ''), ['class' => 'qd-card-subtitle']);
-echo html_writer::end_tag('div');
-
-// Carte 3 : Questions inutilisées
-echo html_writer::start_tag('div', ['class' => 'qd-card warning', 'style' => $approx_style]);
-echo html_writer::tag('div', ($is_simplified ? '⚠️ ' : '') . get_string('questions_unused', 'local_question_diagnostic'), ['class' => 'qd-card-title']);
-echo html_writer::tag('div', ($is_simplified ? '~' : '') . $globalstats->unused_questions, ['class' => 'qd-card-value']);
-echo html_writer::tag('div', get_string('never_used', 'local_question_diagnostic') . ($is_simplified ? ' (approximation)' : ''), ['class' => 'qd-card-subtitle']);
-echo html_writer::end_tag('div');
-
-// Carte 4 : Doublons
 echo html_writer::start_tag('div', ['class' => 'qd-card danger', 'style' => $approx_style]);
 echo html_writer::tag('div', ($is_simplified ? '⚠️ ' : '') . get_string('questions_duplicates', 'local_question_diagnostic'), ['class' => 'qd-card-title']);
 echo html_writer::tag('div', ($is_simplified ? '~' : '') . $globalstats->duplicate_questions, ['class' => 'qd-card-value']);

@@ -891,11 +891,44 @@ class question_analyzer {
             $stats->by_type = [];
         }
         
-        // Approximations pour éviter requêtes lourdes avec JOIN
+        // Calculer quand même l'usage (simplifié mais plus exact)
+        try {
+            // Comptage simple via quiz_slots (sans JOIN complexes)
+            $columns = $DB->get_columns('quiz_slots');
+            $used_in_quiz = 0;
+            
+            if (isset($columns['questionbankentryid'])) {
+                // Moodle 4.1+ : Compter les questions via questionbankentryid (2 JOINs)
+                $used_in_quiz = (int)$DB->count_records_sql("
+                    SELECT COUNT(DISTINCT qv.questionid)
+                    FROM {quiz_slots} qs
+                    INNER JOIN {question_bank_entries} qbe ON qbe.id = qs.questionbankentryid
+                    INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+                ");
+            } else if (isset($columns['questionid'])) {
+                // Moodle 3.x/4.0 : Comptage direct
+                $used_in_quiz = (int)$DB->count_records_sql("
+                    SELECT COUNT(DISTINCT qs.questionid) FROM {quiz_slots} qs
+                ");
+            }
+            
+            // Tentatives
+            $used_in_attempts = (int)$DB->count_records_sql("
+                SELECT COUNT(DISTINCT qa.questionid) FROM {question_attempts} qa
+            ");
+            
+            $stats->used_questions = max($used_in_quiz, $used_in_attempts);
+            $stats->unused_questions = $total_questions - $stats->used_questions;
+        } catch (\Exception $e) {
+            debugging('Error calculating usage in simple mode: ' . $e->getMessage(), DEBUG_DEVELOPER);
+            // En cas d'erreur, approximation
+            $stats->used_questions = 0;
+            $stats->unused_questions = $total_questions;
+        }
+        
+        // Approximations pour stats moins critiques
         $stats->visible_questions = $total_questions; // Approximation
         $stats->hidden_questions = 0; // Non calculé (nécessite JOIN avec question_versions)
-        $stats->used_questions = 0; // Non calculé (nécessite JOIN lourd)
-        $stats->unused_questions = $total_questions; // Approximation conservatrice
         $stats->duplicate_questions = 0; // Non calculé
         $stats->total_duplicates = 0; // Non calculé
         $stats->questions_with_broken_links = 0; // Non calculé (trop lourd)

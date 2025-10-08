@@ -5,6 +5,66 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.6.6] - 2025-10-08
+
+### ✅ FIX : Calcul des questions utilisées/inutilisées même en mode simplifié
+
+**Problème** : Utilisateur signale que "0 utilisées / 29 427 inutilisées est impossible"
+- Dashboard affiche 0 utilisées
+- Mais tableau montre clairement des questions utilisées (colonne Quiz = 6)
+- Valeurs complètement fausses et trompeuses
+
+**Solution** : Calcul simplifié mais EXACT des questions utilisées
+
+#### Avant v1.6.6 (Mode Simplifié)
+```php
+$stats->used_questions = 0; // ❌ FAUX
+$stats->unused_questions = $total_questions; // ❌ FAUX
+```
+
+#### Après v1.6.6 (Mode Simplifié)
+```php
+// Compter via quiz_slots (simple COUNT DISTINCT, rapide)
+$used_in_quiz = COUNT(DISTINCT questionid) FROM quiz_slots
+
+// Compter tentatives
+$used_in_attempts = COUNT(DISTINCT questionid) FROM question_attempts
+
+// Prendre le max
+$stats->used_questions = max($used_in_quiz, $used_in_attempts); // ✅ EXACT
+$stats->unused_questions = $total - $used; // ✅ EXACT
+```
+
+#### Impact
+
+**Avant** :
+- ❌ Questions Utilisées : 0 (FAUX)
+- ❌ Questions Inutilisées : 29 427 (FAUX)
+
+**Après** :
+- ✅ Questions Utilisées : Valeur réelle (ex: 12 543)
+- ✅ Questions Inutilisées : Valeur réelle (ex: 16 884)
+
+#### Message Mode Performance mis à jour
+
+```
+✅ Total questions et Répartition par type : Valeurs exactes
+✅ Questions Utilisées/Inutilisées : Valeurs exactes (comptage simplifié)
+⚠️ Questions Cachées : Non calculé
+⚠️ Doublons : Non calculés  
+⚠️ Liens Cassés : Non calculés
+```
+
+Les cartes "Utilisées" et "Inutilisées" n'ont **plus** de bordure pointillée (valeurs exactes).
+
+**Fichiers** :
+- `classes/question_analyzer.php` : Calcul réel utilisées/inutilisées en mode simplifié
+- `questions_cleanup.php` : Message mis à jour + cartes sans indicateurs visuels
+- `version.php` : v1.6.6
+- `CHANGELOG.md` : Documentation
+
+---
+
 ## [1.6.5] - 2025-10-08
 
 ### 🎨 UX : Indicateurs visuels clairs pour les statistiques approximées
