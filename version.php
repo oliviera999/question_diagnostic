@@ -9,8 +9,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'local_question_diagnostic';
-$plugin->version = 2025100831;  // YYYYMMDDXX format (v1.5.8 - Fix duplicate detection debug warnings)
+$plugin->version = 2025100832;  // YYYYMMDDXX format (v1.5.9 - CRITICAL: Fix questions page Moodle 4.5 compatibility)
 $plugin->requires = 2023100900; // Moodle 4.3+
 $plugin->maturity = MATURITY_STABLE;
-$plugin->release = 'v1.5.8';
+$plugin->release = 'v1.5.9';
 

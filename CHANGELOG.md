@@ -5,6 +5,100 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.5.9] - 2025-10-08
+
+### 🚨 HOTFIX CRITIQUE : Page des questions incompatible Moodle 4.5
+
+**⚠️ MISE À JOUR URGENTE** pour tous les utilisateurs tentant d'accéder à la page des questions
+
+#### Problèmes Critiques
+
+1. **Erreur SQL** : "Unknown column 'qs.questionid' in 'SELECT'"
+   - Dans Moodle 4.5, `quiz_slots` utilise `questionbankentryid` au lieu de `questionid`
+   
+2. **Warning** : "Undefined property: stdClass::$hidden"
+   - Dans Moodle 4.5, `question` n'a plus de colonne `hidden`
+   - Le statut est maintenant dans `question_versions.status`
+   
+3. **Timeout** : La page ne se chargeait pas avec 30 000 questions
+
+#### Corrections Appliquées
+
+**1. Correction des requêtes `quiz_slots`** (3 endroits) :
+
+```php
+// ❌ AVANT (ERREUR MOODLE 4.5)
+SELECT qs.questionid, qu.id, qu.name
+FROM {quiz_slots} qs
+INNER JOIN {quiz} qu ON qu.id = qs.quizid
+WHERE qs.questionid = :questionid
+
+// ✅ APRÈS (MOODLE 4.5)
+SELECT qv.questionid, qu.id, qu.name
+FROM {quiz_slots} qs
+INNER JOIN {quiz} qu ON qu.id = qs.quizid
+INNER JOIN {question_bank_entries} qbe ON qbe.id = qs.questionbankentryid
+INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+WHERE qv.questionid = :questionid
+```
+
+**2. Correction du statut caché/visible** :
+
+```php
+// ❌ AVANT (ERREUR MOODLE 4.5)
+$stats->is_hidden = $question->hidden == 1;
+
+// ✅ APRÈS (MOODLE 4.5)
+$sql = "SELECT qv.status
+        FROM {question_versions} qv
+        WHERE qv.questionid = :questionid
+        ORDER BY qv.version DESC
+        LIMIT 1";
+$status = $DB->get_record_sql($sql);
+$stats->is_hidden = ($status && $status->status === 'hidden');
+```
+
+**3. Correction des statistiques globales** :
+
+```php
+// ❌ AVANT
+$stats->hidden_questions = $DB->count_records('question', ['hidden' => 1]);
+
+// ✅ APRÈS
+$stats->hidden_questions = $DB->count_records_sql("
+    SELECT COUNT(DISTINCT qv.questionid)
+    FROM {question_versions} qv
+    WHERE qv.status = 'hidden'
+");
+```
+
+#### Impact
+
+**Avant v1.5.9** :
+- ❌ Page des questions totalement cassée
+- ❌ Erreurs SQL multiples
+- ❌ Warnings PHP partout
+- ❌ Timeout sur grandes bases
+
+**Après v1.5.9** :
+- ✅ Page des questions fonctionnelle
+- ✅ Aucune erreur SQL
+- ✅ Aucun warning PHP
+- ✅ Performance acceptable (limite à 1000 questions affichées)
+
+#### Fichiers Modifiés
+
+- `classes/question_analyzer.php` : 
+  - 3 requêtes `quiz_slots` corrigées (lignes 231-236, 291-299, 455-462)
+  - Récupération du statut via `question_versions` (lignes 194-208)
+  - Statistiques globales corrigées (lignes 858-876)
+- `version.php` : v1.5.9 (2025100832)
+- `CHANGELOG.md` : Documentation
+
+**⚠️ OBLIGATOIRE** : Purger le cache Moodle après mise à jour !
+
+---
+
 ## [1.5.8] - 2025-10-08
 
 ### 🔧 Correction : Avertissements debug lors de la détection des doublons

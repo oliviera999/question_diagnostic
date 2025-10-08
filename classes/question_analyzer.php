@@ -190,9 +190,22 @@ class question_analyzer {
                 $stats->is_duplicate = $stats->duplicate_count > 0;
             }
             
-            // Statut
-            $stats->is_hidden = $question->hidden == 1;
-            $stats->status = $stats->is_hidden ? 'hidden' : 'visible';
+            // Statut - ⚠️ MOODLE 4.5 : question.hidden n'existe plus, utiliser question_versions.status
+            try {
+                $sql_status = "SELECT qv.status
+                               FROM {question_versions} qv
+                               INNER JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
+                               WHERE qv.questionid = :questionid
+                               ORDER BY qv.version DESC
+                               LIMIT 1";
+                $status_record = $DB->get_record_sql($sql_status, ['questionid' => $question->id]);
+                $stats->is_hidden = ($status_record && $status_record->status === 'hidden');
+                $stats->status = $stats->is_hidden ? 'hidden' : 'visible';
+            } catch (\Exception $e) {
+                // Fallback si erreur
+                $stats->is_hidden = false;
+                $stats->status = 'visible';
+            }
             
             // Extrait du texte
             $stats->questiontext_excerpt = self::get_text_excerpt($question->questiontext, 100);
@@ -227,23 +240,15 @@ class question_analyzer {
 
         try {
             // Vérifier si la question est dans des quiz via la table quiz_slots
-            // Compatible Moodle 4.x avec question_bank_entries
+            // ⚠️ MOODLE 4.5 : quiz_slots utilise 'questionbankentryid' pas 'questionid'
             $sql = "SELECT DISTINCT q.id, q.name, q.course
                     FROM {quiz} q
                     INNER JOIN {quiz_slots} qs ON qs.quizid = q.id
-                    WHERE qs.questionid = :questionid
-                    OR qs.questioncategoryid IN (
-                        SELECT qbe.questioncategoryid 
-                        FROM {question_bank_entries} qbe
-                        INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
-                        INNER JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
-                        WHERE qv.questionid = :questionid2
-                    )";
+                    INNER JOIN {question_bank_entries} qbe ON qbe.id = qs.questionbankentryid
+                    INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+                    WHERE qv.questionid = :questionid";
             
-            $quizzes = $DB->get_records_sql($sql, [
-                'questionid' => $questionid,
-                'questionid2' => $questionid
-            ]);
+            $quizzes = $DB->get_records_sql($sql, ['questionid' => $questionid]);
 
             foreach ($quizzes as $quiz) {
                 $usage['quiz_list'][] = (object)[
@@ -295,12 +300,15 @@ class question_analyzer {
             list($insql, $params) = $DB->get_in_or_equal($question_ids, SQL_PARAMS_NAMED);
             
             // Quiz usage - UNIQUEMENT pour les IDs demandés
+            // ⚠️ MOODLE 4.5 : quiz_slots utilise questionbankentryid
             $quiz_usage = $DB->get_records_sql("
-                SELECT qs.questionid, qu.id as quiz_id, qu.name as quiz_name, qu.course
+                SELECT qv.questionid, qu.id as quiz_id, qu.name as quiz_name, qu.course
                 FROM {quiz_slots} qs
                 INNER JOIN {quiz} qu ON qu.id = qs.quizid
-                WHERE qs.questionid $insql
-                ORDER BY qs.questionid, qu.id
+                INNER JOIN {question_bank_entries} qbe ON qbe.id = qs.questionbankentryid
+                INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+                WHERE qv.questionid $insql
+                ORDER BY qv.questionid, qu.id
             ", $params);
 
             foreach ($quiz_usage as $record) {
@@ -456,11 +464,14 @@ class question_analyzer {
 
         try {
             // Approche compatible avec tous les SGBD: requête simple + traitement en PHP
+            // ⚠️ MOODLE 4.5 : quiz_slots utilise questionbankentryid
             $quiz_usage = $DB->get_records_sql("
-                SELECT qs.questionid, qu.id as quiz_id, qu.name as quiz_name, qu.course
+                SELECT qv.questionid, qu.id as quiz_id, qu.name as quiz_name, qu.course
                 FROM {quiz_slots} qs
                 INNER JOIN {quiz} qu ON qu.id = qs.quizid
-                ORDER BY qs.questionid, qu.id
+                INNER JOIN {question_bank_entries} qbe ON qbe.id = qs.questionbankentryid
+                INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+                ORDER BY qv.questionid, qu.id
             ");
 
             foreach ($quiz_usage as $record) {
@@ -843,14 +854,25 @@ class question_analyzer {
                 $stats->by_type[$type->qtype] = $type->count;
             }
             
-            // Questions visibles/cachées
-            $stats->visible_questions = $DB->count_records('question', ['hidden' => 0]);
-            $stats->hidden_questions = $DB->count_records('question', ['hidden' => 1]);
+            // Questions visibles/cachées - ⚠️ MOODLE 4.5 : utiliser question_versions.status
+            $stats->visible_questions = (int)$DB->count_records_sql("
+                SELECT COUNT(DISTINCT qv.questionid)
+                FROM {question_versions} qv
+                WHERE qv.status != 'hidden'
+            ");
+            $stats->hidden_questions = (int)$DB->count_records_sql("
+                SELECT COUNT(DISTINCT qv.questionid)
+                FROM {question_versions} qv
+                WHERE qv.status = 'hidden'
+            ");
             
             // Questions utilisées/inutilisées (calcul optimisé)
+            // ⚠️ MOODLE 4.5 : quiz_slots utilise questionbankentryid
             $used_in_quiz = $DB->count_records_sql("
-                SELECT COUNT(DISTINCT qs.questionid)
+                SELECT COUNT(DISTINCT qv.questionid)
                 FROM {quiz_slots} qs
+                INNER JOIN {question_bank_entries} qbe ON qbe.id = qs.questionbankentryid
+                INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
             ");
             
             $used_in_attempts = $DB->count_records_sql("
