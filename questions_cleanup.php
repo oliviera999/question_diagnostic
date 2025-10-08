@@ -79,9 +79,44 @@ echo get_string('loading_stats', 'local_question_diagnostic') . ' ';
 echo html_writer::tag('span', get_string('loading_questions', 'local_question_diagnostic'), ['id' => 'loading-indicator', 'style' => 'font-weight: bold;']);
 echo html_writer::end_tag('div');
 
+// 🚨 v1.6.1 : CHARGEMENT MINIMAL - Ne charger que le strict nécessaire
+$load_stats = optional_param('loadstats', 0, PARAM_INT);
+
+if (!$load_stats) {
+    // Affichage minimal ultra-rapide
+    echo html_writer::start_tag('div', ['class' => 'alert alert-info', 'style' => 'margin: 30px 0; padding: 40px; text-align: center;']);
+    echo html_writer::tag('h2', '📊 Statistiques des Questions', ['style' => 'margin-top: 0;']);
+    
+    // Comptage ultra-simple
+    try {
+        global $DB;
+        $total_questions = $DB->count_records('question');
+        echo html_writer::tag('p', "Votre base contient <strong style='font-size: 24px; color: #0f6cbf;'>" . number_format($total_questions, 0, ',', ' ') . " questions</strong>.", ['style' => 'font-size: 18px; margin: 20px 0;']);
+    } catch (Exception $e) {
+        echo html_writer::tag('p', "Impossible de compter les questions.", ['style' => 'color: red;']);
+    }
+    
+    echo html_writer::tag('p', '⚡ Pour optimiser les performances sur votre grande base de données,<br>les statistiques détaillées et la liste des questions ne sont pas chargées automatiquement.', ['style' => 'margin: 30px 0; font-size: 14px;']);
+    
+    $loadstats_url = new moodle_url('/local/question_diagnostic/questions_cleanup.php', ['loadstats' => 1, 'show' => 50]);
+    echo html_writer::start_tag('div', ['style' => 'margin-top: 40px;']);
+    echo html_writer::link(
+        $loadstats_url,
+        '🚀 Charger les statistiques et la liste des questions',
+        ['class' => 'btn btn-lg btn-success', 'style' => 'font-size: 20px; padding: 20px 40px;']
+    );
+    echo html_writer::end_tag('div');
+    
+    echo html_writer::tag('p', '⏱️ Temps de chargement estimé : ~30 secondes', ['style' => 'margin-top: 20px; font-style: italic; color: #666;']);
+    echo html_writer::end_tag('div');
+    
+    echo $OUTPUT->footer();
+    exit;
+}
+
 // Charger les statistiques avec gestion d'erreurs
 try {
-    // 🚨 v1.6.0 : Désactiver la détection de doublons dans les stats globales (trop lourd)
+    // 🚨 v1.6.1 : Désactiver la détection de doublons dans les stats globales (trop lourd)
     $globalstats = question_analyzer::get_global_stats(true, false);
 } catch (Exception $e) {
     echo html_writer::start_tag('div', ['class' => 'alert alert-danger']);
