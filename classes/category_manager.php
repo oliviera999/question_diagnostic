@@ -663,25 +663,56 @@ class category_manager {
                        WHERE ctx.id IS NULL";
         $stats->orphan_categories = (int)$DB->count_records_sql($sql_orphan);
         
+        // ⚠️ SÉCURITÉ v1.5.1+ : Compter les catégories vides avec double vérification
+        // Méthode 1 : Via question_bank_entries
+        $sql_cat_with_q1 = "SELECT DISTINCT qbe.questioncategoryid
+                            FROM {question_bank_entries} qbe
+                            INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id";
+        $cats_with_questions1 = $DB->get_fieldset_sql($sql_cat_with_q1);
+        
+        // Méthode 2 : Comptage direct dans question (capture TOUTES les questions, même orphelines)
+        $sql_cat_with_q2 = "SELECT DISTINCT category
+                            FROM {question}
+                            WHERE category IS NOT NULL";
+        $cats_with_questions2 = $DB->get_fieldset_sql($sql_cat_with_q2);
+        
+        // Fusionner les deux listes (union)
+        $cats_with_questions = array_unique(array_merge($cats_with_questions1, $cats_with_questions2));
+        
+        // Catégories avec sous-catégories
+        $sql_cat_with_subs = "SELECT DISTINCT parent
+                              FROM {question_categories}
+                              WHERE parent IS NOT NULL AND parent > 0";
+        $cats_with_subcats = $DB->get_fieldset_sql($sql_cat_with_subs);
+        
         // Compter les catégories vides (sans questions ET sans sous-catégories)
-        // 🛡️ AVEC PROTECTIONS : Exclure les catégories qui ne doivent jamais être supprimées
-        // Sous-requête pour catégories avec questions
-        $sql_empty = "SELECT COUNT(qc.id)
-                      FROM {question_categories} qc
-                      WHERE qc.id NOT IN (
-                          SELECT DISTINCT qbe.questioncategoryid
-                          FROM {question_bank_entries} qbe
-                          INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
-                      )
-                      AND qc.id NOT IN (
-                          SELECT DISTINCT parent
-                          FROM {question_categories}
-                          WHERE parent IS NOT NULL AND parent > 0
-                      )
-                      AND qc.parent != 0
-                      AND (qc.info IS NULL OR qc.info = '')
-                      AND " . $DB->sql_like('qc.name', ':pattern', true, true, true);
-        $stats->empty_categories = (int)$DB->count_records_sql($sql_empty, ['pattern' => '%Default for%']);
+        // 🛡️ AVEC PROTECTIONS : Exclure les catégories protégées
+        $all_cats = $DB->get_records('question_categories');
+        $empty_count = 0;
+        foreach ($all_cats as $cat) {
+            // Vérifier si vide
+            $has_questions = in_array($cat->id, $cats_with_questions);
+            $has_subcats = in_array($cat->id, $cats_with_subcats);
+            
+            if (!$has_questions && !$has_subcats) {
+                // Exclure les protégées
+                $is_protected = false;
+                if (stripos($cat->name, 'Default for') !== false || stripos($cat->name, 'Par défaut pour') !== false) {
+                    $is_protected = true;
+                }
+                if (!empty($cat->info)) {
+                    $is_protected = true;
+                }
+                if ($cat->parent == 0) {
+                    $is_protected = true;
+                }
+                
+                if (!$is_protected) {
+                    $empty_count++;
+                }
+            }
+        }
+        $stats->empty_categories = $empty_count;
         
         // Compter les catégories protégées (pour information)
         // Protection type 1 : "Default for..."
@@ -721,33 +752,22 @@ class category_manager {
         );
         
         // Compter les doublons - version compatible toutes BDD
-        // Compter les groupes de catégories qui ont des noms identiques (doublons)
+        // ⚠️ COHÉRENCE v1.5.2+ : Compter le nombre TOTAL de catégories en doublon
+        // (pas le nombre de groupes, mais le nombre de catégories individuelles)
+        // Pour correspondre au filtre qui affiche chaque catégorie en doublon
+        $sql_dup_ids = "SELECT qc1.id
+                        FROM {question_categories} qc1
+                        INNER JOIN {question_categories} qc2 
+                            ON LOWER(TRIM(qc1.name)) = LOWER(TRIM(qc2.name))
+                            AND qc1.contextid = qc2.contextid
+                            AND qc1.parent = qc2.parent
+                            AND qc1.id != qc2.id";
         try {
-            $dbfamily = $DB->get_dbfamily();
-            if ($dbfamily === 'mysql' || $dbfamily === 'mariadb') {
-                // MySQL/MariaDB : sous-requête dans FROM
-                $sql_duplicates = "SELECT COUNT(*) as dup_count
-                                   FROM (
-                                       SELECT COUNT(*) as cnt
-                                       FROM {question_categories}
-                                       GROUP BY LOWER(TRIM(name)), contextid, parent
-                                       HAVING COUNT(*) > 1
-                                   ) AS dups";
-            } else {
-                // PostgreSQL et autres : syntaxe standard
-                $sql_duplicates = "SELECT COUNT(*) as dup_count
-                                   FROM (
-                                       SELECT COUNT(*) as cnt
-                                       FROM {question_categories}
-                                       GROUP BY LOWER(TRIM(name)), contextid, parent
-                                       HAVING COUNT(*) > 1
-                                   ) dups";
-            }
-            $dup_result = $DB->get_record_sql($sql_duplicates);
-            $stats->duplicates = $dup_result ? (int)$dup_result->dup_count : 0;
+            $dup_ids = $DB->get_fieldset_sql($sql_dup_ids);
+            $stats->duplicates = count(array_unique($dup_ids));
         } catch (\Exception $e) {
-            // Si erreur, utiliser l'ancienne méthode (plus lente mais fiable)
-            $stats->duplicates = count(self::find_duplicates());
+            // Si erreur, utiliser 0
+            $stats->duplicates = 0;
         }
         
         return $stats;

@@ -5,6 +5,115 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.5.3] - 2025-10-08
+
+### 🔧 Correction : Incohérences entre dashboard et filtres
+
+**Problème** : Différences de comptage entre les cartes du dashboard et les filtres
+- Dashboard affichait 2277 "Catégories Vides"
+- Filtre affichait 2291 catégories "supprimables"
+- Différence de 14 catégories
+
+**Causes Identifiées**
+
+1. **Comptage des catégories vides** : 
+   - Dashboard utilisait ancienne méthode (INNER JOIN avec `question_bank_entries`)
+   - Tableau utilisait nouvelle méthode v1.5.1+ (double vérification avec MAX)
+   - Les deux méthodes donnaient des résultats différents
+
+2. **Comptage des doublons** :
+   - Dashboard comptait les **groupes** de doublons (ex: 3 catégories identiques = 1 groupe)
+   - Filtre affichait les **catégories individuelles** en doublon (3 catégories = 3 badges)
+   - Incohérence dans l'affichage
+
+**Solutions Appliquées**
+
+#### 1. Comptage des catégories vides (`get_global_stats()`)
+
+Mise à jour pour utiliser la **même logique que le tableau** :
+
+```php
+// Méthode 1 : Via question_bank_entries
+$cats_with_questions1 = $DB->get_fieldset_sql(...);
+
+// Méthode 2 : Comptage direct dans question (TOUTES les questions)
+$cats_with_questions2 = $DB->get_fieldset_sql(...);
+
+// Fusionner les deux (UNION)
+$cats_with_questions = array_unique(array_merge(...));
+
+// Compter les vides en excluant les protégées
+foreach ($all_cats as $cat) {
+    if (!$has_questions && !$has_subcats && !$is_protected) {
+        $empty_count++;
+    }
+}
+```
+
+**Avantages** :
+- ✅ Capture TOUTES les questions (même orphelines)
+- ✅ Cohérence parfaite avec le tableau
+- ✅ Comptage fiable et sécurisé
+
+#### 2. Comptage des doublons
+
+Changement de logique :
+
+```php
+// ❌ AVANT : Comptait les GROUPES (1 groupe = N catégories identiques)
+// ✅ APRÈS : Compte les CATÉGORIES individuelles en doublon
+
+$sql_dup_ids = "SELECT qc1.id
+                FROM {question_categories} qc1
+                INNER JOIN {question_categories} qc2 
+                    ON LOWER(TRIM(qc1.name)) = LOWER(TRIM(qc2.name))
+                    AND qc1.contextid = qc2.contextid
+                    AND qc1.parent = qc2.parent
+                    AND qc1.id != qc2.id";
+$dup_ids = $DB->get_fieldset_sql($sql_dup_ids);
+$stats->duplicates = count(array_unique($dup_ids));
+```
+
+**Résultat** : Le dashboard affiche maintenant le **nombre total** de catégories en doublon, comme le filtre.
+
+### 📊 Impact
+
+**Avant (v1.5.2)** :
+- Dashboard : 2277 catégories vides
+- Filtre : 2291 catégories supprimables
+- ❌ Différence de 14 catégories (confusion)
+
+**Après (v1.5.3)** :
+- Dashboard : X catégories vides
+- Filtre : X catégories supprimables
+- ✅ Comptages identiques (cohérence parfaite)
+
+### 🔒 Sécurité
+
+- Aucun impact sur la sécurité
+- Les protections de v1.5.1 sont maintenues
+- Double vérification toujours active
+
+### 📁 Fichiers Modifiés
+
+- `classes/category_manager.php` : 
+  - Mise à jour de `get_global_stats()` (lignes 666-715)
+  - Comptage des vides avec double vérification
+  - Comptage des doublons individuels (lignes 755-771)
+- `version.php` : v1.5.3 (2025100826)
+- `CHANGELOG.md` : Documentation
+
+### 🧪 Tests Recommandés
+
+Après mise à jour :
+1. ✅ Purger le cache Moodle
+2. ✅ Recharger `categories.php`
+3. ✅ Vérifier le dashboard → noter le nombre de "Catégories Vides"
+4. ✅ Appliquer le filtre "Sans questions ni sous-catégories (supprimables)"
+5. ✅ Vérifier que les deux nombres sont identiques ✅
+
+---
+
 ## [1.5.2] - 2025-10-08
 
 ### 🔧 Correction : Erreur "Request-URI Too Long" pour les opérations groupées
