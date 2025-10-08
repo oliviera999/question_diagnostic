@@ -53,24 +53,36 @@ if ($purgecache && confirm_sesskey()) {
     redirect($PAGE->url, '✅ Cache purgé avec succès.', null, \core\output\notification::NOTIFY_SUCCESS);
 }
 
-// 🆕 v1.7.0 : Traiter le test aléatoire si demandé
+// Bouton de purge de cache
+$purgecache_url = new moodle_url($PAGE->url, ['purgecache' => 1, 'sesskey' => sesskey()]);
+echo html_writer::link(
+    $purgecache_url,
+    '🔄 Purger le cache',
+    [
+        'class' => 'btn btn-warning',
+        'title' => 'Vider le cache pour forcer le recalcul des statistiques'
+    ]
+);
+
+// 🆕 v1.7.0 : Bouton de test aléatoire pour détecter les doublons
+$randomtest_url = new moodle_url($PAGE->url, ['randomtest' => 1, 'sesskey' => sesskey()]);
+echo html_writer::link(
+    $randomtest_url,
+    '🎲 Test Aléatoire Doublons',
+    [
+        'class' => 'btn btn-info',
+        'title' => 'Sélectionner une question au hasard et afficher tous ses doublons stricts'
+    ]
+);
+
+echo html_writer::end_tag('div');
+
+// 🆕 v1.7.0 : MODE TEST ALÉATOIRE - Afficher le résultat si demandé
 $randomtest = optional_param('randomtest', 0, PARAM_INT);
 if ($randomtest && confirm_sesskey()) {
-    // Afficher le header pour ce mode spécial
-    echo $OUTPUT->header();
-    
-    echo html_writer::start_tag('div', ['style' => 'margin-bottom: 20px;']);
-    echo html_writer::link(
-        new moodle_url('/local/question_diagnostic/questions_cleanup.php', ['loadstats' => 1]),
-        '← Retour à la liste des questions',
-        ['class' => 'btn btn-secondary']
-    );
-    echo html_writer::end_tag('div');
-    
     echo html_writer::tag('h2', '🎲 Test de Détection de Doublons - Question Aléatoire');
     
     // Sélectionner une question aléatoire
-    global $DB;
     $random_question = $DB->get_record_sql("SELECT * FROM {question} ORDER BY RAND() LIMIT 1");
     
     if (!$random_question) {
@@ -81,7 +93,7 @@ if ($randomtest && confirm_sesskey()) {
         exit;
     }
     
-    // Trouver tous les doublons stricts (même nom, même type, même texte)
+    // Trouver tous les doublons stricts
     $duplicates = question_analyzer::find_exact_duplicates($random_question);
     
     echo html_writer::start_tag('div', ['class' => 'alert alert-info', 'style' => 'margin: 20px 0;']);
@@ -110,7 +122,7 @@ if ($randomtest && confirm_sesskey()) {
         echo html_writer::tag('th', 'Type');
         echo html_writer::tag('th', 'Catégorie');
         echo html_writer::tag('th', 'Contexte');
-        echo html_writer::tag('th', 'Utilisée dans Quiz');
+        echo html_writer::tag('th', 'Quiz');
         echo html_writer::tag('th', 'Tentatives');
         echo html_writer::tag('th', 'Créée le');
         echo html_writer::tag('th', 'Actions');
@@ -129,17 +141,17 @@ if ($randomtest && confirm_sesskey()) {
             echo html_writer::tag('td', $q->id . ($q->id == $random_question->id ? ' 🎯' : ''));
             echo html_writer::tag('td', format_string($q->name));
             echo html_writer::tag('td', $q->qtype);
-            echo html_writer::tag('td', $stats->category_name ?? 'N/A');
-            echo html_writer::tag('td', $stats->context_name ?? 'N/A');
-            echo html_writer::tag('td', $stats->quiz_count ?? 0);
-            echo html_writer::tag('td', $stats->attempt_count ?? 0);
+            echo html_writer::tag('td', isset($stats->category_name) ? $stats->category_name : 'N/A');
+            echo html_writer::tag('td', isset($stats->context_name) ? $stats->context_name : 'N/A');
+            echo html_writer::tag('td', isset($stats->quiz_count) ? $stats->quiz_count : 0);
+            echo html_writer::tag('td', isset($stats->attempt_count) ? $stats->attempt_count : 0);
             echo html_writer::tag('td', userdate($q->timecreated, '%d/%m/%Y %H:%M'));
             
             // Actions
             echo html_writer::start_tag('td');
             $view_url = question_analyzer::get_question_bank_url($q);
             if ($view_url) {
-                echo html_writer::link($view_url, '👁️ Voir', ['class' => 'btn btn-sm btn-primary', 'target' => '_blank']);
+                echo html_writer::link($view_url, '👁️', ['class' => 'btn btn-sm btn-primary', 'target' => '_blank', 'title' => 'Voir']);
             }
             echo html_writer::end_tag('td');
             
@@ -153,13 +165,13 @@ if ($randomtest && confirm_sesskey()) {
         echo html_writer::start_tag('div', ['class' => 'alert alert-info', 'style' => 'margin-top: 20px;']);
         echo html_writer::tag('h4', '📊 Résumé du Test');
         echo html_writer::tag('p', '<strong>Total de doublons stricts :</strong> ' . count($duplicates));
-        echo html_writer::tag('p', '<strong>Total de versions de cette question :</strong> ' . count($all_questions) . ' (1 originale + ' . count($duplicates) . ' doublon(s))');
+        echo html_writer::tag('p', '<strong>Total de versions :</strong> ' . count($all_questions) . ' (1 originale + ' . count($duplicates) . ' doublon(s))');
         
         $used_count = 0;
         $unused_count = 0;
         foreach ($all_questions as $q) {
             $s = question_analyzer::get_question_stats($q);
-            if (($s->quiz_count ?? 0) > 0 || ($s->attempt_count ?? 0) > 0) {
+            if ((isset($s->quiz_count) && $s->quiz_count > 0) || (isset($s->attempt_count) && $s->attempt_count > 0)) {
                 $used_count++;
             } else {
                 $unused_count++;
@@ -176,9 +188,10 @@ if ($randomtest && confirm_sesskey()) {
         echo html_writer::end_tag('div');
     }
     
-    echo html_writer::start_tag('div', ['style' => 'margin-top: 30px;']);
+    echo html_writer::start_tag('div', ['style' => 'margin-top: 30px; text-align: center;']);
+    $randomtest_url_again = new moodle_url($PAGE->url, ['randomtest' => 1, 'sesskey' => sesskey()]);
     echo html_writer::link(
-        $randomtest_url,
+        $randomtest_url_again,
         '🔄 Tester une autre question aléatoire',
         ['class' => 'btn btn-primary btn-lg']
     );
@@ -193,30 +206,6 @@ if ($randomtest && confirm_sesskey()) {
     echo $OUTPUT->footer();
     exit;
 }
-
-// Bouton de purge de cache
-$purgecache_url = new moodle_url($PAGE->url, ['purgecache' => 1, 'sesskey' => sesskey()]);
-echo html_writer::link(
-    $purgecache_url,
-    '🔄 Purger le cache',
-    [
-        'class' => 'btn btn-warning',
-        'title' => 'Vider le cache pour forcer le recalcul des statistiques'
-    ]
-);
-
-// 🆕 v1.7.0 : Bouton de test aléatoire pour détecter les doublons
-$randomtest_url = new moodle_url($PAGE->url, ['randomtest' => 1, 'sesskey' => sesskey()]);
-echo html_writer::link(
-    $randomtest_url,
-    '🎲 Test Aléatoire Doublons',
-    [
-        'class' => 'btn btn-info',
-        'title' => 'Sélectionner une question au hasard et afficher tous ses doublons stricts'
-    ]
-);
-
-echo html_writer::end_tag('div');
 
 // ======================================================================
 // STATISTIQUES GLOBALES (Dashboard)
