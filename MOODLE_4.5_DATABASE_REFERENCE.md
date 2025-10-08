@@ -58,11 +58,16 @@ $cats = $DB->get_records('question_categories', ['contextid' => $contextid]);
 
 **Description** : Questions dans la banque de questions.
 
+**⚠️ CHANGEMENT MAJEUR MOODLE 4.0+** : 
+- La colonne `category` n'existe **PLUS** dans Moodle 4.0+
+- La colonne `hidden` n'existe **PLUS** dans Moodle 4.0+
+- Les questions sont maintenant liées aux catégories via `question_bank_entries`
+- Le statut caché est maintenant dans `question_versions.status`
+
 **Structure Moodle 4.5** :
 ```sql
 CREATE TABLE mdl_question (
     id BIGINT(10) PRIMARY KEY AUTO_INCREMENT,
-    category BIGINT(10) NOT NULL,
     parent BIGINT(10) DEFAULT 0,
     name TEXT NOT NULL,
     questiontext LONGTEXT NOT NULL,
@@ -83,21 +88,33 @@ CREATE TABLE mdl_question (
 
 **Colonnes importantes** :
 - `id` : ID de la question
-- `category` : ID de la catégorie (FK vers question_categories)
 - `qtype` : Type de question (multichoice, truefalse, essay, etc.)
 - `questiontext` : Texte de la question (peut contenir du HTML avec images)
 - `timecreated`, `timemodified` : Timestamps
+- **❌ PAS de colonne `category`** - utiliser `question_bank_entries.questioncategoryid`
+- **❌ PAS de colonne `hidden`** - utiliser `question_versions.status`
 
-**Utilisation dans le plugin** :
+**Utilisation dans le plugin (Moodle 4.5)** :
 ```php
-// Compter les questions dans une catégorie
-$count = $DB->count_records('question', ['category' => $categoryid]);
+// ❌ NE PLUS FAIRE (Moodle 3.x)
+// $count = $DB->count_records('question', ['category' => $categoryid]);
 
-// Récupérer les questions d'une catégorie
-$questions = $DB->get_records('question', ['category' => $categoryid]);
+// ✅ FAIRE (Moodle 4.5)
+$sql = "SELECT COUNT(DISTINCT q.id)
+        FROM {question} q
+        INNER JOIN {question_versions} qv ON qv.questionid = q.id
+        INNER JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
+        WHERE qbe.questioncategoryid = :categoryid";
+$count = $DB->count_records_sql($sql, ['categoryid' => $categoryid]);
 
-// Vérifier si une catégorie est vide
-$hasquestions = $DB->record_exists('question', ['category' => $categoryid]);
+// Pour compter uniquement les questions visibles (pas cachées)
+$sql = "SELECT COUNT(DISTINCT q.id)
+        FROM {question} q
+        INNER JOIN {question_versions} qv ON qv.questionid = q.id
+        INNER JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
+        WHERE qbe.questioncategoryid = :categoryid 
+        AND qv.status != 'hidden'";
+$count = $DB->count_records_sql($sql, ['categoryid' => $categoryid]);
 ```
 
 ---

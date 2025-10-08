@@ -37,9 +37,10 @@ class category_manager {
             $categories = $DB->get_records('question_categories', null, 'contextid, parent, name ASC');
             
             // Étape 2 : Compter les questions par catégorie (1 requête)
+            // ⚠️ MOODLE 4.5 : Le statut caché est dans question_versions.status, PAS dans question.hidden
             $sql_questions = "SELECT qbe.questioncategoryid,
                                      COUNT(DISTINCT q.id) as total_questions,
-                                     SUM(CASE WHEN q.hidden = 0 THEN 1 ELSE 0 END) as visible_questions
+                                     SUM(CASE WHEN qv.status != 'hidden' THEN 1 ELSE 0 END) as visible_questions
                               FROM {question_bank_entries} qbe
                               INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
                               INNER JOIN {question} q ON q.id = qv.questionid
@@ -187,14 +188,15 @@ class category_manager {
         $stats = new \stdClass();
         
         try {
-            // Nombre de questions visibles - Compatible Moodle 4.x avec question_bank_entries
+            // Nombre de questions visibles - Compatible Moodle 4.5 avec question_bank_entries
+            // ⚠️ MOODLE 4.5 : Le statut caché est dans question_versions.status, PAS dans question.hidden
             // IMPORTANT : Vérifier que la catégorie existe dans question_categories pour éviter les entries orphelines
             $sql = "SELECT COUNT(DISTINCT q.id) 
                     FROM {question} q
                     INNER JOIN {question_versions} qv ON qv.questionid = q.id
                     INNER JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
                     INNER JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
-                    WHERE qbe.questioncategoryid = :categoryid AND q.hidden = 0";
+                    WHERE qbe.questioncategoryid = :categoryid AND qv.status != 'hidden'";
             $stats->visible_questions = (int)$DB->count_records_sql($sql, ['categoryid' => $category->id]);
             
             // Nombre total de questions (incluant cachées) - Compatible Moodle 4.x

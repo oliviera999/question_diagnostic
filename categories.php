@@ -321,6 +321,14 @@ foreach ($categories_with_stats as $item) {
         'data-orphan' => $stats->is_orphan ? '1' : '0'
     ];
     
+    // Débug : forcer les attributs si nécessaire
+    if (!isset($row_attrs['data-empty'])) {
+        $row_attrs['data-empty'] = '0';
+    }
+    if (!isset($row_attrs['data-orphan'])) {
+        $row_attrs['data-orphan'] = '0';
+    }
+    
     echo html_writer::start_tag('tr', $row_attrs);
     
     // Checkbox

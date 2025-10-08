@@ -50,13 +50,17 @@
             checkboxAll.addEventListener('change', function() {
                 const checked = this.checked;
                 checkboxes.forEach(cb => {
-                    cb.checked = checked;
-                    if (checked) {
-                        state.selectedCategories.add(parseInt(cb.value));
-                    } else {
-                        state.selectedCategories.clear();
+                    const row = cb.closest('tr');
+                    // Ne sélectionner que les lignes visibles (non filtrées)
+                    if (row.style.display !== 'none') {
+                        cb.checked = checked;
+                        if (checked) {
+                            state.selectedCategories.add(parseInt(cb.value));
+                        } else {
+                            state.selectedCategories.delete(parseInt(cb.value));
+                        }
+                        updateRowSelection(cb);
                     }
-                    updateRowSelection(cb);
                 });
                 updateBulkActionsBar();
             });
@@ -152,18 +156,21 @@
             }
 
             // Filtre de statut
-            if (status !== 'all') {
-                if (status === 'empty' && row.dataset.empty !== '1') {
+            if (status !== 'all' && visible) {
+                const isEmpty = row.getAttribute('data-empty') === '1';
+                const isOrphan = row.getAttribute('data-orphan') === '1';
+                
+                if (status === 'empty' && !isEmpty) {
                     visible = false;
-                } else if (status === 'orphan' && row.dataset.orphan !== '1') {
+                } else if (status === 'orphan' && !isOrphan) {
                     visible = false;
-                } else if (status === 'ok' && (row.dataset.empty === '1' || row.dataset.orphan === '1')) {
+                } else if (status === 'ok' && (isEmpty || isOrphan)) {
                     visible = false;
                 }
             }
 
             // Filtre de contexte
-            if (context !== 'all') {
+            if (context !== 'all' && visible) {
                 if (row.dataset.context !== context) {
                     visible = false;
                 }

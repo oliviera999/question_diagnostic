@@ -31,10 +31,10 @@ $total_cats = $DB->count_records('question_categories');
 echo "Total catégories : $total_cats\n\n";
 
 // 2. Tester la requête des questions
-echo "=== Test requête questions ===\n";
+echo "=== Test requête questions (CORRIGÉE) ===\n";
 $sql_questions = "SELECT qbe.questioncategoryid,
                          COUNT(DISTINCT q.id) as total_questions,
-                         SUM(CASE WHEN q.hidden = 0 THEN 1 ELSE 0 END) as visible_questions
+                         SUM(CASE WHEN qv.status != 'hidden' THEN 1 ELSE 0 END) as visible_questions
                   FROM {question_bank_entries} qbe
                   INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
                   INNER JOIN {question} q ON q.id = qv.questionid
