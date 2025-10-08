@@ -435,7 +435,8 @@ try {
     echo '<h5>📊 Résumé global après correction :</h5>';
     echo '• <strong>' . $valid_questions . '</strong> questions valides comptabilisées<br>';
     echo '• <strong>' . $cat_count . '</strong> catégories contiennent au moins une question<br>';
-    echo '• <strong>' . ($stats->total_categories - $cat_count) . '</strong> catégories sont vides';
+    echo '• <strong>' . ($stats->total_categories - $cat_count) . '</strong> catégories sans questions directes<br>';
+    echo '<small style="color: #666; margin-left: 15px;">(Inclut les catégories parentes/conteneurs avec sous-catégories)</small>';
     echo html_writer::end_div();
     
 } catch (Exception $e) {

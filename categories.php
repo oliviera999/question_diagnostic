@@ -78,7 +78,7 @@ echo html_writer::end_tag('div');
 echo html_writer::start_tag('div', ['class' => 'qd-card warning']);
 echo html_writer::tag('div', 'Catégories Vides', ['class' => 'qd-card-title']);
 echo html_writer::tag('div', $globalstats->empty_categories, ['class' => 'qd-card-value']);
-echo html_writer::tag('div', 'Sans questions ni sous-catégories', ['class' => 'qd-card-subtitle']);
+echo html_writer::tag('div', 'Sans questions ni sous-catégories (supprimables)', ['class' => 'qd-card-subtitle']);
 echo html_writer::end_tag('div');
 
 // Carte 3 : Catégories orphelines
