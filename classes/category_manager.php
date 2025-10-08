@@ -622,18 +622,41 @@ class category_manager {
         $stats->empty_categories = (int)$DB->count_records_sql($sql_empty, ['pattern' => '%Default for%']);
         
         // Compter les catégories protégées (pour information)
+        // Protection type 1 : "Default for..."
         $stats->protected_default = (int)$DB->count_records_sql("
             SELECT COUNT(*)
             FROM {question_categories}
             WHERE " . $DB->sql_like('name', ':pattern', false), 
             ['pattern' => '%Default for%']);
         
-        
+        // Protection type 2 : Catégories avec description
         $stats->protected_with_info = (int)$DB->count_records_sql("
             SELECT COUNT(*)
             FROM {question_categories}
             WHERE info IS NOT NULL AND info != ''
         ");
+        
+        // Protection type 3 : Catégories racine (parent=0) dans contextes COURSE
+        $stats->protected_root_courses = (int)$DB->count_records_sql("
+            SELECT COUNT(qc.id)
+            FROM {question_categories} qc
+            INNER JOIN {context} ctx ON ctx.id = qc.contextid
+            WHERE qc.parent = 0
+            AND ctx.contextlevel = " . CONTEXT_COURSE
+        );
+        
+        // Total des catégories protégées (éviter les doublons en utilisant UNION)
+        $stats->total_protected = (int)$DB->count_records_sql("
+            SELECT COUNT(DISTINCT qc.id)
+            FROM {question_categories} qc
+            LEFT JOIN {context} ctx ON ctx.id = qc.contextid
+            WHERE (
+                " . $DB->sql_like('qc.name', ':pattern1', false) . "
+                OR (qc.info IS NOT NULL AND qc.info != '')
+                OR (qc.parent = 0 AND ctx.contextlevel = " . CONTEXT_COURSE . ")
+            )",
+            ['pattern1' => '%Default for%']
+        );
         
         // Compter les doublons - version compatible toutes BDD
         // Compter les groupes de catégories qui ont des noms identiques (doublons)

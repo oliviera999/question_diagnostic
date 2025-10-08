@@ -103,11 +103,11 @@ echo html_writer::tag('div', 'Dans toutes les catégories', ['class' => 'qd-card
 echo html_writer::end_tag('div');
 
 // Carte 6 : Catégories protégées
-if (isset($globalstats->protected_default) && $globalstats->protected_default > 0) {
+if (isset($globalstats->total_protected) && $globalstats->total_protected > 0) {
     echo html_writer::start_tag('div', ['class' => 'qd-card', 'style' => 'border: 2px solid #5bc0de;']);
     echo html_writer::tag('div', 'Catégories Protégées', ['class' => 'qd-card-title']);
-    echo html_writer::tag('div', $globalstats->protected_default, ['class' => 'qd-card-value']);
-    echo html_writer::tag('div', '🛡️ "Default for..." (non supprimables)', ['class' => 'qd-card-subtitle']);
+    echo html_writer::tag('div', $globalstats->total_protected, ['class' => 'qd-card-value']);
+    echo html_writer::tag('div', '🛡️ 3 types de protection (non supprimables)', ['class' => 'qd-card-subtitle']);
     echo html_writer::end_tag('div');
 }
 
@@ -117,16 +117,33 @@ echo html_writer::end_tag('div'); // fin dashboard
 // AVERTISSEMENT CATÉGORIES PROTÉGÉES
 // ======================================================================
 
-if (isset($globalstats->protected_default) && $globalstats->protected_default > 0) {
+if (isset($globalstats->total_protected) && $globalstats->total_protected > 0) {
     echo html_writer::start_div('alert alert-info', ['style' => 'margin: 20px 0; border-left: 4px solid #5bc0de;']);
     echo '<strong>🛡️ PROTECTIONS ACTIVES</strong><br>';
-    echo 'Le plugin protège automatiquement <strong>' . $globalstats->protected_default . ' catégorie(s)</strong> qui ne peuvent pas être supprimées :<br>';
+    echo 'Le plugin protège automatiquement <strong>' . $globalstats->total_protected . ' catégorie(s)</strong> qui ne peuvent pas être supprimées :<br>';
     echo '<ul style="margin-top: 10px; margin-bottom: 5px;">';
-    echo '<li>Catégories "<strong>Default for...</strong>" (créées par Moodle pour chaque cours)</li>';
-    echo '<li>Catégories <strong>racine</strong> (parent=0) dans les contextes de cours</li>';
-    echo '<li>Catégories avec une <strong>description</strong> (usage intentionnel)</li>';
+    
+    if (isset($globalstats->protected_default) && $globalstats->protected_default > 0) {
+        echo '<li>📌 <strong>' . $globalstats->protected_default . '</strong> catégorie(s) "<strong>Default for...</strong>" (créées par Moodle)</li>';
+    }
+    
+    if (isset($globalstats->protected_root_courses) && $globalstats->protected_root_courses > 0) {
+        echo '<li>📂 <strong>' . $globalstats->protected_root_courses . '</strong> catégorie(s) <strong>racine de cours</strong> (parent=0)</li>';
+    }
+    
+    if (isset($globalstats->protected_with_info) && $globalstats->protected_with_info > 0) {
+        echo '<li>📝 <strong>' . $globalstats->protected_with_info . '</strong> catégorie(s) avec <strong>description</strong> (usage documenté)</li>';
+    }
+    
     echo '</ul>';
-    echo '<em>Ces protections évitent de casser la structure de votre Moodle.</em>';
+    echo '<p style="margin-top: 15px;"><em>Ces protections évitent de casser la structure de votre Moodle.</em></p>';
+    echo '<p style="margin-top: 10px;"><strong>💡 Conseil :</strong> Utilisez ';
+    echo html_writer::link(
+        new moodle_url('/local/question_diagnostic/quick_check_categories.php'),
+        'quick_check_categories.php',
+        ['style' => 'font-weight: bold; text-decoration: underline;']
+    );
+    echo ' pour voir le détail des catégories protégées.</p>';
     echo html_writer::end_div();
 }
 
