@@ -5,6 +5,79 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.5.6] - 2025-10-08
+
+### 🐛 Corrections : Erreurs de suppression & Amélioration filtre contexte
+
+#### Problème 1 : Erreurs lors de suppression en masse
+
+**Symptôme** : Lors de la suppression de 90 catégories, 90 erreurs "Erreur de lecture de la base de données"
+
+**Cause** : 
+- La fonction `delete_category()` utilisait une requête SQL complexe avec INNER JOIN sur `question_bank_entries`
+- Cette requête pouvait échouer silencieusement
+- Le message d'erreur était générique et n'aidait pas au débogage
+
+**Solution** :
+1. **Simplification de la requête** :
+   ```php
+   // ❌ AVANT : Requête complexe avec INNER JOIN (pouvait échouer)
+   $sql = "SELECT COUNT(*) FROM question INNER JOIN question_versions...";
+   
+   // ✅ APRÈS : Requête simple et fiable
+   $questioncount = $DB->count_records('question', ['category' => $categoryid]);
+   ```
+
+2. **Meilleure gestion d'erreur** :
+   - Ajout de `debugging()` pour tracer les erreurs
+   - Messages d'erreur spécifiques avec l'ID de catégorie
+   - Vérification du résultat de `delete_records()`
+
+3. **Messages d'erreur explicites** :
+   - Au lieu de : "Erreur de lecture de la base de données"
+   - Maintenant : "❌ Erreur SQL : [détails] (Catégorie ID: 1234)"
+
+#### Problème 2 : Filtre contexte peu informatif
+
+**Avant** :
+```
+Contexte
+┌─────────────────────────┐
+│ System (ID: 1)          │
+│ Course (ID: 123)        │
+│ Module (ID: 456)        │
+└─────────────────────────┘
+```
+
+**Après** :
+```
+Contexte
+┌──────────────────────────────────────────┐
+│ Introduction à PHP (Course)              │
+│ Mathématiques avancées (Course)          │  
+│ Context ID: 1 (si erreur)                │
+└──────────────────────────────────────────┘
+```
+
+**Amélioration** :
+- Affichage du **nom du cours** au lieu de juste "Course"
+- Format : "Nom du Cours (Type de contexte)"
+- Tri alphabétique des options
+- Fallback vers "Context ID: X" si erreur
+
+**Fichiers Modifiés** :
+- `classes/category_manager.php` : Simplification requête suppression + meilleur logging
+- `categories.php` : Filtre contexte enrichi avec noms de cours
+- `version.php` : v1.5.6 (2025100829)
+- `CHANGELOG.md` : Documentation
+
+**Impact** :
+- ✅ Suppression plus fiable (requête simplifiée)
+- ✅ Meilleur débogage (logs détaillés)
+- ✅ Expérience utilisateur améliorée (filtre contexte clair)
+
+---
+
 ## [1.5.5] - 2025-10-08
 
 ### 🔧 Correction : Request-URI Too Long sur la page de confirmation

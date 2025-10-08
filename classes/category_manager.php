@@ -424,39 +424,34 @@ class category_manager {
             }
             
             // ⚠️ SÉCURITÉ CRITIQUE : Double vérification du comptage des questions
-            
-            // Méthode 1 : Via question_bank_entries (Moodle 4.x)
-            $sql = "SELECT COUNT(DISTINCT q.id) 
-                    FROM {question} q
-                    INNER JOIN {question_versions} qv ON qv.questionid = q.id
-                    INNER JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
-                    INNER JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
-                    WHERE qbe.questioncategoryid = :categoryid";
-            $questioncount1 = (int)$DB->count_records_sql($sql, ['categoryid' => $categoryid]);
-            
-            // Méthode 2 : Comptage direct dans la table question (capture TOUTES les questions, même orphelines)
-            $questioncount2 = (int)$DB->count_records('question', ['category' => $categoryid]);
-            
-            // Prendre le maximum des deux comptages pour la sécurité
-            $questioncount = max($questioncount1, $questioncount2);
-            
-            $subcatcount = $DB->count_records('question_categories', ['parent' => $categoryid]);
+            // Méthode 2 UNIQUEMENT (plus fiable et simple)
+            $questioncount = (int)$DB->count_records('question', ['category' => $categoryid]);
             
             if ($questioncount > 0) {
+                debugging("Tentative de suppression catégorie $categoryid avec $questioncount questions", DEBUG_DEVELOPER);
                 return "❌ IMPOSSIBLE : La catégorie contient $questioncount question(s). AUCUNE catégorie contenant des questions ne peut être supprimée.";
             }
             
+            $subcatcount = $DB->count_records('question_categories', ['parent' => $categoryid]);
+            
             if ($subcatcount > 0) {
+                debugging("Tentative de suppression catégorie $categoryid avec $subcatcount sous-catégories", DEBUG_DEVELOPER);
                 return "❌ IMPOSSIBLE : La catégorie contient $subcatcount sous-catégorie(s).";
             }
             
             // Supprimer la catégorie
-            $DB->delete_records('question_categories', ['id' => $categoryid]);
+            $result = $DB->delete_records('question_categories', ['id' => $categoryid]);
+            
+            if (!$result) {
+                debugging("Échec suppression catégorie $categoryid via delete_records", DEBUG_DEVELOPER);
+                return "❌ Échec de la suppression dans la base de données (ID: $categoryid)";
+            }
             
             return true;
             
         } catch (\Exception $e) {
-            return "Erreur lors de la suppression : " . $e->getMessage();
+            debugging("Exception suppression catégorie $categoryid: " . $e->getMessage(), DEBUG_DEVELOPER);
+            return "❌ Erreur SQL : " . $e->getMessage() . " (Catégorie ID: $categoryid)";
         }
     }
 

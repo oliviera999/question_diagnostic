@@ -215,24 +215,40 @@ echo html_writer::tag('label', get_string('context', 'local_question_diagnostic'
 echo html_writer::start_tag('select', ['id' => 'filter-context', 'class' => 'form-control']);
 echo html_writer::tag('option', 'Tous', ['value' => 'all']);
 
-// Récupérer les contextes uniques avec JOIN pour éviter N+1 queries
+// Récupérer les contextes uniques avec noms enrichis
 global $DB;
 $contexts = $DB->get_records_sql("
-    SELECT DISTINCT qc.contextid, ctx.contextlevel
+    SELECT DISTINCT qc.contextid
     FROM {question_categories} qc
     LEFT JOIN {context} ctx ON ctx.id = qc.contextid
     WHERE ctx.id IS NOT NULL
     ORDER BY qc.contextid
 ");
-foreach ($contexts as $ctx) {
+
+$context_options = [];
+foreach ($contexts as $ctx_record) {
     try {
-        if ($ctx->contextlevel) {
-            $context_name = context_helper::get_level_name($ctx->contextlevel);
-            echo html_writer::tag('option', "$context_name (ID: {$ctx->contextid})", ['value' => $ctx->contextid]);
+        $context_details = local_question_diagnostic_get_context_details($ctx_record->contextid);
+        $label = $context_details->context_name;
+        
+        // Ajouter le nom du cours si disponible
+        if (!empty($context_details->course_name)) {
+            $label = $context_details->course_name . ' (' . $context_details->context_name . ')';
         }
+        
+        $context_options[$ctx_record->contextid] = $label;
     } catch (Exception $e) {
-        continue;
+        // En cas d'erreur, afficher juste l'ID
+        $context_options[$ctx_record->contextid] = "Context ID: {$ctx_record->contextid}";
     }
+}
+
+// Trier par label
+asort($context_options);
+
+// Afficher les options
+foreach ($context_options as $contextid => $label) {
+    echo html_writer::tag('option', $label, ['value' => $contextid]);
 }
 echo html_writer::end_tag('select');
 echo html_writer::end_tag('div');
