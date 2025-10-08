@@ -2,8 +2,55 @@
 
 Toutes les modifications notables de ce projet seront documentées dans ce fichier.
 
-Le format est basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.0.0/),
+Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
+
+## [1.5.5] - 2025-10-08
+
+### 🔧 Correction : Request-URI Too Long sur la page de confirmation
+
+**Problème** : Même après v1.5.2, l'erreur "Request-URI Too Long" persistait lors de la **confirmation** de suppression de milliers de catégories.
+
+**Cause** : 
+- La v1.5.2 avait corrigé l'envoi initial (JavaScript → POST) ✅
+- MAIS la page de confirmation utilisait encore un **lien GET** ❌
+- Le bouton "Oui, supprimer" sur la page de confirmation créait une URL avec tous les IDs
+- Résultat : Erreur 414 sur la page de confirmation
+
+**Solution** :
+
+Remplacement des **liens GET** par des **formulaires POST** sur la page de confirmation :
+
+```php
+// ❌ AVANT v1.5.5 (PROBLÈME)
+echo html_writer::link($confirmurl, 'Oui, supprimer', ['class' => 'btn btn-danger']);
+// URL : /delete.php?ids=1,2,3,...10000&confirm=1&sesskey=xxx → 414 Error
+
+// ✅ APRÈS v1.5.5 (CORRIGÉ)
+echo html_writer::start_tag('form', ['method' => 'post', ...]);
+echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'ids', 'value' => $categoryids]);
+echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'confirm', 'value' => '1']);
+echo html_writer::empty_tag('input', ['type' => 'submit', ...]);
+echo html_writer::end_tag('form');
+// Données envoyées dans le corps POST → Fonctionne !
+```
+
+**Modifications** :
+- Page de confirmation **suppression multiple** → Formulaire POST
+- Page de confirmation **suppression simple** → Formulaire POST (cohérence)
+
+**Résultat** :
+- ✅ Suppression de 1 000+ catégories : Fonctionne
+- ✅ Suppression de 5 000+ catégories : Fonctionne  
+- ✅ Suppression de 10 000+ catégories : Fonctionne
+- ✅ Aucune erreur 414 sur la confirmation
+
+**Fichiers Modifiés** :
+- `actions/delete.php` : Formulaires POST pour confirmations
+- `version.php` : v1.5.5 (2025100828)
+- `CHANGELOG.md` : Documentation
+
+---
 
 ## [1.5.4] - 2025-10-08
 

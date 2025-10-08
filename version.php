@@ -9,8 +9,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'local_question_diagnostic';
-$plugin->version = 2025100827;  // YYYYMMDDXX format (v1.5.4 - HOTFIX: Database read error in get_global_stats)
+$plugin->version = 2025100828;  // YYYYMMDDXX format (v1.5.5 - Fix Request-URI Too Long in confirmation pages)
 $plugin->requires = 2023100900; // Moodle 4.3+
 $plugin->maturity = MATURITY_STABLE;
-$plugin->release = 'v1.5.4';
+$plugin->release = 'v1.5.5';
 

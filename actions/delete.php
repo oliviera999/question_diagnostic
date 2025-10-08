@@ -43,9 +43,9 @@ if ($categoryids) {
             redirect($returnurl, "⚠️ Erreurs : <br>$errors", null, \core\output\notification::NOTIFY_ERROR);
         }
     } else {
-        // Demander confirmation
+        // Demander confirmation - Utiliser POST pour éviter Request-URI Too Long
         $PAGE->set_context(context_system::instance());
-        $PAGE->set_url(new moodle_url('/local/question_diagnostic/actions/delete.php', ['ids' => $categoryids]));
+        $PAGE->set_url(new moodle_url('/local/question_diagnostic/actions/delete.php'));
         $PAGE->set_title('Confirmation de suppression');
         
         echo $OUTPUT->header();
@@ -53,14 +53,20 @@ if ($categoryids) {
         echo html_writer::tag('p', "Vous êtes sur le point de supprimer <strong>" . count($ids) . " catégorie(s)</strong>.");
         echo html_writer::tag('p', "Cette action est irréversible. Êtes-vous sûr ?");
         
-        $confirmurl = new moodle_url('/local/question_diagnostic/actions/delete.php', [
-            'ids' => $categoryids,
-            'confirm' => 1,
-            'sesskey' => sesskey()
-        ]);
-        
         echo html_writer::start_tag('div', ['style' => 'margin-top: 20px;']);
-        echo html_writer::link($confirmurl, 'Oui, supprimer', ['class' => 'btn btn-danger']);
+        
+        // ⚠️ FIX v1.5.5 : Utiliser un formulaire POST au lieu d'un lien GET
+        echo html_writer::start_tag('form', [
+            'method' => 'post',
+            'action' => new moodle_url('/local/question_diagnostic/actions/delete.php'),
+            'style' => 'display: inline;'
+        ]);
+        echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'ids', 'value' => $categoryids]);
+        echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'confirm', 'value' => '1']);
+        echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]);
+        echo html_writer::empty_tag('input', ['type' => 'submit', 'value' => 'Oui, supprimer', 'class' => 'btn btn-danger']);
+        echo html_writer::end_tag('form');
+        
         echo ' ';
         echo html_writer::link($returnurl, 'Annuler', ['class' => 'btn btn-secondary']);
         echo html_writer::end_tag('div');
@@ -83,12 +89,12 @@ if ($categoryid) {
             redirect($returnurl, "⚠️ Erreur : $result", null, \core\output\notification::NOTIFY_ERROR);
         }
     } else {
-        // Demander confirmation
+        // Demander confirmation - Utiliser POST pour cohérence
         global $DB;
         $category = $DB->get_record('question_categories', ['id' => $categoryid]);
         
         $PAGE->set_context(context_system::instance());
-        $PAGE->set_url(new moodle_url('/local/question_diagnostic/actions/delete.php', ['id' => $categoryid]));
+        $PAGE->set_url(new moodle_url('/local/question_diagnostic/actions/delete.php'));
         $PAGE->set_title('Confirmation de suppression');
         
         echo $OUTPUT->header();
@@ -96,14 +102,20 @@ if ($categoryid) {
         echo html_writer::tag('p', "Vous êtes sur le point de supprimer la catégorie : <strong>" . format_string($category->name) . "</strong> (ID: $categoryid)");
         echo html_writer::tag('p', "Cette action est irréversible. Êtes-vous sûr ?");
         
-        $confirmurl = new moodle_url('/local/question_diagnostic/actions/delete.php', [
-            'id' => $categoryid,
-            'confirm' => 1,
-            'sesskey' => sesskey()
-        ]);
-        
         echo html_writer::start_tag('div', ['style' => 'margin-top: 20px;']);
-        echo html_writer::link($confirmurl, 'Oui, supprimer', ['class' => 'btn btn-danger']);
+        
+        // ⚠️ FIX v1.5.5 : Utiliser un formulaire POST pour cohérence
+        echo html_writer::start_tag('form', [
+            'method' => 'post',
+            'action' => new moodle_url('/local/question_diagnostic/actions/delete.php'),
+            'style' => 'display: inline;'
+        ]);
+        echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'id', 'value' => $categoryid]);
+        echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'confirm', 'value' => '1']);
+        echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]);
+        echo html_writer::empty_tag('input', ['type' => 'submit', 'value' => 'Oui, supprimer', 'class' => 'btn btn-danger']);
+        echo html_writer::end_tag('form');
+        
         echo ' ';
         echo html_writer::link($returnurl, 'Annuler', ['class' => 'btn btn-secondary']);
         echo html_writer::end_tag('div');
