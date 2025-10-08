@@ -197,6 +197,8 @@ $columns = [
     'name' => 'Nom',
     'type' => 'Type',
     'category' => 'Catégorie',
+    'course' => 'Cours',
+    'module' => 'Module',
     'context' => 'Contexte',
     'creator' => 'Créateur',
     'created' => 'Date création',
@@ -211,7 +213,8 @@ $columns = [
 
 echo html_writer::start_tag('div', ['class' => 'qd-columns-grid']);
 foreach ($columns as $col_id => $col_name) {
-    $checked = in_array($col_id, ['id', 'name', 'type', 'category', 'quizzes', 'duplicates', 'actions']);
+    // Par défaut : afficher id, name, type, category, course, quizzes, duplicates, actions
+    $checked = in_array($col_id, ['id', 'name', 'type', 'category', 'course', 'quizzes', 'duplicates', 'actions']);
     echo html_writer::start_tag('label', ['class' => 'qd-column-toggle']);
     echo html_writer::checkbox('column_' . $col_id, 1, $checked, ' ' . $col_name, [
         'class' => 'column-toggle-checkbox',
@@ -239,7 +242,7 @@ echo html_writer::tag('label', 'Rechercher', ['for' => 'filter-search']);
 echo html_writer::empty_tag('input', [
     'type' => 'text',
     'id' => 'filter-search',
-    'placeholder' => 'Nom, ID, texte...',
+    'placeholder' => 'Nom, ID, cours, module, texte...',
     'class' => 'form-control'
 ]);
 echo html_writer::end_tag('div');
@@ -361,6 +364,8 @@ echo html_writer::tag('th', 'ID', ['class' => 'sortable col-id', 'data-column' =
 echo html_writer::tag('th', 'Nom', ['class' => 'sortable col-name', 'data-column' => 'name']);
 echo html_writer::tag('th', 'Type', ['class' => 'sortable col-type', 'data-column' => 'type']);
 echo html_writer::tag('th', 'Catégorie', ['class' => 'sortable col-category', 'data-column' => 'category']);
+echo html_writer::tag('th', 'Cours', ['class' => 'sortable col-course', 'data-column' => 'course']);
+echo html_writer::tag('th', 'Module', ['class' => 'sortable col-module', 'data-column' => 'module', 'style' => 'display: none;']);
 echo html_writer::tag('th', 'Contexte', ['class' => 'sortable col-context', 'data-column' => 'context', 'style' => 'display: none;']);
 echo html_writer::tag('th', 'Créateur', ['class' => 'sortable col-creator', 'data-column' => 'creator', 'style' => 'display: none;']);
 echo html_writer::tag('th', 'Créée le', ['class' => 'sortable col-created', 'data-column' => 'created', 'style' => 'display: none;']);
@@ -387,6 +392,8 @@ foreach ($questions_with_stats as $item) {
         'data-name' => format_string($q->name),
         'data-type' => $q->qtype,
         'data-category' => $s->category_name,
+        'data-course' => $s->course_name ?? '',
+        'data-module' => $s->module_name ?? '',
         'data-context' => $s->context_name,
         'data-creator' => $s->creator_name,
         'data-created' => $s->created_date,
@@ -425,8 +432,50 @@ foreach ($questions_with_stats as $item) {
     echo html_writer::link($cat_url, $s->category_name, ['target' => '_blank', 'title' => 'Voir la catégorie']);
     echo html_writer::end_tag('td');
     
-    // Contexte
-    echo html_writer::tag('td', $s->context_name, ['class' => 'col-context', 'style' => 'display: none;']);
+    // Cours
+    echo html_writer::start_tag('td', ['class' => 'col-course']);
+    if (!empty($s->course_name)) {
+        echo html_writer::tag('span', '📚 ' . $s->course_name, [
+            'style' => 'font-size: 13px;',
+            'title' => $s->course_name
+        ]);
+    } else {
+        echo html_writer::tag('span', '-', ['style' => 'color: #999;']);
+    }
+    echo html_writer::end_tag('td');
+    
+    // Module
+    echo html_writer::start_tag('td', ['class' => 'col-module', 'style' => 'display: none;']);
+    if (!empty($s->module_name)) {
+        echo html_writer::tag('span', '📝 ' . $s->module_name, [
+            'style' => 'font-size: 13px;',
+            'title' => $s->module_name
+        ]);
+    } else {
+        echo html_writer::tag('span', '-', ['style' => 'color: #999;']);
+    }
+    echo html_writer::end_tag('td');
+    
+    // Contexte (avec info cours/module)
+    $context_display = $s->context_name;
+    $tooltip_parts = [];
+    if (!empty($s->course_name)) {
+        $tooltip_parts[] = '📚 Cours : ' . $s->course_name;
+    }
+    if (!empty($s->module_name)) {
+        $tooltip_parts[] = '📝 Module : ' . $s->module_name;
+    }
+    $tooltip = !empty($tooltip_parts) ? implode("\n", $tooltip_parts) : '';
+    
+    if ($tooltip) {
+        $context_html = html_writer::tag('span', $context_display, [
+            'title' => $tooltip,
+            'style' => 'cursor: help; border-bottom: 1px dotted #666;'
+        ]);
+    } else {
+        $context_html = $context_display;
+    }
+    echo html_writer::tag('td', $context_html, ['class' => 'col-context', 'style' => 'display: none;']);
     
     // Créateur
     echo html_writer::tag('td', $s->creator_name, ['class' => 'col-creator', 'style' => 'display: none;']);
@@ -619,6 +668,8 @@ document.addEventListener('DOMContentLoaded', function() {
             const name = (row.getAttribute('data-name') || '').toLowerCase();
             const type = row.getAttribute('data-type') || '';
             const category = (row.getAttribute('data-category') || '').toLowerCase();
+            const course = (row.getAttribute('data-course') || '').toLowerCase();
+            const module = (row.getAttribute('data-module') || '').toLowerCase();
             const excerpt = (row.getAttribute('data-excerpt') || '').toLowerCase();
             const used = row.getAttribute('data-used') === '1';
             const isDuplicate = row.getAttribute('data-is-duplicate') === '1';
@@ -627,6 +678,8 @@ document.addEventListener('DOMContentLoaded', function() {
                                  id.includes(searchValue) || 
                                  name.includes(searchValue) || 
                                  category.includes(searchValue) ||
+                                 course.includes(searchValue) ||
+                                 module.includes(searchValue) ||
                                  excerpt.includes(searchValue);
             const matchesQtype = qtypeValue === 'all' || type === qtypeValue;
             const matchesUsage = usageValue === 'all' || 

@@ -118,16 +118,25 @@ class category_manager {
                     'protection_reason' => $protection_reason,
                 ];
                 
-                // Nom du contexte
+                // Nom du contexte enrichi (avec cours et module)
                 try {
                     if ($context_valid) {
-                        $context = \context::instance_by_id($cat->contextid, IGNORE_MISSING);
-                        $stats->context_name = $context ? \context_helper::get_level_name($context->contextlevel) : 'Inconnu';
+                        $context_details = local_question_diagnostic_get_context_details($cat->contextid);
+                        $stats->context_name = $context_details->context_name;
+                        $stats->course_name = $context_details->course_name;
+                        $stats->module_name = $context_details->module_name;
+                        $stats->context_type = $context_details->context_type;
                     } else {
                         $stats->context_name = 'Contexte supprimé (ID: ' . $cat->contextid . ')';
+                        $stats->course_name = null;
+                        $stats->module_name = null;
+                        $stats->context_type = null;
                     }
                 } catch (\Exception $e) {
                     $stats->context_name = 'Erreur';
+                    $stats->course_name = null;
+                    $stats->module_name = null;
+                    $stats->context_type = null;
                 }
                 
                 $result[] = (object)[
@@ -202,21 +211,30 @@ class category_manager {
                 'parent' => $category->id
             ]);
             
-            // Contexte
+            // Contexte enrichi (avec cours et module)
             try {
                 // Vérifier d'abord si le contexte existe dans la table context
                 $context_exists = $DB->record_exists('context', ['id' => $category->contextid]);
                 
                 if ($context_exists) {
-                    $context = \context::instance_by_id($category->contextid, IGNORE_MISSING);
-                    $stats->context_name = $context ? \context_helper::get_level_name($context->contextlevel) : 'Inconnu';
+                    $context_details = local_question_diagnostic_get_context_details($category->contextid);
+                    $stats->context_name = $context_details->context_name;
+                    $stats->course_name = $context_details->course_name;
+                    $stats->module_name = $context_details->module_name;
+                    $stats->context_type = $context_details->context_type;
                     $stats->context_valid = true;
                 } else {
                     $stats->context_name = 'Contexte supprimé (ID: ' . $category->contextid . ')';
+                    $stats->course_name = null;
+                    $stats->module_name = null;
+                    $stats->context_type = null;
                     $stats->context_valid = false;
                 }
             } catch (\Exception $e) {
                 $stats->context_name = 'Erreur';
+                $stats->course_name = null;
+                $stats->module_name = null;
+                $stats->context_type = null;
                 $stats->context_valid = false;
             }
             

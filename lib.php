@@ -68,6 +68,106 @@ function local_question_diagnostic_get_heading_with_version($heading) {
 }
 
 /**
+ * Get detailed context information including course and module names
+ *
+ * @param int $contextid Context ID
+ * @param bool $include_id Include context ID in the name
+ * @return object Object with context_name, course_name, module_name, context_type
+ */
+function local_question_diagnostic_get_context_details($contextid, $include_id = false) {
+    global $DB;
+    
+    $result = (object)[
+        'context_name' => 'Inconnu',
+        'course_name' => null,
+        'module_name' => null,
+        'context_type' => null,
+        'context_level' => null
+    ];
+    
+    try {
+        $context = context::instance_by_id($contextid, IGNORE_MISSING);
+        
+        if (!$context) {
+            $result->context_name = 'Contexte supprimé (ID: ' . $contextid . ')';
+            return $result;
+        }
+        
+        $result->context_level = $context->contextlevel;
+        $result->context_type = context_helper::get_level_name($context->contextlevel);
+        
+        // Cas 1 : Contexte système
+        if ($context->contextlevel == CONTEXT_SYSTEM) {
+            $result->context_name = '🌐 Système';
+            if ($include_id) {
+                $result->context_name .= ' (ID: ' . $contextid . ')';
+            }
+        }
+        // Cas 2 : Contexte de cours
+        else if ($context->contextlevel == CONTEXT_COURSE) {
+            $course = $DB->get_record('course', ['id' => $context->instanceid], 'id, fullname, shortname');
+            if ($course) {
+                $result->course_name = format_string($course->fullname);
+                $result->context_name = '📚 Cours : ' . format_string($course->shortname);
+                if ($include_id) {
+                    $result->context_name .= ' (ID: ' . $course->id . ')';
+                }
+            } else {
+                $result->context_name = '📚 Cours (supprimé)';
+            }
+        }
+        // Cas 3 : Contexte de module (activité/quiz)
+        else if ($context->contextlevel == CONTEXT_MODULE) {
+            $cm = $DB->get_record_sql("
+                SELECT cm.id, cm.instance, m.name as modname, cm.course
+                FROM {course_modules} cm
+                INNER JOIN {modules} m ON m.id = cm.module
+                WHERE cm.id = :cmid
+            ", ['cmid' => $context->instanceid]);
+            
+            if ($cm) {
+                // Obtenir le nom du cours parent
+                $course = $DB->get_record('course', ['id' => $cm->course], 'id, fullname, shortname');
+                if ($course) {
+                    $result->course_name = format_string($course->fullname);
+                }
+                
+                // Obtenir le nom du module (quiz, etc.)
+                $module_table = $cm->modname;
+                $module_record = $DB->get_record($module_table, ['id' => $cm->instance], 'id, name');
+                
+                if ($module_record) {
+                    $result->module_name = format_string($module_record->name);
+                    $result->context_name = '📝 ' . ucfirst($cm->modname) . ' : ' . format_string($module_record->name);
+                    if ($course) {
+                        $result->context_name .= ' (Cours : ' . format_string($course->shortname) . ')';
+                    }
+                    if ($include_id) {
+                        $result->context_name .= ' (Module ID: ' . $cm->id . ')';
+                    }
+                } else {
+                    $result->context_name = '📝 Module (supprimé)';
+                }
+            } else {
+                $result->context_name = '📝 Module (supprimé)';
+            }
+        }
+        // Cas 4 : Autres contextes (user, coursecat, block...)
+        else {
+            $result->context_name = $result->context_type;
+            if ($include_id) {
+                $result->context_name .= ' (ID: ' . $contextid . ')';
+            }
+        }
+        
+    } catch (Exception $e) {
+        $result->context_name = 'Erreur : ' . $e->getMessage();
+    }
+    
+    return $result;
+}
+
+/**
  * Serve the plugin files
  *
  * @param stdClass $course

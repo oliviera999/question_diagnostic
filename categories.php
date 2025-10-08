@@ -162,6 +162,21 @@ echo html_writer::link($exporturl, '📥 ' . get_string('export', 'local_questio
 echo html_writer::end_tag('div');
 
 // ======================================================================
+// AIDE POUR LES OPÉRATIONS PAR LOT
+// ======================================================================
+
+echo html_writer::start_div('alert alert-info', ['style' => 'margin: 20px 0; border-left: 4px solid #667eea;']);
+echo '<strong>💡 ASTUCE : Opérations par lot</strong><br>';
+echo 'Cochez une ou plusieurs catégories dans le tableau ci-dessous pour faire apparaître la barre d\'actions groupées. ';
+echo 'Vous pourrez alors :<br>';
+echo '<ul style="margin-top: 10px; margin-bottom: 5px;">';
+echo '<li>🗑️ <strong>Supprimer en masse</strong> les catégories vides sélectionnées</li>';
+echo '<li>📤 <strong>Exporter en CSV</strong> uniquement les catégories sélectionnées</li>';
+echo '<li>❌ <strong>Annuler</strong> la sélection en un clic</li>';
+echo '</ul>';
+echo html_writer::end_div();
+
+// ======================================================================
 // FILTRES ET RECHERCHE
 // ======================================================================
 
@@ -227,7 +242,7 @@ echo html_writer::tag('div', '', ['id' => 'filter-stats', 'style' => 'margin-top
 echo html_writer::end_tag('div'); // fin qd-filters
 
 // ======================================================================
-// BARRE D'ACTIONS GROUPÉES
+// BARRE D'ACTIONS GROUPÉES (apparaît lors de la sélection)
 // ======================================================================
 
 echo html_writer::start_tag('div', ['class' => 'qd-bulk-actions', 'id' => 'bulk-actions-bar']);
@@ -331,8 +346,27 @@ foreach ($categories_with_stats as $item) {
     }
     echo html_writer::end_tag('td');
     
-    // Contexte
-    echo html_writer::tag('td', $stats->context_name);
+    // Contexte (avec tooltip si cours/module disponible)
+    echo html_writer::start_tag('td');
+    $context_display = $stats->context_name;
+    $tooltip_parts = [];
+    if (!empty($stats->course_name)) {
+        $tooltip_parts[] = '📚 Cours : ' . $stats->course_name;
+    }
+    if (!empty($stats->module_name)) {
+        $tooltip_parts[] = '📝 Module : ' . $stats->module_name;
+    }
+    $tooltip = !empty($tooltip_parts) ? implode("\n", $tooltip_parts) : '';
+    
+    if ($tooltip) {
+        echo html_writer::tag('span', $context_display, [
+            'title' => $tooltip,
+            'style' => 'cursor: help; border-bottom: 1px dotted #666;'
+        ]);
+    } else {
+        echo $context_display;
+    }
+    echo html_writer::end_tag('td');
     
     // Parent
     echo html_writer::tag('td', $cat->parent ?: '-');

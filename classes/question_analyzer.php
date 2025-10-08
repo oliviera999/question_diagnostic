@@ -123,18 +123,27 @@ class question_analyzer {
             $stats->category_name = $category ? format_string($category->name) : 'Inconnue';
             $stats->category_id = $category ? $category->id : 0;
             
-            // Contexte
+            // Contexte enrichi (avec cours et module)
             if ($category) {
                 try {
-                    $context = \context::instance_by_id($category->contextid, IGNORE_MISSING);
-                    $stats->context_name = $context ? \context_helper::get_level_name($context->contextlevel) : 'Inconnu';
+                    $context_details = local_question_diagnostic_get_context_details($category->contextid);
+                    $stats->context_name = $context_details->context_name;
+                    $stats->course_name = $context_details->course_name;
+                    $stats->module_name = $context_details->module_name;
+                    $stats->context_type = $context_details->context_type;
                     $stats->context_id = $category->contextid;
                 } catch (\Exception $e) {
                     $stats->context_name = 'Erreur';
+                    $stats->course_name = null;
+                    $stats->module_name = null;
+                    $stats->context_type = null;
                     $stats->context_id = 0;
                 }
             } else {
                 $stats->context_name = 'Inconnu';
+                $stats->course_name = null;
+                $stats->module_name = null;
+                $stats->context_type = null;
                 $stats->context_id = 0;
             }
             
