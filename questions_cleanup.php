@@ -81,7 +81,8 @@ echo html_writer::end_tag('div');
 
 // Charger les statistiques avec gestion d'erreurs
 try {
-    $globalstats = question_analyzer::get_global_stats(true, true);
+    // 🚨 v1.6.0 : Désactiver la détection de doublons dans les stats globales (trop lourd)
+    $globalstats = question_analyzer::get_global_stats(true, false);
 } catch (Exception $e) {
     echo html_writer::start_tag('div', ['class' => 'alert alert-danger']);
     echo html_writer::tag('strong', '⚠️ Erreur : ');
@@ -298,32 +299,47 @@ echo html_writer::end_tag('div');
 
 // Charger les questions avec gestion d'erreurs optimisée
 try {
-    // 🚨 PROTECTION : Limiter le nombre de questions affichées pour éviter les timeouts
-    $max_questions_display = 1000; // Limite pour les performances
+    // 🚨 v1.6.0 : PROTECTION RENFORCÉE pour grandes bases (30 000+ questions)
+    // Paramètre pour augmenter la limite si besoin
+    $max_questions_display = optional_param('show', 10, PARAM_INT); // Par défaut : 10 questions (ultra rapide)
+    $max_questions_display = min($max_questions_display, 5000); // Limite absolue : 5000
+    
     $total_questions = $globalstats->total_questions;
     
-    // Pour les grandes bases (>5000 questions), on désactive la détection de doublons
-    $include_duplicates = ($total_questions < 5000);
+    // 🚫 DÉSACTIVER la détection de doublons par défaut (trop lourd)
+    $include_duplicates = false;
     
-    // Message d'avertissement pour les grandes bases
-    if ($total_questions > $max_questions_display) {
-        echo html_writer::start_tag('div', ['class' => 'alert alert-warning', 'style' => 'margin-bottom: 20px;']);
-        echo html_writer::tag('strong', '⚠️ Attention : ');
-        echo "Votre base contient <strong>" . number_format($total_questions, 0, ',', ' ') . " questions</strong>. ";
-        echo "Pour des raisons de performance, seules les <strong>" . number_format($max_questions_display, 0, ',', ' ') . " premières questions</strong> sont affichées dans le tableau ci-dessous. ";
-        echo '<br><br>';
-        echo '💡 <strong>Recommandation</strong> : Utilisez les filtres de recherche pour affiner les résultats. ';
-        echo 'Les statistiques globales ci-dessus concernent bien <strong>TOUTES les ' . number_format($total_questions, 0, ',', ' ') . ' questions</strong>.';
-        echo html_writer::end_tag('div');
-    }
+    // Message d'information pour les grandes bases
+    echo html_writer::start_tag('div', ['class' => 'alert alert-info', 'style' => 'margin-bottom: 20px; border-left: 4px solid #0f6cbf;']);
+    echo html_writer::tag('strong', '📊 Votre base de données : ');
+    echo "<strong>" . number_format($total_questions, 0, ',', ' ') . " questions au total</strong>. ";
+    echo '<br><br>';
+    echo '🎯 <strong>Affichage actuel</strong> : Les <strong>' . min($max_questions_display, $total_questions) . ' premières questions</strong> sont affichées ci-dessous.';
+    echo '<br><br>';
+    echo '💡 <strong>Options</strong> :';
+    echo '<ul style="margin-top: 10px;">';
+    echo '<li>Utilisez les <strong>filtres</strong> pour affiner les résultats</li>';
+    echo '<li>Changez le nombre de questions affichées : ';
     
-    if (!$include_duplicates) {
-        echo html_writer::start_tag('div', ['class' => 'alert alert-info', 'style' => 'margin-bottom: 20px;']);
-        echo html_writer::tag('strong', 'ℹ️ Note : ');
-        echo 'La détection détaillée des doublons est désactivée pour les grandes bases de données (>5000 questions) afin d\'améliorer les performances. ';
-        echo 'Seule la détection par nom exact est effectuée.';
-        echo html_writer::end_tag('div');
-    }
+    $url_10 = new moodle_url('/local/question_diagnostic/questions_cleanup.php', ['show' => 10]);
+    $url_50 = new moodle_url('/local/question_diagnostic/questions_cleanup.php', ['show' => 50]);
+    $url_100 = new moodle_url('/local/question_diagnostic/questions_cleanup.php', ['show' => 100]);
+    $url_500 = new moodle_url('/local/question_diagnostic/questions_cleanup.php', ['show' => 500]);
+    $url_1000 = new moodle_url('/local/question_diagnostic/questions_cleanup.php', ['show' => 1000]);
+    
+    echo html_writer::link($url_10, '10', ['class' => $max_questions_display == 10 ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-secondary']);
+    echo ' ';
+    echo html_writer::link($url_50, '50', ['class' => $max_questions_display == 50 ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-secondary']);
+    echo ' ';
+    echo html_writer::link($url_100, '100', ['class' => $max_questions_display == 100 ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-secondary']);
+    echo ' ';
+    echo html_writer::link($url_500, '500', ['class' => $max_questions_display == 500 ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-secondary']);
+    echo ' ';
+    echo html_writer::link($url_1000, '1000', ['class' => $max_questions_display == 1000 ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-secondary']);
+    echo '</li>';
+    echo '</ul>';
+    echo '<p style="margin-top: 15px;"><em>Les statistiques globales ci-dessus concernent bien <strong>TOUTES les ' . number_format($total_questions, 0, ',', ' ') . ' questions</strong>.</em></p>';
+    echo html_writer::end_tag('div');
     
     // 🔥 MODIFICATION CRITIQUE : Limiter le nombre de questions chargées
     $limit = min($max_questions_display, $total_questions);
