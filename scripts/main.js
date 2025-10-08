@@ -159,12 +159,19 @@
             if (status !== 'all' && visible) {
                 const isEmpty = row.getAttribute('data-empty') === '1';
                 const isOrphan = row.getAttribute('data-orphan') === '1';
+                const isDuplicate = row.getAttribute('data-duplicate') === '1';
+                const hasNoQuestions = row.getAttribute('data-questions') === '0';
+                const hasNoSubcats = row.getAttribute('data-subcategories') === '0';
                 
-                if (status === 'empty' && !isEmpty) {
+                if (status === 'deletable' && !(hasNoQuestions && hasNoSubcats)) {
+                    visible = false;
+                } else if (status === 'empty' && !isEmpty) {
+                    visible = false;
+                } else if (status === 'duplicate' && !isDuplicate) {
                     visible = false;
                 } else if (status === 'orphan' && !isOrphan) {
                     visible = false;
-                } else if (status === 'ok' && (isEmpty || isOrphan)) {
+                } else if (status === 'ok' && (isEmpty || isOrphan || isDuplicate)) {
                     visible = false;
                 }
             }

@@ -201,7 +201,9 @@ echo html_writer::start_tag('div', ['class' => 'qd-filter-group']);
 echo html_writer::tag('label', get_string('status', 'local_question_diagnostic'), ['for' => 'filter-status']);
 echo html_writer::start_tag('select', ['id' => 'filter-status', 'class' => 'form-control']);
 echo html_writer::tag('option', get_string('all', 'local_question_diagnostic'), ['value' => 'all']);
+echo html_writer::tag('option', 'Sans questions ni sous-catégories (supprimables)', ['value' => 'deletable']);
 echo html_writer::tag('option', get_string('empty', 'local_question_diagnostic'), ['value' => 'empty']);
+echo html_writer::tag('option', 'Doublons', ['value' => 'duplicate']);
 echo html_writer::tag('option', get_string('orphan', 'local_question_diagnostic'), ['value' => 'orphan']);
 echo html_writer::tag('option', get_string('ok', 'local_question_diagnostic'), ['value' => 'ok']);
 echo html_writer::end_tag('select');
@@ -318,7 +320,8 @@ foreach ($categories_with_stats as $item) {
         'data-questions' => $stats->visible_questions,
         'data-subcategories' => $stats->subcategories,
         'data-empty' => $stats->is_empty ? '1' : '0',
-        'data-orphan' => $stats->is_orphan ? '1' : '0'
+        'data-orphan' => $stats->is_orphan ? '1' : '0',
+        'data-duplicate' => (isset($stats->is_duplicate) && $stats->is_duplicate) ? '1' : '0'
     ];
     
     // Débug : forcer les attributs si nécessaire
@@ -327,6 +330,9 @@ foreach ($categories_with_stats as $item) {
     }
     if (!isset($row_attrs['data-orphan'])) {
         $row_attrs['data-orphan'] = '0';
+    }
+    if (!isset($row_attrs['data-duplicate'])) {
+        $row_attrs['data-duplicate'] = '0';
     }
     
     echo html_writer::start_tag('tr', $row_attrs);
@@ -402,10 +408,13 @@ foreach ($categories_with_stats as $item) {
     if ($stats->is_empty) {
         echo html_writer::tag('span', 'Vide', ['class' => 'qd-badge qd-badge-empty']);
     }
+    if (isset($stats->is_duplicate) && $stats->is_duplicate) {
+        echo ' ' . html_writer::tag('span', 'Doublon', ['class' => 'qd-badge qd-badge-warning']);
+    }
     if ($stats->is_orphan) {
         echo ' ' . html_writer::tag('span', 'Orpheline', ['class' => 'qd-badge qd-badge-orphan']);
     }
-    if (!$stats->is_empty && !$stats->is_orphan && !$stats->is_protected) {
+    if (!$stats->is_empty && !$stats->is_orphan && !$stats->is_protected && (!isset($stats->is_duplicate) || !$stats->is_duplicate)) {
         echo html_writer::tag('span', 'OK', ['class' => 'qd-badge qd-badge-ok']);
     }
     echo html_writer::end_tag('td');

@@ -243,6 +243,11 @@
     color: #000;
 }
 
+.qd-badge-warning {
+    background: #ff9800;
+    color: white;
+}
+
 .qd-badge-orphan {
     background: #dc3545;
     color: white;

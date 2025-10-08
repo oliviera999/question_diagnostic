@@ -65,6 +65,20 @@ class category_manager {
                 $invalid_context_ids[] = $ctx_record->id;
             }
             
+            // Étape 4.5 : Détecter les doublons (1 requête)
+            $sql_duplicates = "SELECT qc1.id as duplicate_id
+                              FROM {question_categories} qc1
+                              INNER JOIN {question_categories} qc2 
+                                  ON LOWER(TRIM(qc1.name)) = LOWER(TRIM(qc2.name))
+                                  AND qc1.contextid = qc2.contextid
+                                  AND qc1.parent = qc2.parent
+                                  AND qc1.id != qc2.id";
+            $duplicates_records = $DB->get_records_sql($sql_duplicates);
+            $duplicate_ids = [];
+            foreach ($duplicates_records as $dup_record) {
+                $duplicate_ids[] = $dup_record->duplicate_id;
+            }
+            
             // Étape 5 : Construire le résultat
             $result = [];
             foreach ($categories as $cat) {
@@ -107,6 +121,9 @@ class category_manager {
                     }
                 }
                 
+                // Vérifier si c'est un doublon
+                $is_duplicate = in_array($cat->id, $duplicate_ids);
+                
                 // Construire les stats
                 $stats = (object)[
                     'total_questions' => $total_questions,
@@ -115,6 +132,7 @@ class category_manager {
                     'context_valid' => $context_valid,
                     'is_empty' => ($total_questions == 0 && $subcategories == 0),
                     'is_orphan' => !$context_valid,
+                    'is_duplicate' => $is_duplicate,
                     'is_protected' => $is_protected,
                     'protection_reason' => $protection_reason,
                 ];
