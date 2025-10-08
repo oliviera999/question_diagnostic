@@ -72,12 +72,14 @@ echo html_writer::end_tag('div');
 
 echo html_writer::tag('h2', '📊 ' . get_string('questions_stats', 'local_question_diagnostic'));
 
-// Afficher un message d'avertissement sur le temps de calcul
-echo html_writer::start_tag('div', ['class' => 'alert alert-info', 'style' => 'margin-bottom: 20px;']);
-echo html_writer::tag('strong', '⚠️ ' . get_string('information', 'moodle') . ' : ');
-echo get_string('loading_stats', 'local_question_diagnostic') . ' ';
-echo html_writer::tag('span', get_string('loading_questions', 'local_question_diagnostic'), ['id' => 'loading-indicator', 'style' => 'font-weight: bold;']);
-echo html_writer::end_tag('div');
+// Afficher un message d'avertissement sur le temps de calcul (masqué si loadstats=0)
+if (optional_param('loadstats', 0, PARAM_INT) == 1) {
+    echo html_writer::start_tag('div', ['class' => 'alert alert-info', 'style' => 'margin-bottom: 20px;']);
+    echo html_writer::tag('strong', '⚠️ Information : ');
+    echo get_string('loading_stats', 'local_question_diagnostic') . ' ';
+    echo html_writer::tag('span', get_string('loading_questions', 'local_question_diagnostic'), ['id' => 'loading-indicator', 'style' => 'font-weight: bold;']);
+    echo html_writer::end_tag('div');
+}
 
 // 🚨 v1.6.1 : CHARGEMENT MINIMAL - Ne charger que le strict nécessaire
 $load_stats = optional_param('loadstats', 0, PARAM_INT);
