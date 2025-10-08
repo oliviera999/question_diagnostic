@@ -663,56 +663,63 @@ class category_manager {
                        WHERE ctx.id IS NULL";
         $stats->orphan_categories = (int)$DB->count_records_sql($sql_orphan);
         
-        // ⚠️ SÉCURITÉ v1.5.1+ : Compter les catégories vides avec double vérification
-        // Méthode 1 : Via question_bank_entries
-        $sql_cat_with_q1 = "SELECT DISTINCT qbe.questioncategoryid
-                            FROM {question_bank_entries} qbe
-                            INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id";
-        $cats_with_questions1 = $DB->get_fieldset_sql($sql_cat_with_q1);
-        
-        // Méthode 2 : Comptage direct dans question (capture TOUTES les questions, même orphelines)
-        $sql_cat_with_q2 = "SELECT DISTINCT category
-                            FROM {question}
-                            WHERE category IS NOT NULL";
-        $cats_with_questions2 = $DB->get_fieldset_sql($sql_cat_with_q2);
-        
-        // Fusionner les deux listes (union)
-        $cats_with_questions = array_unique(array_merge($cats_with_questions1, $cats_with_questions2));
-        
-        // Catégories avec sous-catégories
-        $sql_cat_with_subs = "SELECT DISTINCT parent
-                              FROM {question_categories}
-                              WHERE parent IS NOT NULL AND parent > 0";
-        $cats_with_subcats = $DB->get_fieldset_sql($sql_cat_with_subs);
-        
-        // Compter les catégories vides (sans questions ET sans sous-catégories)
-        // 🛡️ AVEC PROTECTIONS : Exclure les catégories protégées
-        $all_cats = $DB->get_records('question_categories');
-        $empty_count = 0;
-        foreach ($all_cats as $cat) {
-            // Vérifier si vide
-            $has_questions = in_array($cat->id, $cats_with_questions);
-            $has_subcats = in_array($cat->id, $cats_with_subcats);
-            
-            if (!$has_questions && !$has_subcats) {
-                // Exclure les protégées
-                $is_protected = false;
-                if (stripos($cat->name, 'Default for') !== false || stripos($cat->name, 'Par défaut pour') !== false) {
-                    $is_protected = true;
-                }
-                if (!empty($cat->info)) {
-                    $is_protected = true;
-                }
-                if ($cat->parent == 0) {
-                    $is_protected = true;
-                }
-                
-                if (!$is_protected) {
-                    $empty_count++;
-                }
+        // ⚠️ SÉCURITÉ v1.5.3+ : Compter les catégories vides avec double vérification
+        // AVEC FALLBACK en cas d'erreur
+        try {
+            // Méthode 1 : Via question_bank_entries
+            $sql_cat_with_q1 = "SELECT DISTINCT qbe.questioncategoryid
+                                FROM {question_bank_entries} qbe
+                                INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id";
+            $cats_with_questions1 = $DB->get_fieldset_sql($sql_cat_with_q1);
+            if (!$cats_with_questions1) {
+                $cats_with_questions1 = [];
             }
+            
+            // Méthode 2 : Comptage direct dans question (capture TOUTES les questions, même orphelines)
+            $sql_cat_with_q2 = "SELECT DISTINCT category
+                                FROM {question}
+                                WHERE category IS NOT NULL";
+            $cats_with_questions2 = $DB->get_fieldset_sql($sql_cat_with_q2);
+            if (!$cats_with_questions2) {
+                $cats_with_questions2 = [];
+            }
+            
+            // Fusionner les deux listes (union)
+            $cats_with_questions = array_unique(array_merge($cats_with_questions1, $cats_with_questions2));
+            
+            // Catégories avec sous-catégories
+            $sql_cat_with_subs = "SELECT DISTINCT parent
+                                  FROM {question_categories}
+                                  WHERE parent IS NOT NULL AND parent > 0";
+            $cats_with_subcats = $DB->get_fieldset_sql($sql_cat_with_subs);
+            if (!$cats_with_subcats) {
+                $cats_with_subcats = [];
+            }
+            
+            // Compter avec SQL optimisé au lieu de charger tout en mémoire
+            // Compter catégories sans questions
+            $sql_empty = "SELECT COUNT(qc.id)
+                         FROM {question_categories} qc
+                         WHERE qc.id NOT IN (
+                             SELECT DISTINCT category FROM {question} WHERE category IS NOT NULL
+                         )
+                         AND qc.id NOT IN (
+                             SELECT DISTINCT parent FROM {question_categories} WHERE parent IS NOT NULL AND parent > 0
+                         )
+                         AND qc.parent != 0
+                         AND (qc.info IS NULL OR qc.info = '')
+                         AND " . $DB->sql_like('qc.name', ':pattern', true, true, true);
+            $stats->empty_categories = (int)$DB->count_records_sql($sql_empty, ['pattern' => '%Default for%']);
+            
+        } catch (\Exception $e) {
+            // FALLBACK : En cas d'erreur, utiliser l'ancienne méthode simple
+            debugging('Erreur dans get_global_stats() v1.5.3, utilisation fallback : ' . $e->getMessage(), DEBUG_DEVELOPER);
+            $sql_empty_fallback = "SELECT COUNT(qc.id)
+                                  FROM {question_categories} qc
+                                  WHERE qc.parent != 0
+                                  AND (qc.info IS NULL OR qc.info = '')";
+            $stats->empty_categories = (int)$DB->count_records_sql($sql_empty_fallback);
         }
-        $stats->empty_categories = $empty_count;
         
         // Compter les catégories protégées (pour information)
         // Protection type 1 : "Default for..."
