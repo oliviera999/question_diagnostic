@@ -5,6 +5,63 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.6.4] - 2025-10-08
+
+### 🔧 FIX CRITIQUE : Compatibilité quiz_slots multi-version Moodle + Warning broken_links
+
+**Problèmes** :
+
+1. **Erreur SQL** : `Unknown column 'qs.questionbankentryid' in 'ON'`
+   - La colonne `quiz_slots.questionbankentryid` n'existe que depuis Moodle 4.1
+   - Certaines installations Moodle 4.0 ou 4.3 utilisent encore `questionid`
+   
+2. **Warning PHP** : `Undefined property: $questions_with_broken_links`
+   - Manquant dans `get_global_stats_simple()`
+
+**Solutions** :
+
+#### 1. Détection automatique de la structure `quiz_slots`
+
+Avant chaque requête, vérifier quelle colonne existe :
+
+```php
+$columns = $DB->get_columns('quiz_slots');
+
+if (isset($columns['questionbankentryid'])) {
+    // Moodle 4.1+ : utilise questionbankentryid
+    SELECT ... FROM quiz_slots qs
+    INNER JOIN question_bank_entries qbe ON qbe.id = qs.questionbankentryid
+    ...
+} else if (isset($columns['questionid'])) {
+    // Moodle 3.x/4.0 : utilise questionid directement
+    SELECT ... FROM quiz_slots qs
+    WHERE qs.questionid = :questionid
+}
+```
+
+**Corrigé dans 3 endroits** :
+- `get_question_usage()` (ligne 244)
+- `get_questions_usage_by_ids()` (ligne 501)
+- `get_global_stats()` (ligne 967)
+
+#### 2. Propriété manquante
+
+Ajout de `$stats->questions_with_broken_links = 0` dans `get_global_stats_simple()`
+
+**Impact** :
+
+- ✅ Compatible Moodle 4.0, 4.1, 4.3, 4.4, 4.5
+- ✅ Détection automatique de la structure
+- ✅ Aucune erreur SQL
+- ✅ Aucun warning PHP
+
+**Fichiers** :
+- `classes/question_analyzer.php` : 3 requêtes avec détection auto + propriété manquante
+- `version.php` : v1.6.4
+- `CHANGELOG.md` : Documentation
+
+---
+
 ## [1.6.3] - 2025-10-08
 
 ### ⚡ FIX : Page blanche après clic bouton + Statistiques simplifiées auto

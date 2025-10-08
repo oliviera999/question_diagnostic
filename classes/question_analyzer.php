@@ -240,15 +240,27 @@ class question_analyzer {
 
         try {
             // Vérifier si la question est dans des quiz via la table quiz_slots
-            // ⚠️ MOODLE 4.5 : quiz_slots utilise 'questionbankentryid' pas 'questionid'
-            $sql = "SELECT DISTINCT q.id, q.name, q.course
-                    FROM {quiz} q
-                    INNER JOIN {quiz_slots} qs ON qs.quizid = q.id
-                    INNER JOIN {question_bank_entries} qbe ON qbe.id = qs.questionbankentryid
-                    INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
-                    WHERE qv.questionid = :questionid";
+            // ⚠️ v1.6.4 : Compatibilité multi-version Moodle
+            $columns = $DB->get_columns('quiz_slots');
+            $quizzes = [];
             
-            $quizzes = $DB->get_records_sql($sql, ['questionid' => $questionid]);
+            if (isset($columns['questionbankentryid'])) {
+                // Moodle 4.1+ : utilise questionbankentryid
+                $sql = "SELECT DISTINCT q.id, q.name, q.course
+                        FROM {quiz} q
+                        INNER JOIN {quiz_slots} qs ON qs.quizid = q.id
+                        INNER JOIN {question_bank_entries} qbe ON qbe.id = qs.questionbankentryid
+                        INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+                        WHERE qv.questionid = :questionid";
+                $quizzes = $DB->get_records_sql($sql, ['questionid' => $questionid]);
+            } else if (isset($columns['questionid'])) {
+                // Moodle 3.x/4.0 : utilise questionid directement
+                $sql = "SELECT DISTINCT q.id, q.name, q.course
+                        FROM {quiz} q
+                        INNER JOIN {quiz_slots} qs ON qs.quizid = q.id
+                        WHERE qs.questionid = :questionid";
+                $quizzes = $DB->get_records_sql($sql, ['questionid' => $questionid]);
+            }
 
             foreach ($quizzes as $quiz) {
                 $usage['quiz_list'][] = (object)[
@@ -300,16 +312,37 @@ class question_analyzer {
             list($insql, $params) = $DB->get_in_or_equal($question_ids, SQL_PARAMS_NAMED);
             
             // Quiz usage - UNIQUEMENT pour les IDs demandés
-            // ⚠️ MOODLE 4.5 : quiz_slots utilise questionbankentryid
-            $quiz_usage = $DB->get_records_sql("
-                SELECT qv.questionid, qu.id as quiz_id, qu.name as quiz_name, qu.course
-                FROM {quiz_slots} qs
-                INNER JOIN {quiz} qu ON qu.id = qs.quizid
-                INNER JOIN {question_bank_entries} qbe ON qbe.id = qs.questionbankentryid
-                INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
-                WHERE qv.questionid $insql
-                ORDER BY qv.questionid, qu.id
-            ", $params);
+            // ⚠️ v1.6.4 : Vérifier quelle colonne existe dans quiz_slots
+            $quiz_usage = [];
+            try {
+                // Vérifier si questionbankentryid existe (Moodle 4.1+)
+                $columns = $DB->get_columns('quiz_slots');
+                
+                if (isset($columns['questionbankentryid'])) {
+                    // Moodle 4.1+ : utilise questionbankentryid
+                    $quiz_usage = $DB->get_records_sql("
+                        SELECT qv.questionid, qu.id as quiz_id, qu.name as quiz_name, qu.course
+                        FROM {quiz_slots} qs
+                        INNER JOIN {quiz} qu ON qu.id = qs.quizid
+                        INNER JOIN {question_bank_entries} qbe ON qbe.id = qs.questionbankentryid
+                        INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+                        WHERE qv.questionid $insql
+                        ORDER BY qv.questionid, qu.id
+                    ", $params);
+                } else if (isset($columns['questionid'])) {
+                    // Moodle 3.x/4.0 : utilise questionid directement
+                    $quiz_usage = $DB->get_records_sql("
+                        SELECT qs.questionid, qu.id as quiz_id, qu.name as quiz_name, qu.course
+                        FROM {quiz_slots} qs
+                        INNER JOIN {quiz} qu ON qu.id = qs.quizid
+                        WHERE qs.questionid $insql
+                        ORDER BY qs.questionid, qu.id
+                    ", $params);
+                }
+            } catch (\Exception $e) {
+                debugging('Error in get_questions_usage_by_ids: ' . $e->getMessage(), DEBUG_DEVELOPER);
+                $quiz_usage = [];
+            }
 
             foreach ($quiz_usage as $record) {
                 $qid = $record->questionid;
@@ -464,15 +497,29 @@ class question_analyzer {
 
         try {
             // Approche compatible avec tous les SGBD: requête simple + traitement en PHP
-            // ⚠️ MOODLE 4.5 : quiz_slots utilise questionbankentryid
-            $quiz_usage = $DB->get_records_sql("
-                SELECT qv.questionid, qu.id as quiz_id, qu.name as quiz_name, qu.course
-                FROM {quiz_slots} qs
-                INNER JOIN {quiz} qu ON qu.id = qs.quizid
-                INNER JOIN {question_bank_entries} qbe ON qbe.id = qs.questionbankentryid
-                INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
-                ORDER BY qv.questionid, qu.id
-            ");
+            // ⚠️ v1.6.4 : Compatibilité multi-version Moodle
+            $columns = $DB->get_columns('quiz_slots');
+            $quiz_usage = [];
+            
+            if (isset($columns['questionbankentryid'])) {
+                // Moodle 4.1+ : utilise questionbankentryid
+                $quiz_usage = $DB->get_records_sql("
+                    SELECT qv.questionid, qu.id as quiz_id, qu.name as quiz_name, qu.course
+                    FROM {quiz_slots} qs
+                    INNER JOIN {quiz} qu ON qu.id = qs.quizid
+                    INNER JOIN {question_bank_entries} qbe ON qbe.id = qs.questionbankentryid
+                    INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+                    ORDER BY qv.questionid, qu.id
+                ");
+            } else if (isset($columns['questionid'])) {
+                // Moodle 3.x/4.0 : utilise questionid directement
+                $quiz_usage = $DB->get_records_sql("
+                    SELECT qs.questionid, qu.id as quiz_id, qu.name as quiz_name, qu.course
+                    FROM {quiz_slots} qs
+                    INNER JOIN {quiz} qu ON qu.id = qs.quizid
+                    ORDER BY qs.questionid, qu.id
+                ");
+            }
 
             foreach ($quiz_usage as $record) {
                 $qid = $record->questionid;
@@ -851,6 +898,7 @@ class question_analyzer {
         $stats->unused_questions = $total_questions; // Approximation conservatrice
         $stats->duplicate_questions = 0; // Non calculé
         $stats->total_duplicates = 0; // Non calculé
+        $stats->questions_with_broken_links = 0; // Non calculé (trop lourd)
         
         // Indicateur pour l'interface
         $stats->simplified = true;
@@ -915,13 +963,30 @@ class question_analyzer {
             ");
             
             // Questions utilisées/inutilisées (calcul optimisé)
-            // ⚠️ MOODLE 4.5 : quiz_slots utilise questionbankentryid
-            $used_in_quiz = $DB->count_records_sql("
-                SELECT COUNT(DISTINCT qv.questionid)
-                FROM {quiz_slots} qs
-                INNER JOIN {question_bank_entries} qbe ON qbe.id = qs.questionbankentryid
-                INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
-            ");
+            // ⚠️ v1.6.4 : Compatibilité multi-version Moodle
+            $used_in_quiz = 0;
+            try {
+                $columns = $DB->get_columns('quiz_slots');
+                
+                if (isset($columns['questionbankentryid'])) {
+                    // Moodle 4.1+ : utilise questionbankentryid
+                    $used_in_quiz = $DB->count_records_sql("
+                        SELECT COUNT(DISTINCT qv.questionid)
+                        FROM {quiz_slots} qs
+                        INNER JOIN {question_bank_entries} qbe ON qbe.id = qs.questionbankentryid
+                        INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+                    ");
+                } else if (isset($columns['questionid'])) {
+                    // Moodle 3.x/4.0 : utilise questionid directement
+                    $used_in_quiz = $DB->count_records_sql("
+                        SELECT COUNT(DISTINCT qs.questionid)
+                        FROM {quiz_slots} qs
+                    ");
+                }
+            } catch (\Exception $e) {
+                debugging('Error counting quiz usage: ' . $e->getMessage(), DEBUG_DEVELOPER);
+                $used_in_quiz = 0;
+            }
             
             $used_in_attempts = $DB->count_records_sql("
                 SELECT COUNT(DISTINCT qa.questionid)
