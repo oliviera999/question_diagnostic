@@ -9,8 +9,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'local_question_diagnostic';
-$plugin->version = 2025100837;  // YYYYMMDDXX format (v1.6.4 - Fix quiz_slots compatibility multi-version Moodle)
+$plugin->version = 2025100838;  // YYYYMMDDXX format (v1.6.5 - Clear visual indicators for approximated stats)
 $plugin->requires = 2023100900; // Moodle 4.0+
 $plugin->maturity = MATURITY_STABLE;
-$plugin->release = 'v1.6.4';
+$plugin->release = 'v1.6.5';
 

@@ -5,6 +5,76 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.6.5] - 2025-10-08
+
+### 🎨 UX : Indicateurs visuels clairs pour les statistiques approximées
+
+**Problème** : Utilisateur confus par les valeurs trompeuses en Mode Performance
+- Dashboard affiche "0 questions utilisées"
+- Mais le tableau montre clairement que beaucoup de questions sont utilisées (colonne "Quiz" = 6)
+- Approximations pas assez visibles
+
+**Solution** : Indicateurs visuels explicites sur les cartes approximées
+
+#### Améliorations Visuelles
+
+**1. Message Mode Performance amélioré** :
+
+Nouveau message détaillé avec liste explicite :
+```
+⚡ Mode Performance Activé
+
+Votre base contient 29 427 questions. Pour éviter les timeouts, 
+certaines statistiques sont des approximations :
+
+✅ Total questions et Répartition par type : Valeurs exactes
+⚠️ Questions Utilisées : Affiché comme 0 (non calculé)
+⚠️ Questions Inutilisées : Affiché comme total (approximation)
+⚠️ Questions Cachées : Affiché comme 0 (non calculé)
+⚠️ Doublons : Non calculés
+⚠️ Liens Cassés : Non calculés
+
+💡 Pour voir les vraies utilisations : Consultez les colonnes 
+"Quiz" et "Tentatives" dans le tableau (données exactes).
+```
+
+**2. Cartes approximées visuellement distinctes** :
+
+Sur les cartes approximées :
+- ⚠️ Symbole d'avertissement dans le titre
+- `~` Tilde devant la valeur (indique approximation)
+- Bordure en pointillés orange
+- Opacité réduite (0.6)
+- Texte "(non calculé)" ou "(approximation)" dans sous-titre
+
+**Exemple de carte approximée** :
+```
+┌─────────────────────────────┐
+│ ⚠️ Questions Utilisées      │ <- Symbole warning
+│ ~0                          │ <- Tilde
+│ Dans quiz (non calculé)     │ <- Indication claire
+└─────────────────────────────┘
+   Bordure pointillés orange + opacité 0.6
+```
+
+#### Impact UX
+
+**Avant v1.6.5** :
+- 😕 Confusion : "0 utilisées" vs tableau montrant des utilisations
+- ❓ L'utilisateur ne sait pas si c'est exact ou approximé
+
+**Après v1.6.5** :
+- 😃 Clarté immédiate : ⚠️ et `~` montrent que c'est approximé
+- ✅ Message explicite sur ce qui est exact vs approximé
+- 💡 Guidance : "Consultez le tableau pour les vraies valeurs"
+
+**Fichiers** :
+- `questions_cleanup.php` : Message détaillé + indicateurs visuels sur cartes
+- `version.php` : v1.6.5
+- `CHANGELOG.md` : Documentation
+
+---
+
 ## [1.6.4] - 2025-10-08
 
 ### 🔧 FIX CRITIQUE : Compatibilité quiz_slots multi-version Moodle + Warning broken_links

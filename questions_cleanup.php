@@ -137,10 +137,20 @@ echo html_writer::end_tag('script');
 
 // Message si statistiques simplifiées
 if (isset($globalstats->simplified) && $globalstats->simplified) {
-    echo html_writer::start_tag('div', ['class' => 'alert alert-warning', 'style' => 'margin-bottom: 20px;']);
-    echo html_writer::tag('strong', '⚡ Mode Performance : ');
-    echo 'Statistiques simplifiées pour votre grande base de données (' . number_format($globalstats->total_questions, 0, ',', ' ') . ' questions). ';
-    echo 'Certains calculs complexes (questions utilisées, doublons) sont désactivés pour éviter les timeouts.';
+    echo html_writer::start_tag('div', ['class' => 'alert alert-warning', 'style' => 'margin-bottom: 20px; border-left: 4px solid #f0ad4e;']);
+    echo html_writer::tag('h4', '⚡ Mode Performance Activé', ['style' => 'margin-top: 0;']);
+    echo html_writer::tag('p', 'Votre base contient <strong>' . number_format($globalstats->total_questions, 0, ',', ' ') . ' questions</strong>. Pour éviter les timeouts, certaines statistiques sont des <strong>approximations</strong> :', ['style' => 'margin-bottom: 15px;']);
+    
+    echo html_writer::start_tag('ul', ['style' => 'margin-bottom: 15px;']);
+    echo html_writer::tag('li', '✅ <strong>Total questions</strong> et <strong>Répartition par type</strong> : Valeurs exactes');
+    echo html_writer::tag('li', '⚠️ <strong>Questions Utilisées</strong> : Affiché comme 0 (non calculé pour performance)');
+    echo html_writer::tag('li', '⚠️ <strong>Questions Inutilisées</strong> : Affiché comme total (approximation conservatrice)');
+    echo html_writer::tag('li', '⚠️ <strong>Questions Cachées</strong> : Affiché comme 0 (non calculé)');
+    echo html_writer::tag('li', '⚠️ <strong>Doublons</strong> : Non calculés');
+    echo html_writer::tag('li', '⚠️ <strong>Liens Cassés</strong> : Non calculés');
+    echo html_writer::end_tag('ul');
+    
+    echo html_writer::tag('p', '💡 <strong>Pour voir les vraies utilisations</strong> : Consultez la colonne "Quiz" et "Tentatives" dans le tableau ci-dessous (données exactes pour les questions affichées).', ['style' => 'font-weight: bold; color: #0f6cbf;']);
     echo html_writer::end_tag('div');
 }
 
@@ -154,31 +164,33 @@ echo html_writer::tag('div', get_string('in_database', 'local_question_diagnosti
 echo html_writer::end_tag('div');
 
 // Carte 2 : Questions utilisées
-echo html_writer::start_tag('div', ['class' => 'qd-card success']);
-echo html_writer::tag('div', get_string('questions_used', 'local_question_diagnostic'), ['class' => 'qd-card-title']);
-echo html_writer::tag('div', $globalstats->used_questions, ['class' => 'qd-card-value']);
-echo html_writer::tag('div', get_string('in_quizzes_or_attempts', 'local_question_diagnostic'), ['class' => 'qd-card-subtitle']);
+$is_simplified = isset($globalstats->simplified) && $globalstats->simplified;
+$approx_style = $is_simplified ? 'opacity: 0.6; border: 2px dashed #f0ad4e;' : '';
+echo html_writer::start_tag('div', ['class' => 'qd-card success', 'style' => $approx_style]);
+echo html_writer::tag('div', ($is_simplified ? '⚠️ ' : '') . get_string('questions_used', 'local_question_diagnostic'), ['class' => 'qd-card-title']);
+echo html_writer::tag('div', ($is_simplified ? '~' : '') . $globalstats->used_questions, ['class' => 'qd-card-value']);
+echo html_writer::tag('div', get_string('in_quizzes_or_attempts', 'local_question_diagnostic') . ($is_simplified ? ' (non calculé)' : ''), ['class' => 'qd-card-subtitle']);
 echo html_writer::end_tag('div');
 
 // Carte 3 : Questions inutilisées
-echo html_writer::start_tag('div', ['class' => 'qd-card warning']);
-echo html_writer::tag('div', get_string('questions_unused', 'local_question_diagnostic'), ['class' => 'qd-card-title']);
-echo html_writer::tag('div', $globalstats->unused_questions, ['class' => 'qd-card-value']);
-echo html_writer::tag('div', get_string('never_used', 'local_question_diagnostic'), ['class' => 'qd-card-subtitle']);
+echo html_writer::start_tag('div', ['class' => 'qd-card warning', 'style' => $approx_style]);
+echo html_writer::tag('div', ($is_simplified ? '⚠️ ' : '') . get_string('questions_unused', 'local_question_diagnostic'), ['class' => 'qd-card-title']);
+echo html_writer::tag('div', ($is_simplified ? '~' : '') . $globalstats->unused_questions, ['class' => 'qd-card-value']);
+echo html_writer::tag('div', get_string('never_used', 'local_question_diagnostic') . ($is_simplified ? ' (approximation)' : ''), ['class' => 'qd-card-subtitle']);
 echo html_writer::end_tag('div');
 
 // Carte 4 : Doublons
-echo html_writer::start_tag('div', ['class' => 'qd-card danger']);
-echo html_writer::tag('div', get_string('questions_duplicates', 'local_question_diagnostic'), ['class' => 'qd-card-title']);
-echo html_writer::tag('div', $globalstats->duplicate_questions, ['class' => 'qd-card-value']);
-echo html_writer::tag('div', $globalstats->total_duplicates . ' ' . get_string('total_duplicates_found', 'local_question_diagnostic'), ['class' => 'qd-card-subtitle']);
+echo html_writer::start_tag('div', ['class' => 'qd-card danger', 'style' => $approx_style]);
+echo html_writer::tag('div', ($is_simplified ? '⚠️ ' : '') . get_string('questions_duplicates', 'local_question_diagnostic'), ['class' => 'qd-card-title']);
+echo html_writer::tag('div', ($is_simplified ? '~' : '') . $globalstats->duplicate_questions, ['class' => 'qd-card-value']);
+echo html_writer::tag('div', $globalstats->total_duplicates . ' ' . get_string('total_duplicates_found', 'local_question_diagnostic') . ($is_simplified ? ' (non calculé)' : ''), ['class' => 'qd-card-subtitle']);
 echo html_writer::end_tag('div');
 
 // Carte 5 : Questions cachées
-echo html_writer::start_tag('div', ['class' => 'qd-card']);
-echo html_writer::tag('div', get_string('questions_hidden', 'local_question_diagnostic'), ['class' => 'qd-card-title']);
-echo html_writer::tag('div', $globalstats->hidden_questions, ['class' => 'qd-card-value']);
-echo html_writer::tag('div', get_string('not_visible', 'local_question_diagnostic'), ['class' => 'qd-card-subtitle']);
+echo html_writer::start_tag('div', ['class' => 'qd-card', 'style' => $approx_style]);
+echo html_writer::tag('div', ($is_simplified ? '⚠️ ' : '') . get_string('questions_hidden', 'local_question_diagnostic'), ['class' => 'qd-card-title']);
+echo html_writer::tag('div', ($is_simplified ? '~' : '') . $globalstats->hidden_questions, ['class' => 'qd-card-value']);
+echo html_writer::tag('div', get_string('not_visible', 'local_question_diagnostic') . ($is_simplified ? ' (non calculé)' : ''), ['class' => 'qd-card-subtitle']);
 echo html_writer::end_tag('div');
 
 // Carte 6 : Liens cassés
