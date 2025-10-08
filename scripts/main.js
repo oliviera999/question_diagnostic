@@ -160,11 +160,18 @@
                 const isEmpty = row.getAttribute('data-empty') === '1';
                 const isOrphan = row.getAttribute('data-orphan') === '1';
                 const isDuplicate = row.getAttribute('data-duplicate') === '1';
-                const hasNoQuestions = row.getAttribute('data-questions') === '0';
-                const hasNoSubcats = row.getAttribute('data-subcategories') === '0';
+                const isProtected = row.getAttribute('data-protected') === '1';
+                const questionCount = parseInt(row.getAttribute('data-questions') || '0');
+                const subcatCount = parseInt(row.getAttribute('data-subcategories') || '0');
                 
-                if (status === 'deletable' && !(hasNoQuestions && hasNoSubcats)) {
-                    visible = false;
+                // ⚠️ SÉCURITÉ CRITIQUE : Ne JAMAIS afficher comme supprimable si :
+                // - La catégorie est protégée
+                // - La catégorie contient des questions (même 1 seule)
+                // - La catégorie contient des sous-catégories
+                if (status === 'deletable') {
+                    if (isProtected || questionCount > 0 || subcatCount > 0) {
+                        visible = false;
+                    }
                 } else if (status === 'empty' && !isEmpty) {
                     visible = false;
                 } else if (status === 'duplicate' && !isDuplicate) {

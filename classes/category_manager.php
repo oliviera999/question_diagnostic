@@ -36,7 +36,7 @@ class category_manager {
             // Étape 1 : Récupérer toutes les catégories
             $categories = $DB->get_records('question_categories', null, 'contextid, parent, name ASC');
             
-            // Étape 2 : Compter les questions par catégorie (1 requête)
+            // Étape 2 : Compter les questions par catégorie (2 requêtes pour sécurité)
             // ⚠️ MOODLE 4.5 : Le statut caché est dans question_versions.status, PAS dans question.hidden
             $sql_questions = "SELECT qbe.questioncategoryid,
                                      COUNT(DISTINCT q.id) as total_questions,
@@ -46,6 +46,14 @@ class category_manager {
                               INNER JOIN {question} q ON q.id = qv.questionid
                               GROUP BY qbe.questioncategoryid";
             $questions_counts = $DB->get_records_sql($sql_questions);
+            
+            // ⚠️ SÉCURITÉ CRITIQUE : Compter TOUTES les questions directement (y compris orphelines)
+            // Pour éviter de supprimer une catégorie qui contient des questions
+            $sql_all_questions = "SELECT category, COUNT(*) as question_count
+                                  FROM {question}
+                                  WHERE category IS NOT NULL
+                                  GROUP BY category";
+            $all_questions_counts = $DB->get_records_sql($sql_all_questions);
             
             // Étape 3 : Compter les sous-catégories par parent (1 requête)
             $sql_subcats = "SELECT parent, COUNT(*) as subcat_count
@@ -82,10 +90,19 @@ class category_manager {
             // Étape 5 : Construire le résultat
             $result = [];
             foreach ($categories as $cat) {
-                // Stats des questions
+                // Stats des questions (via question_bank_entries)
                 $question_data = isset($questions_counts[$cat->id]) ? $questions_counts[$cat->id] : null;
                 $total_questions = $question_data ? (int)$question_data->total_questions : 0;
                 $visible_questions = $question_data ? (int)$question_data->visible_questions : 0;
+                
+                // ⚠️ SÉCURITÉ : Vérifier le nombre RÉEL de questions dans la table question
+                $real_question_count = 0;
+                if (isset($all_questions_counts[$cat->id])) {
+                    $real_question_count = (int)$all_questions_counts[$cat->id]->question_count;
+                }
+                
+                // Utiliser le maximum des deux comptages pour la sécurité
+                $total_questions = max($total_questions, $real_question_count);
                 
                 // Stats des sous-catégories
                 $subcat_data = isset($subcat_counts[$cat->id]) ? $subcat_counts[$cat->id] : null;
@@ -406,24 +423,31 @@ class category_manager {
                 }
             }
             
-            // Vérifier que la catégorie est vide
-            // Compatible Moodle 4.x avec question_bank_entries
+            // ⚠️ SÉCURITÉ CRITIQUE : Double vérification du comptage des questions
+            
+            // Méthode 1 : Via question_bank_entries (Moodle 4.x)
             $sql = "SELECT COUNT(DISTINCT q.id) 
                     FROM {question} q
                     INNER JOIN {question_versions} qv ON qv.questionid = q.id
                     INNER JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
                     INNER JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
                     WHERE qbe.questioncategoryid = :categoryid";
-            $questioncount = (int)$DB->count_records_sql($sql, ['categoryid' => $categoryid]);
+            $questioncount1 = (int)$DB->count_records_sql($sql, ['categoryid' => $categoryid]);
+            
+            // Méthode 2 : Comptage direct dans la table question (capture TOUTES les questions, même orphelines)
+            $questioncount2 = (int)$DB->count_records('question', ['category' => $categoryid]);
+            
+            // Prendre le maximum des deux comptages pour la sécurité
+            $questioncount = max($questioncount1, $questioncount2);
             
             $subcatcount = $DB->count_records('question_categories', ['parent' => $categoryid]);
             
             if ($questioncount > 0) {
-                return "Impossible de supprimer : la catégorie contient $questioncount question(s).";
+                return "❌ IMPOSSIBLE : La catégorie contient $questioncount question(s). AUCUNE catégorie contenant des questions ne peut être supprimée.";
             }
             
             if ($subcatcount > 0) {
-                return "Impossible de supprimer : la catégorie contient $subcatcount sous-catégorie(s).";
+                return "❌ IMPOSSIBLE : La catégorie contient $subcatcount sous-catégorie(s).";
             }
             
             // Supprimer la catégorie

@@ -317,11 +317,13 @@ foreach ($categories_with_stats as $item) {
         'data-name' => format_string($cat->name),
         'data-context' => $cat->contextid,
         'data-parent' => $cat->parent,
-        'data-questions' => $stats->visible_questions,
+        'data-questions' => $stats->total_questions,  // ⚠️ Utiliser total_questions pour vérification sécurité
+        'data-visible-questions' => $stats->visible_questions,
         'data-subcategories' => $stats->subcategories,
         'data-empty' => $stats->is_empty ? '1' : '0',
         'data-orphan' => $stats->is_orphan ? '1' : '0',
-        'data-duplicate' => (isset($stats->is_duplicate) && $stats->is_duplicate) ? '1' : '0'
+        'data-duplicate' => (isset($stats->is_duplicate) && $stats->is_duplicate) ? '1' : '0',
+        'data-protected' => $stats->is_protected ? '1' : '0'  // ⚠️ Ajouter pour filtrage
     ];
     
     // Débug : forcer les attributs si nécessaire
@@ -333,6 +335,9 @@ foreach ($categories_with_stats as $item) {
     }
     if (!isset($row_attrs['data-duplicate'])) {
         $row_attrs['data-duplicate'] = '0';
+    }
+    if (!isset($row_attrs['data-protected'])) {
+        $row_attrs['data-protected'] = '0';
     }
     
     echo html_writer::start_tag('tr', $row_attrs);
