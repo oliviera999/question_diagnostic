@@ -5,6 +5,56 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.5.8] - 2025-10-08
+
+### 🔧 Correction : Avertissements debug lors de la détection des doublons
+
+**Problème** : Nombreux avertissements debug lors de l'affichage de la liste des catégories
+```
+Did you remember to make the first column something unique in your call to get_records? 
+Duplicate value '582' found in column 'duplicate_id'.
+```
+
+**Cause** : 
+- La requête de détection des doublons (ligne 84) utilisait `get_records_sql()`
+- `get_records_sql()` exige que la **première colonne soit unique** pour l'utiliser comme clé
+- MAIS `duplicate_id` n'est **PAS unique** : une catégorie peut avoir plusieurs doublons
+  - Exemple : Catégories 582, 583, 584 sont des doublons → 582 apparaît 2 fois
+
+**Solution** :
+
+Remplacement de `get_records_sql()` par `get_fieldset_sql()` :
+
+```php
+// ❌ AVANT v1.5.7 (PROBLÈME)
+$duplicates_records = $DB->get_records_sql($sql_duplicates);
+$duplicate_ids = [];
+foreach ($duplicates_records as $dup_record) {
+    $duplicate_ids[] = $dup_record->duplicate_id;
+}
+
+// ✅ APRÈS v1.5.8 (CORRIGÉ)
+$duplicate_ids = $DB->get_fieldset_sql($sql_duplicates);
+if (!$duplicate_ids) {
+    $duplicate_ids = [];
+} else {
+    $duplicate_ids = array_unique($duplicate_ids); // Éliminer doublons
+}
+```
+
+**Avantages** :
+- ✅ Plus d'avertissements debug
+- ✅ Plus efficace (pas de boucle foreach)
+- ✅ Code plus propre
+- ✅ Résultat identique (liste d'IDs uniques)
+
+**Fichiers Modifiés** :
+- `classes/category_manager.php` : Ligne 86 (get_fieldset_sql)
+- `version.php` : v1.5.8 (2025100831)
+- `CHANGELOG.md` : Documentation
+
+---
+
 ## [1.5.7] - 2025-10-08
 
 ### 🚨 HOTFIX CRITIQUE : La colonne `question.category` n'existe pas dans Moodle 4.5

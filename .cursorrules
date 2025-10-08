@@ -5,7 +5,7 @@
 Ce projet est un **plugin Moodle** (local plugin) pour le diagnostic et la gestion de la banque de questions.
 - **Nom du plugin** : `local_question_diagnostic`
 - **Version actuelle** : v1.2.1
-- **Version Moodle CIBLE** : **Moodle 4.5** (compatible 4.3+)
+- **Version Moodle CIBLE** : **Moodle 4.5** (compatible 4.5+), c'est très important
 - **Langues** : Français (FR) et Anglais (EN)
 
 ### ⚠️ CRITIQUE : Vérification de la Structure BDD Moodle 4.5
@@ -13,7 +13,7 @@ Ce projet est un **plugin Moodle** (local plugin) pour le diagnostic et la gesti
 **AVANT toute modification de code touchant la base de données, tu DOIS :**
 
 1. **Vérifier la structure exacte des tables** dans Moodle 4.5
-2. **Consulter la documentation officielle** Moodle 4.5
+2. **Consulter la documentation officielle** Moodle 4.5 et la documentation pour les développeurs
 3. **Vérifier les noms de colonnes, types et contraintes**
 4. **Ne JAMAIS supposer qu'une colonne existe sans vérification**
 

@@ -74,17 +74,20 @@ class category_manager {
             }
             
             // Étape 4.5 : Détecter les doublons (1 requête)
-            $sql_duplicates = "SELECT qc1.id as duplicate_id
+            // ⚠️ FIX v1.5.8 : Utiliser get_fieldset_sql au lieu de get_records_sql
+            // car duplicate_id n'est PAS unique (une catégorie peut avoir plusieurs doublons)
+            $sql_duplicates = "SELECT qc1.id
                               FROM {question_categories} qc1
                               INNER JOIN {question_categories} qc2 
                                   ON LOWER(TRIM(qc1.name)) = LOWER(TRIM(qc2.name))
                                   AND qc1.contextid = qc2.contextid
                                   AND qc1.parent = qc2.parent
                                   AND qc1.id != qc2.id";
-            $duplicates_records = $DB->get_records_sql($sql_duplicates);
-            $duplicate_ids = [];
-            foreach ($duplicates_records as $dup_record) {
-                $duplicate_ids[] = $dup_record->duplicate_id;
+            $duplicate_ids = $DB->get_fieldset_sql($sql_duplicates);
+            if (!$duplicate_ids) {
+                $duplicate_ids = [];
+            } else {
+                $duplicate_ids = array_unique($duplicate_ids); // Éliminer les doublons dans le résultat
             }
             
             // Étape 5 : Construire le résultat
