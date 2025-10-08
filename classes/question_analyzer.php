@@ -31,13 +31,12 @@ class question_analyzer {
     public static function get_all_questions_with_stats($include_duplicates = true, $limit = 0) {
         global $DB;
 
-        // Récupérer les questions avec limite
-        $sql = "SELECT * FROM {question} ORDER BY id DESC";
+        // Récupérer les questions avec limite - Utiliser l'API Moodle pour compatibilité multi-SGBD
         if ($limit > 0) {
-            $sql .= " LIMIT " . intval($limit);
+            $questions = $DB->get_records('question', null, 'id DESC', '*', 0, $limit);
+        } else {
+            $questions = $DB->get_records('question', null, 'id DESC');
         }
-        
-        $questions = $DB->get_records_sql($sql);
         $result = [];
 
         // 🚀 OPTIMISATION CRITIQUE : Si limite appliquée, charger UNIQUEMENT les données pour ces questions
@@ -700,7 +699,11 @@ class question_analyzer {
             
             $processed = [];
             $count = 0;
-            $max_time = 30; // Limite à 30 secondes
+            // Timeout configurable : 60s par défaut, peut être augmenté via config.php
+            $max_time = get_config('local_question_diagnostic', 'duplicate_detection_timeout');
+            if (!$max_time || $max_time < 10) {
+                $max_time = 60; // 60 secondes par défaut (augmenté de 30s)
+            }
             $start_time = time();
 
             foreach ($questions as $question) {

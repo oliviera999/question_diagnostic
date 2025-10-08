@@ -24,6 +24,9 @@
 
 require_once(__DIR__ . '/../../config.php');
 require_once(__DIR__ . '/lib.php');
+require_once(__DIR__ . '/classes/question_analyzer.php');
+
+use local_question_diagnostic\question_analyzer;
 
 // Sécurité
 require_login();
@@ -48,8 +51,12 @@ $PAGE->requires->css('/local/question_diagnostic/styles/main.css');
 
 // Traiter les actions
 // Action groupée : réassigner plusieurs entries
-if ($action === 'bulk_reassign' && !empty($selectedentries) && $targetcategoryid && $confirm) {
+if ($action === 'bulk_reassign' && !empty($selectedentries) && $targetcategoryid) {
     require_sesskey();
+    
+    if (!$confirm) {
+        // Pas de confirmation, afficher la page de confirmation plus bas
+    } else {
     
     try {
         // Vérifier que la catégorie cible existe
@@ -93,6 +100,11 @@ if ($action === 'bulk_reassign' && !empty($selectedentries) && $targetcategoryid
             }
         }
         
+        // Purger le cache après modification
+        if ($success_count > 0) {
+            question_analyzer::purge_all_caches();
+        }
+        
         // Message de résultat
         $message = "{$success_count} entry(ies) réassignée(s) avec succès vers '{$target_category->name}'. ";
         $message .= "{$total_questions} question(s) récupérée(s).";
@@ -116,11 +128,16 @@ if ($action === 'bulk_reassign' && !empty($selectedentries) && $targetcategoryid
             \core\output\notification::NOTIFY_ERROR
         );
     }
+    }
 }
 
 // Action groupée : supprimer les entries vides (0 questions)
-if ($action === 'bulk_delete_empty' && !empty($selectedentries) && $confirm) {
+if ($action === 'bulk_delete_empty' && !empty($selectedentries)) {
     require_sesskey();
+    
+    if (!$confirm) {
+        // Pas de confirmation, afficher la page de confirmation plus bas
+    } else {
     
     try {
         $success_count = 0;
@@ -165,6 +182,11 @@ if ($action === 'bulk_delete_empty' && !empty($selectedentries) && $confirm) {
             }
         }
         
+        // Purger le cache après modification
+        if ($success_count > 0) {
+            question_analyzer::purge_all_caches();
+        }
+        
         // Message de résultat
         $message = "🗑️ {$success_count} entry(ies) vide(s) supprimée(s) avec succès.";
         
@@ -187,11 +209,16 @@ if ($action === 'bulk_delete_empty' && !empty($selectedentries) && $confirm) {
             \core\output\notification::NOTIFY_ERROR
         );
     }
+    }
 }
 
 // Action individuelle : réassigner une entry
-if ($action === 'reassign' && $entryid && $targetcategoryid && $confirm) {
+if ($action === 'reassign' && $entryid && $targetcategoryid) {
     require_sesskey();
+    
+    if (!$confirm) {
+        // Pas de confirmation, afficher la page de confirmation plus bas dans le code
+    } else {
     
     try {
         // Vérifier que la catégorie cible existe
@@ -214,6 +241,9 @@ if ($action === 'reassign' && $entryid && $targetcategoryid && $confirm) {
                 WHERE qv.questionbankentryid = :entryid
             ", ['entryid' => $entryid]);
             
+            // Purger le cache après modification
+            question_analyzer::purge_all_caches();
+            
             redirect(
                 new moodle_url('/local/question_diagnostic/orphan_entries.php'),
                 "Entry #{$entryid} réassignée avec succès vers '{$target_category->name}' ({$question_count} question(s) récupérée(s))",
@@ -235,6 +265,7 @@ if ($action === 'reassign' && $entryid && $targetcategoryid && $confirm) {
             null,
             \core\output\notification::NOTIFY_ERROR
         );
+    }
     }
 }
 
@@ -427,7 +458,6 @@ if ($entryid > 0) {
     
     // Si confirmation demandée
     if ($action === 'reassign' && $targetcategoryid && !$confirm) {
-        require_sesskey();
         
         $target_category = $DB->get_record('question_categories', ['id' => $targetcategoryid]);
         
@@ -647,7 +677,6 @@ if ($entryid > 0) {
         
         // Page de confirmation pour actions groupées
         if ($action === 'bulk_reassign' && !empty($selectedentries) && $targetcategoryid && !$confirm) {
-            require_sesskey();
             
             $target_category = $DB->get_record('question_categories', ['id' => $targetcategoryid]);
             
@@ -748,8 +777,6 @@ if ($entryid > 0) {
         
         // Page de confirmation pour suppression groupée des entries vides
         if ($action === 'bulk_delete_empty' && !empty($selectedentries) && !$confirm) {
-            // Note: On ne vérifie pas sesskey ici car on affiche juste la confirmation
-            // Le sesskey sera vérifié lors de la suppression effective
             
             echo html_writer::tag('h3', '⚠️ Confirmation de suppression groupée');
             

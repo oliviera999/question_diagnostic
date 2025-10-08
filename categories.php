@@ -155,18 +155,21 @@ echo html_writer::tag('label', get_string('context', 'local_question_diagnostic'
 echo html_writer::start_tag('select', ['id' => 'filter-context', 'class' => 'form-control']);
 echo html_writer::tag('option', 'Tous', ['value' => 'all']);
 
-// Récupérer les contextes uniques
+// Récupérer les contextes uniques avec JOIN pour éviter N+1 queries
 global $DB;
 $contexts = $DB->get_records_sql("
-    SELECT DISTINCT contextid 
-    FROM {question_categories} 
-    ORDER BY contextid
+    SELECT DISTINCT qc.contextid, ctx.contextlevel
+    FROM {question_categories} qc
+    LEFT JOIN {context} ctx ON ctx.id = qc.contextid
+    WHERE ctx.id IS NOT NULL
+    ORDER BY qc.contextid
 ");
 foreach ($contexts as $ctx) {
     try {
-        $context_obj = context::instance_by_id($ctx->contextid, IGNORE_MISSING);
-        $context_name = $context_obj ? context_helper::get_level_name($context_obj->contextlevel) : 'Inconnu';
-        echo html_writer::tag('option', "$context_name (ID: {$ctx->contextid})", ['value' => $ctx->contextid]);
+        if ($ctx->contextlevel) {
+            $context_name = context_helper::get_level_name($ctx->contextlevel);
+            echo html_writer::tag('option', "$context_name (ID: {$ctx->contextid})", ['value' => $ctx->contextid]);
+        }
     } catch (Exception $e) {
         continue;
     }

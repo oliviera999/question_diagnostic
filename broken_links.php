@@ -39,11 +39,22 @@ $action = optional_param('action', '', PARAM_ALPHA);
 $questionid = optional_param('questionid', 0, PARAM_INT);
 $field = optional_param('field', '', PARAM_TEXT);
 $url = optional_param('url', '', PARAM_TEXT);
+$refresh = optional_param('refresh', 0, PARAM_INT);
 
-if ($action && confirm_sesskey()) {
+// Action de rafraîchissement du cache
+if ($refresh) {
+    require_sesskey();
+    question_link_checker::purge_broken_links_cache();
+    redirect($PAGE->url, '✅ Cache purgé. Analyse des liens en cours...', null, \core\output\notification::NOTIFY_SUCCESS);
+}
+
+if ($action) {
+    require_sesskey();
     if ($action === 'remove') {
         $result = question_link_checker::remove_broken_link($questionid, $field, $url);
         if ($result === true) {
+            // Purger le cache après modification
+            question_link_checker::purge_broken_links_cache();
             redirect($PAGE->url, 'Lien cassé supprimé avec succès.', null, \core\output\notification::NOTIFY_SUCCESS);
         } else {
             redirect($PAGE->url, $result, null, \core\output\notification::NOTIFY_ERROR);
@@ -59,12 +70,20 @@ if ($action && confirm_sesskey()) {
 // Section d'en-tête Moodle standard.
 echo $OUTPUT->header();
 
-// Lien retour vers le menu principal
-echo html_writer::start_tag('div', ['style' => 'margin-bottom: 20px;']);
+// Lien retour vers le menu principal + Bouton rafraîchir
+echo html_writer::start_tag('div', ['style' => 'margin-bottom: 20px; display: flex; gap: 10px;']);
 echo html_writer::link(
     new moodle_url('/local/question_diagnostic/index.php'),
     '← ' . get_string('backtomenu', 'local_question_diagnostic'),
     ['class' => 'btn btn-secondary']
+);
+echo html_writer::link(
+    new moodle_url('/local/question_diagnostic/broken_links.php', ['refresh' => 1, 'sesskey' => sesskey()]),
+    '🔄 Rafraîchir l\'analyse',
+    [
+        'class' => 'btn btn-warning',
+        'title' => 'Forcer une nouvelle analyse des liens (purge le cache)'
+    ]
 );
 echo html_writer::end_tag('div');
 
@@ -169,7 +188,16 @@ echo html_writer::end_tag('div'); // fin qd-filters
 
 echo html_writer::tag('h3', '🔗 ' . get_string('brokenlinks_table', 'local_question_diagnostic'), ['style' => 'margin-top: 30px;']);
 
-$broken_questions = question_link_checker::get_questions_with_broken_links();
+// Utiliser le cache par défaut (limite de 1000 questions pour éviter timeout)
+$broken_questions = question_link_checker::get_questions_with_broken_links(true, 1000);
+
+// Afficher un avertissement si limite atteinte
+if (count($broken_questions) >= 1000) {
+    echo html_writer::start_div('alert alert-info', ['style' => 'margin-bottom: 20px;']);
+    echo '<strong>ℹ️ Note :</strong> L\'analyse est limitée aux 1000 questions les plus récentes pour des raisons de performance. ';
+    echo 'Les résultats sont mis en cache pendant 1 heure. Utilisez le bouton "Rafraîchir" pour forcer une nouvelle analyse.';
+    echo html_writer::end_div();
+}
 
 if (empty($broken_questions)) {
     echo html_writer::tag('div', '✅ ' . get_string('no_broken_links', 'local_question_diagnostic'), [

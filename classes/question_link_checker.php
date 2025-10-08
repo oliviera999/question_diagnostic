@@ -25,24 +25,44 @@ class question_link_checker {
     /**
      * Récupère toutes les questions avec des liens cassés
      *
+     * @param bool $use_cache Utiliser le cache (défaut: true)
+     * @param int $limit Limite de questions à vérifier (0 = toutes, défaut: 1000)
      * @return array Tableau des questions avec détails des liens cassés
      */
-    public static function get_questions_with_broken_links() {
+    public static function get_questions_with_broken_links($use_cache = true, $limit = 1000) {
         global $DB;
 
-        $questions = $DB->get_records('question', null, 'id ASC');
+        // Essayer le cache d'abord
+        if ($use_cache) {
+            $cache = \cache::make('local_question_diagnostic', 'brokenlinks');
+            $cached_broken = $cache->get('broken_links_list');
+            if ($cached_broken !== false) {
+                return $cached_broken;
+            }
+        }
+
+        // Limiter le nombre de questions pour éviter timeout/memory
+        if ($limit > 0) {
+            $questions = $DB->get_records('question', null, 'id DESC', '*', 0, $limit);
+        } else {
+            $questions = $DB->get_records('question', null, 'id DESC');
+        }
+        
         $broken = [];
 
         foreach ($questions as $question) {
-            // Skip questions without a valid category property
-            if (!isset($question->category) || empty($question->category)) {
-                continue;
-            }
-            
             $broken_links = self::check_question_links($question);
             
             if (!empty($broken_links)) {
-                $category = $DB->get_record('question_categories', ['id' => $question->category]);
+                // Récupérer la catégorie via question_bank_entries (Moodle 4.x)
+                $category_sql = "SELECT qc.* 
+                                FROM {question_categories} qc
+                                INNER JOIN {question_bank_entries} qbe ON qbe.questioncategoryid = qc.id
+                                INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+                                WHERE qv.questionid = :questionid
+                                LIMIT 1";
+                $category = $DB->get_record_sql($category_sql, ['questionid' => $question->id]);
+                
                 $broken[] = (object)[
                     'question' => $question,
                     'category' => $category,
@@ -50,6 +70,12 @@ class question_link_checker {
                     'broken_count' => count($broken_links)
                 ];
             }
+        }
+
+        // Mettre en cache pour 1 heure
+        if ($use_cache) {
+            $cache = \cache::make('local_question_diagnostic', 'brokenlinks');
+            $cache->set('broken_links_list', $broken);
         }
 
         return $broken;
@@ -266,18 +292,15 @@ class question_link_checker {
         $fs = get_file_storage();
         $files = [];
         
-        // Récupérer le contexte de la question
-        $question = $DB->get_record('question', ['id' => $questionid]);
-        if (!$question) {
-            return [];
-        }
+        // Récupérer le contexte de la question via question_bank_entries (Moodle 4.x)
+        $category_sql = "SELECT qc.* 
+                        FROM {question_categories} qc
+                        INNER JOIN {question_bank_entries} qbe ON qbe.questioncategoryid = qc.id
+                        INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+                        WHERE qv.questionid = :questionid
+                        LIMIT 1";
+        $category = $DB->get_record_sql($category_sql, ['questionid' => $questionid]);
         
-        // Check if category property exists
-        if (!isset($question->category) || empty($question->category)) {
-            return [];
-        }
-        
-        $category = $DB->get_record('question_categories', ['id' => $question->category]);
         if (!$category) {
             return [];
         }
@@ -316,17 +339,15 @@ class question_link_checker {
         
         $fs = get_file_storage();
         
-        $question = $DB->get_record('question', ['id' => $questionid]);
-        if (!$question) {
-            return [];
-        }
+        // Récupérer la catégorie via question_bank_entries (Moodle 4.x)
+        $category_sql = "SELECT qc.* 
+                        FROM {question_categories} qc
+                        INNER JOIN {question_bank_entries} qbe ON qbe.questioncategoryid = qc.id
+                        INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+                        WHERE qv.questionid = :questionid
+                        LIMIT 1";
+        $category = $DB->get_record_sql($category_sql, ['questionid' => $questionid]);
         
-        // Check if category property exists
-        if (!isset($question->category) || empty($question->category)) {
-            return [];
-        }
-        
-        $category = $DB->get_record('question_categories', ['id' => $question->category]);
         if (!$category) {
             return [];
         }
@@ -348,15 +369,25 @@ class question_link_checker {
     /**
      * Obtient les statistiques globales sur les liens cassés
      *
+     * @param bool $use_cache Utiliser le cache (défaut: true)
      * @return object Statistiques
      */
-    public static function get_global_stats() {
+    public static function get_global_stats($use_cache = true) {
         global $DB;
+        
+        // Essayer le cache d'abord
+        if ($use_cache) {
+            $cache = \cache::make('local_question_diagnostic', 'brokenlinks');
+            $cached_stats = $cache->get('global_stats');
+            if ($cached_stats !== false) {
+                return $cached_stats;
+            }
+        }
         
         $stats = new \stdClass();
         $stats->total_questions = $DB->count_records('question');
         
-        $broken_questions = self::get_questions_with_broken_links();
+        $broken_questions = self::get_questions_with_broken_links($use_cache);
         $stats->questions_with_broken_links = count($broken_questions);
         
         $total_broken_links = 0;
@@ -375,7 +406,29 @@ class question_link_checker {
             $stats->by_qtype[$qtype]++;
         }
         
+        // Mettre en cache pour 1 heure
+        if ($use_cache) {
+            $cache = \cache::make('local_question_diagnostic', 'brokenlinks');
+            $cache->set('global_stats', $stats);
+        }
+        
         return $stats;
+    }
+    
+    /**
+     * Purge le cache des liens cassés
+     *
+     * @return bool Succès de l'opération
+     */
+    public static function purge_broken_links_cache() {
+        try {
+            $cache = \cache::make('local_question_diagnostic', 'brokenlinks');
+            $cache->purge();
+            return true;
+        } catch (\Exception $e) {
+            debugging('Error purging broken links cache: ' . $e->getMessage(), DEBUG_DEVELOPER);
+            return false;
+        }
     }
 
     /**

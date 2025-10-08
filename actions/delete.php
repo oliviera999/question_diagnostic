@@ -3,8 +3,10 @@
 
 require_once(__DIR__ . '/../../../config.php');
 require_once(__DIR__ . '/../classes/category_manager.php');
+require_once(__DIR__ . '/../classes/question_analyzer.php');
 
 use local_question_diagnostic\category_manager;
+use local_question_diagnostic\question_analyzer;
 
 require_login();
 require_sesskey();
@@ -25,6 +27,11 @@ if ($categoryids) {
     
     if ($confirm) {
         $result = category_manager::delete_categories_bulk($ids);
+        
+        // Purger tous les caches après modification
+        if ($result['success'] > 0) {
+            question_analyzer::purge_all_caches();
+        }
         
         if ($result['success'] > 0) {
             redirect($returnurl, "✅ {$result['success']} catégorie(s) supprimée(s) avec succès.", null, \core\output\notification::NOTIFY_SUCCESS);
@@ -68,6 +75,8 @@ if ($categoryid) {
         $result = category_manager::delete_category($categoryid);
         
         if ($result === true) {
+            // Purger tous les caches après modification
+            question_analyzer::purge_all_caches();
             redirect($returnurl, '✅ Catégorie supprimée avec succès.', null, \core\output\notification::NOTIFY_SUCCESS);
         } else {
             redirect($returnurl, "⚠️ Erreur : $result", null, \core\output\notification::NOTIFY_ERROR);

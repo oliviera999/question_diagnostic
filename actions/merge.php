@@ -3,8 +3,10 @@
 
 require_once(__DIR__ . '/../../../config.php');
 require_once(__DIR__ . '/../classes/category_manager.php');
+require_once(__DIR__ . '/../classes/question_analyzer.php');
 
 use local_question_diagnostic\category_manager;
+use local_question_diagnostic\question_analyzer;
 
 require_login();
 require_sesskey();
@@ -23,6 +25,8 @@ if ($confirm) {
     $result = category_manager::merge_categories($sourceid, $destid);
     
     if ($result === true) {
+        // Purger tous les caches après modification
+        question_analyzer::purge_all_caches();
         redirect($returnurl, '✅ Catégories fusionnées avec succès.', null, \core\output\notification::NOTIFY_SUCCESS);
     } else {
         redirect($returnurl, "⚠️ Erreur : $result", null, \core\output\notification::NOTIFY_ERROR);
