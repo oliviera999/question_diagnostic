@@ -9,8 +9,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'local_question_diagnostic';
-$plugin->version = 2025100829;  // YYYYMMDDXX format (v1.5.6 - Fix deletion errors & improve context filter)
+$plugin->version = 2025100830;  // YYYYMMDDXX format (v1.5.7 - CRITICAL: Fix question.category column not exists in Moodle 4.5)
 $plugin->requires = 2023100900; // Moodle 4.3+
 $plugin->maturity = MATURITY_STABLE;
-$plugin->release = 'v1.5.6';
+$plugin->release = 'v1.5.7';
 

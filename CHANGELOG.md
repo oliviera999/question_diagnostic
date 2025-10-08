@@ -5,6 +5,83 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.5.7] - 2025-10-08
+
+### 🚨 HOTFIX CRITIQUE : La colonne `question.category` n'existe pas dans Moodle 4.5
+
+**⚠️ MISE À JOUR URGENTE OBLIGATOIRE pour tous les utilisateurs de v1.5.6**
+
+#### Problème Critique
+
+**Erreur** : "Le champ « category » n'existe pas dans la table « question »"
+
+**Cause** : Dans **Moodle 4.5**, la table `question` **n'a plus de colonne `category`** !
+
+Avec la nouvelle architecture Moodle 4.0+:
+- Les questions sont liées aux catégories via `question_bank_entries`
+- La table `question` ne contient plus le lien direct `category`
+- Chemin correct : `question` → `question_versions` → `question_bank_entries` → `questioncategoryid`
+
+**Impact v1.5.6** :
+- ❌ AUCUNE suppression ne fonctionnait
+- ❌ Erreur SQL sur chaque tentative
+- ❌ Dashboard pouvait afficher des comptages incorrects
+
+#### Solution Complète
+
+Remplacement de **TOUTES** les références à `question.category` par `question_bank_entries.questioncategoryid` :
+
+**1. Dans `delete_category()` (ligne 428)** :
+```php
+// ❌ AVANT v1.5.6 (ERREUR MOODLE 4.5)
+$questioncount = $DB->count_records('question', ['category' => $categoryid]);
+
+// ✅ APRÈS v1.5.7 (CORRIGÉ)
+$questioncount = $DB->count_records('question_bank_entries', ['questioncategoryid' => $categoryid]);
+```
+
+**2. Dans `get_all_categories_with_stats()` (ligne 52)** :
+```php
+// ❌ AVANT
+$sql = "SELECT category, COUNT(*) FROM {question} WHERE category IS NOT NULL GROUP BY category";
+
+// ✅ APRÈS
+$sql = "SELECT questioncategoryid as id, COUNT(*) FROM {question_bank_entries} 
+        WHERE questioncategoryid IS NOT NULL GROUP BY questioncategoryid";
+```
+
+**3. Dans `get_global_stats()` (ligne 673, 691)** :
+```php
+// ❌ AVANT
+SELECT DISTINCT category FROM {question} WHERE category IS NOT NULL
+
+// ✅ APRÈS  
+SELECT DISTINCT questioncategoryid FROM {question_bank_entries} WHERE questioncategoryid IS NOT NULL
+```
+
+#### Pourquoi Cette Erreur ?
+
+v1.5.6 voulait "simplifier" en utilisant directement `question.category`, mais cette colonne **n'existe plus dans Moodle 4.5**.
+
+La seule méthode correcte est d'utiliser `question_bank_entries.questioncategoryid`.
+
+#### Impact Après v1.5.7
+
+- ✅ Les suppressions fonctionnent maintenant
+- ✅ Pas d'erreurs SQL
+- ✅ Comptages corrects dans le dashboard
+- ✅ Compatible Moodle 4.3, 4.4, 4.5
+
+#### Fichiers Modifiés
+
+- `classes/category_manager.php` : 4 corrections de requêtes SQL
+- `version.php` : v1.5.7 (2025100830)
+- `CHANGELOG.md` : Documentation
+
+**⚠️ IMPORTANT** : Si vous avez v1.5.6, mettez à jour IMMÉDIATEMENT vers v1.5.7 !
+
+---
+
 ## [1.5.6] - 2025-10-08
 
 ### 🐛 Corrections : Erreurs de suppression & Amélioration filtre contexte

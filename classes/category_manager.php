@@ -47,12 +47,12 @@ class category_manager {
                               GROUP BY qbe.questioncategoryid";
             $questions_counts = $DB->get_records_sql($sql_questions);
             
-            // ⚠️ SÉCURITÉ CRITIQUE : Compter TOUTES les questions directement (y compris orphelines)
-            // Pour éviter de supprimer une catégorie qui contient des questions
-            $sql_all_questions = "SELECT category, COUNT(*) as question_count
-                                  FROM {question}
-                                  WHERE category IS NOT NULL
-                                  GROUP BY category";
+            // ⚠️ MOODLE 4.5 : La table question n'a PAS de colonne 'category'
+            // Utiliser question_bank_entries.questioncategoryid à la place
+            $sql_all_questions = "SELECT questioncategoryid as id, COUNT(*) as question_count
+                                  FROM {question_bank_entries}
+                                  WHERE questioncategoryid IS NOT NULL
+                                  GROUP BY questioncategoryid";
             $all_questions_counts = $DB->get_records_sql($sql_all_questions);
             
             // Étape 3 : Compter les sous-catégories par parent (1 requête)
@@ -423,9 +423,9 @@ class category_manager {
                 }
             }
             
-            // ⚠️ SÉCURITÉ CRITIQUE : Double vérification du comptage des questions
-            // Méthode 2 UNIQUEMENT (plus fiable et simple)
-            $questioncount = (int)$DB->count_records('question', ['category' => $categoryid]);
+            // ⚠️ SÉCURITÉ CRITIQUE : Comptage via question_bank_entries (Moodle 4.x)
+            // La table question n'a PAS de colonne 'category' dans Moodle 4.5+
+            $questioncount = (int)$DB->count_records('question_bank_entries', ['questioncategoryid' => $categoryid]);
             
             if ($questioncount > 0) {
                 debugging("Tentative de suppression catégorie $categoryid avec $questioncount questions", DEBUG_DEVELOPER);
@@ -670,17 +670,9 @@ class category_manager {
                 $cats_with_questions1 = [];
             }
             
-            // Méthode 2 : Comptage direct dans question (capture TOUTES les questions, même orphelines)
-            $sql_cat_with_q2 = "SELECT DISTINCT category
-                                FROM {question}
-                                WHERE category IS NOT NULL";
-            $cats_with_questions2 = $DB->get_fieldset_sql($sql_cat_with_q2);
-            if (!$cats_with_questions2) {
-                $cats_with_questions2 = [];
-            }
-            
-            // Fusionner les deux listes (union)
-            $cats_with_questions = array_unique(array_merge($cats_with_questions1, $cats_with_questions2));
+            // ⚠️ MOODLE 4.5 : La table question n'a PAS de colonne 'category'
+            // Utiliser UNIQUEMENT question_bank_entries
+            $cats_with_questions = $cats_with_questions1;
             
             // Catégories avec sous-catégories
             $sql_cat_with_subs = "SELECT DISTINCT parent
@@ -692,11 +684,11 @@ class category_manager {
             }
             
             // Compter avec SQL optimisé au lieu de charger tout en mémoire
-            // Compter catégories sans questions
+            // ⚠️ MOODLE 4.5 : Utiliser question_bank_entries au lieu de question.category
             $sql_empty = "SELECT COUNT(qc.id)
                          FROM {question_categories} qc
                          WHERE qc.id NOT IN (
-                             SELECT DISTINCT category FROM {question} WHERE category IS NOT NULL
+                             SELECT DISTINCT questioncategoryid FROM {question_bank_entries} WHERE questioncategoryid IS NOT NULL
                          )
                          AND qc.id NOT IN (
                              SELECT DISTINCT parent FROM {question_categories} WHERE parent IS NOT NULL AND parent > 0
