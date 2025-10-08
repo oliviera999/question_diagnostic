@@ -15,6 +15,7 @@ if (!is_siteadmin()) {
     print_error('accessdenied', 'admin');
 }
 
+// ⚠️ FIX: Accepter les paramètres POST et GET (POST pour éviter Request-URI Too Long)
 $type = optional_param('type', 'csv', PARAM_ALPHA);
 $ids = optional_param('ids', '', PARAM_TEXT);
 

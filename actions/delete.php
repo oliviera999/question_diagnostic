@@ -15,6 +15,7 @@ if (!is_siteadmin()) {
     print_error('accessdenied', 'admin');
 }
 
+// ⚠️ FIX: Accepter les paramètres POST et GET (POST pour éviter Request-URI Too Long)
 $categoryid = optional_param('id', 0, PARAM_INT);
 $categoryids = optional_param('ids', '', PARAM_TEXT);
 $confirm = optional_param('confirm', 0, PARAM_INT);

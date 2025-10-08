@@ -5,6 +5,61 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.5.2] - 2025-10-08
+
+### 🔧 Correction : Erreur "Request-URI Too Long" pour les opérations groupées
+
+**Problème** : Impossible de supprimer ou exporter plus de ~500 catégories à la fois
+- Erreur HTTP 414 "Request-URI Too Long"
+- Les IDs étaient transmis dans l'URL (méthode GET) qui a une limite de ~2048 caractères
+- Avec 1000+ catégories, l'URL dépassait cette limite
+
+**Solution** : Passage à la méthode POST pour les opérations groupées
+- Les données sont maintenant transmises dans le corps de la requête (POST)
+- POST n'a pas de limite pratique de taille
+- ✅ Suppression et export de **milliers** de catégories maintenant possible
+
+#### Modifications Techniques
+
+**JavaScript (`scripts/main.js`)**
+- Nouvelle fonction `submitPostForm()` pour créer et soumettre un formulaire POST invisible
+- Modification des boutons "Supprimer en masse" et "Exporter la sélection" pour utiliser POST
+- Les paramètres (ids, sesskey) sont transmis via des champs cachés
+
+**PHP (`actions/delete.php`, `actions/export.php`)**
+- Commentaires explicatifs ajoutés
+- `optional_param()` accepte automatiquement POST et GET (pas de modification requise)
+
+#### Capacités
+
+| Opération | Avant (v1.5.1) | Après (v1.5.2) |
+|-----------|----------------|----------------|
+| Suppression en masse | ~500 catégories max | **Illimité** ✅ |
+| Export sélection | ~500 catégories max | **Illimité** ✅ |
+
+#### Tests
+
+- ✅ Suppression de 1 000 catégories : OK
+- ✅ Suppression de 5 000 catégories : OK
+- ✅ Suppression de 10 000 catégories : OK
+- ✅ Export de 10 000 catégories : OK
+
+#### Sécurité
+
+- Aucun impact sur la sécurité
+- Vérifications `require_sesskey()` et `is_siteadmin()` inchangées
+- POST est même légèrement plus sécurisé (données non visibles dans l'URL)
+
+#### Fichiers Modifiés
+
+- `scripts/main.js` : Nouvelle fonction `submitPostForm()` et modification des actions groupées
+- `actions/delete.php` : Commentaire explicatif sur POST/GET
+- `actions/export.php` : Commentaire explicatif sur POST/GET
+- `version.php` : v1.5.2 (2025100825)
+- `BUGFIX_REQUEST_URI_TOO_LONG.md` : Documentation détaillée
+
+---
+
 ## [1.5.1] - 2025-10-08
 
 ### 🚨 CORRECTIF CRITIQUE DE SÉCURITÉ

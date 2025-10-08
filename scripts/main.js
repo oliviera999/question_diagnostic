@@ -225,9 +225,12 @@
                     return;
                 }
 
+                // ⚠️ FIX: Utiliser POST au lieu de GET pour éviter "Request-URI Too Long"
                 const ids = Array.from(state.selectedCategories).join(',');
-                const url = M.cfg.wwwroot + '/local/question_diagnostic/actions/delete.php?ids=' + ids + '&sesskey=' + M.cfg.sesskey;
-                window.location.href = url;
+                submitPostForm(M.cfg.wwwroot + '/local/question_diagnostic/actions/delete.php', {
+                    ids: ids,
+                    sesskey: M.cfg.sesskey
+                });
             });
         }
 
@@ -239,9 +242,13 @@
                     return;
                 }
 
+                // ⚠️ FIX: Utiliser POST au lieu de GET pour éviter "Request-URI Too Long"
                 const ids = Array.from(state.selectedCategories).join(',');
-                const url = M.cfg.wwwroot + '/local/question_diagnostic/actions/export.php?type=csv&ids=' + ids + '&sesskey=' + M.cfg.sesskey;
-                window.location.href = url;
+                submitPostForm(M.cfg.wwwroot + '/local/question_diagnostic/actions/export.php', {
+                    type: 'csv',
+                    ids: ids,
+                    sesskey: M.cfg.sesskey
+                });
             });
         }
 
@@ -420,6 +427,34 @@
             clearTimeout(timeout);
             timeout = setTimeout(later, wait);
         };
+    }
+
+    /**
+     * Soumet un formulaire en POST (pour éviter les URLs trop longues)
+     * @param {string} url - URL de destination
+     * @param {object} params - Paramètres à envoyer
+     */
+    function submitPostForm(url, params) {
+        // Créer un formulaire invisible
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = url;
+        form.style.display = 'none';
+
+        // Ajouter les paramètres comme champs cachés
+        for (const key in params) {
+            if (params.hasOwnProperty(key)) {
+                const input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = key;
+                input.value = params[key];
+                form.appendChild(input);
+            }
+        }
+
+        // Ajouter le formulaire au DOM, le soumettre, puis le supprimer
+        document.body.appendChild(form);
+        form.submit();
     }
 
     /**
