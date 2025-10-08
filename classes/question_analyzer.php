@@ -1138,10 +1138,15 @@ class question_analyzer {
                 $courseid = SITEID;
             }
             
-            // Vérifier que le cours existe avant de générer l'URL
-            if ($courseid > 0 && !$DB->record_exists('course', ['id' => $courseid])) {
-                // Si le cours n'existe pas, utiliser SITEID comme fallback
+            // ⚠️ v1.6.7 : Vérifier et corriger le courseid AVANT de générer l'URL
+            // Si courseid = 0 ou cours n'existe pas, utiliser SITEID comme fallback
+            if ($courseid <= 0 || !$DB->record_exists('course', ['id' => $courseid])) {
                 $courseid = SITEID;
+            }
+            
+            // Dernière vérification : si SITEID n'existe pas non plus (rare), retourner null
+            if (!$DB->record_exists('course', ['id' => $courseid])) {
+                return null;
             }
             
             $url = new \moodle_url('/question/edit.php', [

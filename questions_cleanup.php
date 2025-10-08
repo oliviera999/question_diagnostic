@@ -880,7 +880,7 @@ function showDuplicatesModal(questionId, questionName, duplicateIds) {
             content += '<td>';
             content += '<strong>' + dupName + '</strong><br>';
             content += '<small>Type: ' + dupType + ' | Catégorie: ' + dupCategory + '</small><br>';
-            content += '<a href="/question/edit.php?courseid=0&qid=' + dupId + '" target="_blank" class="btn btn-sm btn-primary" style="margin-top: 5px;">👁️ Voir</a>';
+            content += '<a href="' + M.cfg.wwwroot + '/question/edit.php?courseid=1&qid=' + dupId + '" target="_blank" class="btn btn-sm btn-primary" style="margin-top: 5px;">👁️ Voir</a>';
             content += '</td>';
             content += '</tr>';
         }

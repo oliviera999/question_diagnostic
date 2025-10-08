@@ -5,6 +5,56 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.6.7] - 2025-10-08
+
+### 🔧 FIX : Erreur "course not found" lors du clic sur bouton "Voir"
+
+**Problème** : Clic sur "👁️ Voir" d'une question → Erreur
+```
+Impossible de trouver l'enregistrement dans la table course
+SELECT id,category FROM {course} WHERE id = ?
+[array (0 => 0,)]
+```
+
+**Cause** : 
+- Certaines questions sont dans un contexte invalide (courseid reste à 0)
+- La vérification `if ($courseid > 0 && ...)` ne s'exécutait pas si courseid=0
+- L'URL était générée avec `courseid=0` → erreur
+
+**Solution** :
+
+Vérification améliorée dans `get_question_bank_url()` :
+
+```php
+// ❌ AVANT v1.6.7
+if ($courseid > 0 && !$DB->record_exists('course', ['id' => $courseid])) {
+    $courseid = SITEID; // Ne s'exécute jamais si courseid=0
+}
+
+// ✅ APRÈS v1.6.7  
+if ($courseid <= 0 || !$DB->record_exists('course', ['id' => $courseid])) {
+    $courseid = SITEID; // S'exécute aussi si courseid=0
+}
+
+// Dernière vérification de sécurité
+if (!$DB->record_exists('course', ['id' => $courseid])) {
+    return null; // Pas de lien si impossible
+}
+```
+
+**Résultat** :
+- ✅ Questions avec contexte système → utilisent SITEID (cours site)
+- ✅ Questions avec cours invalide → utilisent SITEID en fallback
+- ✅ Si SITEID invalide → pas de bouton "Voir" (au lieu d'erreur)
+
+**Fichiers** :
+- `classes/question_analyzer.php` : Fix get_question_bank_url()
+- `questions_cleanup.php` : Fix lien JavaScript doublons
+- `version.php` : v1.6.7
+- `CHANGELOG.md` : Documentation
+
+---
+
 ## [1.6.6] - 2025-10-08
 
 ### ✅ FIX : Calcul des questions utilisées/inutilisées même en mode simplifié

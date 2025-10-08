@@ -9,8 +9,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'local_question_diagnostic';
-$plugin->version = 2025100839;  // YYYYMMDDXX format (v1.6.6 - Fix: Calculate real used/unused questions in simplified mode)
+$plugin->version = 2025100840;  // YYYYMMDDXX format (v1.6.7 - Fix: Invalid course error when viewing questions)
 $plugin->requires = 2023100900; // Moodle 4.0+
 $plugin->maturity = MATURITY_STABLE;
-$plugin->release = 'v1.6.6';
+$plugin->release = 'v1.6.7';
 
