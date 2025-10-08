@@ -9,8 +9,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'local_question_diagnostic';
-$plugin->version = 2025100841;  // YYYYMMDDXX format (v1.7.0 - NEW FEATURE: Random duplicate detection test)
+$plugin->version = 2025100842;  // YYYYMMDDXX format (v1.7.1 - Fix: Header state error in random test)
 $plugin->requires = 2023100900; // Moodle 4.0+
 $plugin->maturity = MATURITY_STABLE;
-$plugin->release = 'v1.7.0';
+$plugin->release = 'v1.7.1';
 

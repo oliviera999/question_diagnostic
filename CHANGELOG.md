@@ -5,6 +5,26 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.7.1] - 2025-10-08
+
+### 🔧 FIX : Erreur header state dans le test aléatoire
+
+**Problème** : Clic sur "🎲 Test Aléatoire" → Erreur
+```
+Invalid state passed to moodle_page::set_state
+We are in state 2 and state 1 was requested
+```
+
+**Cause** : Appel de `$OUTPUT->header()` deux fois (une dans le test, une dans le flux principal)
+
+**Solution** : Déplacement du bloc test aléatoire APRÈS le header principal
+
+**Fichiers** :
+- `questions_cleanup.php` : Bloc test déplacé après header (ligne 80)
+- `version.php` : v1.7.1
+
+---
+
 ## [1.7.0] - 2025-10-08
 
 ### 🆕 NOUVELLE FONCTIONNALITÉ : Test Aléatoire de Détection de Doublons
