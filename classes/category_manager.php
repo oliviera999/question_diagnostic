@@ -29,72 +29,107 @@ class category_manager {
     public static function get_all_categories_with_stats() {
         global $DB;
 
-        // VERSION OPTIMISÉE : Une seule requête SQL avec agrégations
-        // Au lieu de 5836 requêtes individuelles !
-        $sql = "SELECT qc.id,
-                       qc.name,
-                       qc.contextid,
-                       qc.parent,
-                       qc.sortorder,
-                       qc.info,
-                       qc.infoformat,
-                       qc.stamp,
-                       qc.idnumber,
-                       COUNT(DISTINCT q.id) as total_questions,
-                       COUNT(DISTINCT CASE WHEN q.hidden = 0 THEN q.id END) as visible_questions,
-                       COUNT(DISTINCT subcat.id) as subcategories,
-                       CASE WHEN ctx.id IS NULL THEN 0 ELSE 1 END as context_valid
-                FROM {question_categories} qc
-                LEFT JOIN {question_bank_entries} qbe ON qbe.questioncategoryid = qc.id
-                LEFT JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
-                LEFT JOIN {question} q ON q.id = qv.questionid
-                LEFT JOIN {question_categories} subcat ON subcat.parent = qc.id
-                LEFT JOIN {context} ctx ON ctx.id = qc.contextid
-                GROUP BY qc.id, qc.name, qc.contextid, qc.parent, qc.sortorder, 
-                         qc.info, qc.infoformat, qc.stamp, qc.idnumber, ctx.id
-                ORDER BY qc.contextid, qc.parent, qc.name ASC";
-        
-        $categories_data = $DB->get_records_sql($sql);
-        
-        $result = [];
-        foreach ($categories_data as $data) {
-            // Reconstruire l'objet catégorie
-            $category = (object)[
-                'id' => $data->id,
-                'name' => $data->name,
-                'contextid' => $data->contextid,
-                'parent' => $data->parent,
-                'sortorder' => $data->sortorder,
-                'info' => $data->info,
-                'infoformat' => $data->infoformat,
-                'stamp' => $data->stamp,
-                'idnumber' => $data->idnumber,
-            ];
+        try {
+            // VERSION OPTIMISÉE AVEC FALLBACK
+            // Essayer d'abord avec une requête simplifiée plus compatible
             
-            // Construire les stats directement depuis les agrégations SQL
-            $stats = (object)[
-                'total_questions' => (int)$data->total_questions,
-                'visible_questions' => (int)$data->visible_questions,
-                'subcategories' => (int)$data->subcategories,
-                'context_valid' => (bool)$data->context_valid,
-                'is_empty' => ($data->total_questions == 0 && $data->subcategories == 0),
-                'is_orphan' => !$data->context_valid,
-            ];
+            // Étape 1 : Récupérer toutes les catégories
+            $categories = $DB->get_records('question_categories', null, 'contextid, parent, name ASC');
             
-            // Nom du contexte (récupéré à la demande, léger)
-            try {
-                if ($stats->context_valid) {
-                    $context = \context::instance_by_id($category->contextid, IGNORE_MISSING);
-                    $stats->context_name = $context ? \context_helper::get_level_name($context->contextlevel) : 'Inconnu';
-                } else {
-                    $stats->context_name = 'Contexte supprimé (ID: ' . $category->contextid . ')';
-                }
-            } catch (\Exception $e) {
-                $stats->context_name = 'Erreur';
+            // Étape 2 : Compter les questions par catégorie (1 requête)
+            $sql_questions = "SELECT qbe.questioncategoryid,
+                                     COUNT(DISTINCT q.id) as total_questions,
+                                     SUM(CASE WHEN q.hidden = 0 THEN 1 ELSE 0 END) as visible_questions
+                              FROM {question_bank_entries} qbe
+                              INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+                              INNER JOIN {question} q ON q.id = qv.questionid
+                              GROUP BY qbe.questioncategoryid";
+            $questions_counts = $DB->get_records_sql($sql_questions);
+            
+            // Étape 3 : Compter les sous-catégories par parent (1 requête)
+            $sql_subcats = "SELECT parent, COUNT(*) as subcat_count
+                            FROM {question_categories}
+                            WHERE parent IS NOT NULL AND parent > 0
+                            GROUP BY parent";
+            $subcat_counts = $DB->get_records_sql($sql_subcats);
+            
+            // Étape 4 : Vérifier les contextes valides (1 requête)
+            $sql_contexts = "SELECT qc.id, qc.contextid
+                            FROM {question_categories} qc
+                            LEFT JOIN {context} ctx ON ctx.id = qc.contextid
+                            WHERE ctx.id IS NULL";
+            $invalid_contexts = $DB->get_records_sql($sql_contexts);
+            $invalid_context_ids = [];
+            foreach ($invalid_contexts as $ctx_record) {
+                $invalid_context_ids[] = $ctx_record->id;
             }
             
+            // Étape 5 : Construire le résultat
+            $result = [];
+            foreach ($categories as $cat) {
+                // Stats des questions
+                $question_data = isset($questions_counts[$cat->id]) ? $questions_counts[$cat->id] : null;
+                $total_questions = $question_data ? (int)$question_data->total_questions : 0;
+                $visible_questions = $question_data ? (int)$question_data->visible_questions : 0;
+                
+                // Stats des sous-catégories
+                $subcat_data = isset($subcat_counts[$cat->id]) ? $subcat_counts[$cat->id] : null;
+                $subcategories = $subcat_data ? (int)$subcat_data->subcat_count : 0;
+                
+                // Validité du contexte
+                $context_valid = !in_array($cat->id, $invalid_context_ids);
+                
+                // Construire les stats
+                $stats = (object)[
+                    'total_questions' => $total_questions,
+                    'visible_questions' => $visible_questions,
+                    'subcategories' => $subcategories,
+                    'context_valid' => $context_valid,
+                    'is_empty' => ($total_questions == 0 && $subcategories == 0),
+                    'is_orphan' => !$context_valid,
+                ];
+                
+                // Nom du contexte
+                try {
+                    if ($context_valid) {
+                        $context = \context::instance_by_id($cat->contextid, IGNORE_MISSING);
+                        $stats->context_name = $context ? \context_helper::get_level_name($context->contextlevel) : 'Inconnu';
+                    } else {
+                        $stats->context_name = 'Contexte supprimé (ID: ' . $cat->contextid . ')';
+                    }
+                } catch (\Exception $e) {
+                    $stats->context_name = 'Erreur';
+                }
+                
+                $result[] = (object)[
+                    'category' => $cat,
+                    'stats' => $stats,
+                ];
+            }
+            
+            return $result;
+            
+        } catch (\Exception $e) {
+            // FALLBACK : Si erreur SQL, utiliser l'ancienne méthode (lente mais fiable)
+            debugging('Erreur dans get_all_categories_with_stats optimisé, utilisation fallback : ' . $e->getMessage(), DEBUG_DEVELOPER);
+            return self::get_all_categories_with_stats_fallback();
+        }
+    }
+    
+    /**
+     * Version fallback (ancienne méthode) si la version optimisée échoue
+     * @return array
+     */
+    private static function get_all_categories_with_stats_fallback() {
+        global $DB;
+
+        $categories = $DB->get_records('question_categories', null, 'contextid, parent, name ASC');
+        $result = [];
+
+        foreach ($categories as $cat) {
+            $stats = self::get_category_stats($cat);
             $result[] = (object)[
-                'category' => $category,
+                'category' => $cat,
                 'stats' => $stats,
             ];
         }
