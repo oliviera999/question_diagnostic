@@ -76,6 +76,17 @@ echo html_writer::link(
     ]
 );
 
+// 🆕 v1.8.0 : Bouton test aléatoire doublons UTILISÉS
+$randomtest_used_url = new moodle_url($PAGE->url, ['randomtest_used' => 1, 'sesskey' => sesskey()]);
+echo html_writer::link(
+    $randomtest_used_url,
+    '🎲 Test Doublons Utilisés',
+    [
+        'class' => 'btn btn-success',
+        'title' => 'Tester un groupe de doublons dont au moins 1 version est utilisée'
+    ]
+);
+
 echo html_writer::end_tag('div');
 
 // 🆕 v1.7.0 : MODE TEST ALÉATOIRE - Afficher le résultat si demandé
@@ -208,6 +219,198 @@ if ($randomtest && confirm_sesskey()) {
     exit;
 }
 
+// 🆕 v1.8.0 : MODE TEST ALÉATOIRE DOUBLONS UTILISÉS
+$randomtest_used = optional_param('randomtest_used', 0, PARAM_INT);
+if ($randomtest_used && confirm_sesskey()) {
+    echo html_writer::tag('h2', '🎲 Test Doublons Utilisés - Question Aléatoire');
+    
+    // Sélectionner une question aléatoire qui a des doublons ET au moins 1 version utilisée
+    $sql = "SELECT q.*, 
+                   (SELECT COUNT(*) FROM {question} q2 
+                    WHERE q2.name = q.name 
+                    AND q2.qtype = q.qtype 
+                    AND q2.questiontext = q.questiontext 
+                    AND q2.id != q.id) as dup_count
+            FROM {question} q
+            HAVING dup_count > 0
+            ORDER BY RAND()
+            LIMIT 100";
+    
+    $candidates = $DB->get_records_sql($sql);
+    $found = false;
+    $random_question = null;
+    
+    // Parcourir les candidats pour trouver un groupe avec au moins 1 utilisée
+    foreach ($candidates as $candidate) {
+        $duplicates = question_analyzer::find_exact_duplicates($candidate);
+        $all_questions = array_merge([$candidate], $duplicates);
+        
+        // Vérifier si au moins une version est utilisée
+        $has_used = false;
+        foreach ($all_questions as $q) {
+            $stats = question_analyzer::get_question_stats($q);
+            if ((isset($stats->quiz_count) && $stats->quiz_count > 0) || 
+                (isset($stats->attempt_count) && $stats->attempt_count > 0)) {
+                $has_used = true;
+                break;
+            }
+        }
+        
+        if ($has_used) {
+            $random_question = $candidate;
+            $found = true;
+            break;
+        }
+    }
+    
+    if (!$found || !$random_question) {
+        echo html_writer::start_tag('div', ['class' => 'alert alert-warning']);
+        echo html_writer::tag('h3', '⚠️ Aucun groupe de doublons utilisés trouvé');
+        echo 'Après 100 tentatives, aucun groupe de doublons avec au moins 1 version utilisée n\'a été trouvé. ';
+        echo 'Cela peut signifier que vos doublons ne sont pas utilisés, ou qu\'ils sont rares.';
+        echo html_writer::end_tag('div');
+        
+        echo html_writer::start_tag('div', ['style' => 'margin-top: 30px;']);
+        echo html_writer::link($randomtest_used_url, '🔄 Réessayer', ['class' => 'btn btn-primary']);
+        echo ' ';
+        echo html_writer::link(new moodle_url('/local/question_diagnostic/questions_cleanup.php', ['loadstats' => 1]), '← Retour', ['class' => 'btn btn-secondary']);
+        echo html_writer::end_tag('div');
+        
+        echo $OUTPUT->footer();
+        exit;
+    }
+    
+    // Trouver tous les doublons de cette question
+    $duplicates = question_analyzer::find_exact_duplicates($random_question);
+    $all_questions = array_merge([$random_question], $duplicates);
+    
+    echo html_writer::start_tag('div', ['class' => 'alert alert-success', 'style' => 'margin: 20px 0;']);
+    echo html_writer::tag('h3', '🎯 Groupe de Doublons Utilisés Trouvé !', ['style' => 'margin-top: 0;']);
+    echo html_writer::tag('p', '<strong>Question sélectionnée ID :</strong> ' . $random_question->id);
+    echo html_writer::tag('p', '<strong>Nom :</strong> ' . format_string($random_question->name));
+    echo html_writer::tag('p', '<strong>Type :</strong> ' . $random_question->qtype);
+    echo html_writer::tag('p', '<strong>Nombre de versions totales :</strong> ' . count($all_questions) . ' (1 originale + ' . count($duplicates) . ' doublon(s))');
+    echo html_writer::end_tag('div');
+    
+    // Tableau détaillé
+    echo html_writer::tag('h3', '📋 Détails de Toutes les Versions');
+    echo html_writer::start_tag('table', ['class' => 'qd-table', 'style' => 'width: 100%;']);
+    
+    // En-tête
+    echo html_writer::start_tag('thead');
+    echo html_writer::start_tag('tr');
+    echo html_writer::tag('th', 'ID');
+    echo html_writer::tag('th', 'Nom');
+    echo html_writer::tag('th', 'Type');
+    echo html_writer::tag('th', 'Catégorie');
+    echo html_writer::tag('th', 'Cours');
+    echo html_writer::tag('th', 'Quiz');
+    echo html_writer::tag('th', 'Tentatives');
+    echo html_writer::tag('th', 'Statut');
+    echo html_writer::tag('th', 'Créée le');
+    echo html_writer::tag('th', 'Actions');
+    echo html_writer::end_tag('tr');
+    echo html_writer::end_tag('thead');
+    
+    echo html_writer::start_tag('tbody');
+    
+    foreach ($all_questions as $q) {
+        $stats = question_analyzer::get_question_stats($q);
+        $is_used = (isset($stats->quiz_count) && $stats->quiz_count > 0) || 
+                   (isset($stats->attempt_count) && $stats->attempt_count > 0);
+        
+        $row_style = '';
+        if ($q->id == $random_question->id) {
+            $row_style = 'background: #d4edda; font-weight: bold;';
+        } else if ($is_used) {
+            $row_style = 'background: #fff3cd;'; // Jaune pour les utilisées
+        }
+        
+        echo html_writer::start_tag('tr', ['style' => $row_style]);
+        echo html_writer::tag('td', $q->id . ($q->id == $random_question->id ? ' 🎯' : ''));
+        echo html_writer::tag('td', format_string($q->name));
+        echo html_writer::tag('td', $q->qtype);
+        echo html_writer::tag('td', isset($stats->category_name) ? $stats->category_name : 'N/A');
+        echo html_writer::tag('td', isset($stats->course_name) ? '📚 ' . $stats->course_name : '-');
+        echo html_writer::tag('td', isset($stats->quiz_count) ? $stats->quiz_count : 0, ['style' => $stats->quiz_count > 0 ? 'font-weight: bold; color: #28a745;' : '']);
+        echo html_writer::tag('td', isset($stats->attempt_count) ? $stats->attempt_count : 0, ['style' => $stats->attempt_count > 0 ? 'font-weight: bold; color: #0f6cbf;' : '']);
+        echo html_writer::tag('td', $is_used ? '✅ Utilisée' : '⚠️ Inutilisée');
+        echo html_writer::tag('td', userdate($q->timecreated, '%d/%m/%Y %H:%M'));
+        
+        // Actions
+        echo html_writer::start_tag('td');
+        $view_url = question_analyzer::get_question_bank_url($q);
+        if ($view_url) {
+            echo html_writer::link($view_url, '👁️', ['class' => 'btn btn-sm btn-primary', 'target' => '_blank', 'title' => 'Voir']);
+        }
+        echo html_writer::end_tag('td');
+        
+        echo html_writer::end_tag('tr');
+    }
+    
+    echo html_writer::end_tag('tbody');
+    echo html_writer::end_tag('table');
+    
+    // Résumé détaillé
+    echo html_writer::start_tag('div', ['class' => 'alert alert-info', 'style' => 'margin-top: 20px;']);
+    echo html_writer::tag('h4', '📊 Analyse du Groupe');
+    echo html_writer::tag('p', '<strong>Total de versions :</strong> ' . count($all_questions));
+    
+    $used_count = 0;
+    $unused_count = 0;
+    $total_quiz_usage = 0;
+    $total_attempts = 0;
+    
+    foreach ($all_questions as $q) {
+        $s = question_analyzer::get_question_stats($q);
+        $quiz_count = isset($s->quiz_count) ? $s->quiz_count : 0;
+        $attempt_count = isset($s->attempt_count) ? $s->attempt_count : 0;
+        
+        if ($quiz_count > 0 || $attempt_count > 0) {
+            $used_count++;
+        } else {
+            $unused_count++;
+        }
+        
+        $total_quiz_usage += $quiz_count;
+        $total_attempts += $attempt_count;
+    }
+    
+    echo html_writer::tag('p', '<strong>Versions utilisées :</strong> ' . $used_count . ' (dans quiz ou avec tentatives)');
+    echo html_writer::tag('p', '<strong>Versions inutilisées (supprimables) :</strong> ' . $unused_count);
+    echo html_writer::tag('p', '<strong>Total utilisations dans quiz :</strong> ' . $total_quiz_usage);
+    echo html_writer::tag('p', '<strong>Total tentatives :</strong> ' . $total_attempts);
+    
+    echo html_writer::start_tag('div', ['style' => 'margin-top: 20px; padding: 15px; background: #e7f3ff; border-left: 4px solid #0f6cbf;']);
+    echo html_writer::tag('strong', '💡 Recommandation : ');
+    if ($unused_count > 0) {
+        echo 'Ce groupe contient <strong>' . $unused_count . ' version(s) inutilisée(s)</strong> qui pourrai(en)t être supprimée(s) pour nettoyer la base. ';
+        echo 'Les versions utilisées (' . $used_count . ') doivent être conservées.';
+    } else {
+        echo 'Toutes les versions de cette question sont utilisées. Aucune suppression recommandée.';
+    }
+    echo html_writer::end_tag('div');
+    
+    echo html_writer::end_tag('div');
+    
+    echo html_writer::start_tag('div', ['style' => 'margin-top: 30px; text-align: center;']);
+    echo html_writer::link(
+        $randomtest_used_url,
+        '🔄 Tester un autre groupe',
+        ['class' => 'btn btn-primary btn-lg']
+    );
+    echo ' ';
+    echo html_writer::link(
+        new moodle_url('/local/question_diagnostic/questions_cleanup.php', ['loadstats' => 1]),
+        '← Retour à la liste',
+        ['class' => 'btn btn-secondary']
+    );
+    echo html_writer::end_tag('div');
+    
+    echo $OUTPUT->footer();
+    exit;
+}
+
 // ======================================================================
 // STATISTIQUES GLOBALES (Dashboard)
 // ======================================================================
@@ -225,8 +428,9 @@ if (optional_param('loadstats', 0, PARAM_INT) == 1) {
 
 // 🚨 v1.6.1 : CHARGEMENT MINIMAL - Ne charger que le strict nécessaire
 $load_stats = optional_param('loadstats', 0, PARAM_INT);
+$load_used_duplicates = optional_param('loadusedduplicates', 0, PARAM_INT);
 
-if (!$load_stats) {
+if (!$load_stats && !$load_used_duplicates) {
     // Affichage minimal ultra-rapide
     echo html_writer::start_tag('div', ['class' => 'alert alert-info', 'style' => 'margin: 30px 0; padding: 40px; text-align: center;']);
     echo html_writer::tag('h2', '📊 Statistiques des Questions', ['style' => 'margin-top: 0;']);
@@ -242,16 +446,35 @@ if (!$load_stats) {
     
     echo html_writer::tag('p', '⚡ Pour optimiser les performances sur votre grande base de données,<br>les statistiques détaillées et la liste des questions ne sont pas chargées automatiquement.', ['style' => 'margin: 30px 0; font-size: 14px;']);
     
+    // Boutons de chargement
+    echo html_writer::start_tag('div', ['style' => 'margin-top: 40px; display: flex; gap: 20px; justify-content: center; flex-wrap: wrap;']);
+    
+    // Bouton 1 : Charger toutes les questions
     $loadstats_url = new moodle_url('/local/question_diagnostic/questions_cleanup.php', ['loadstats' => 1, 'show' => 50]);
-    echo html_writer::start_tag('div', ['style' => 'margin-top: 40px;']);
+    echo html_writer::start_tag('div', ['style' => 'text-align: center;']);
     echo html_writer::link(
         $loadstats_url,
-        '🚀 Charger les statistiques et la liste des questions',
-        ['class' => 'btn btn-lg btn-success', 'style' => 'font-size: 20px; padding: 20px 40px;']
+        '🚀 Charger Toutes les Questions',
+        ['class' => 'btn btn-lg btn-success', 'style' => 'font-size: 18px; padding: 20px 30px;']
     );
+    echo html_writer::tag('p', '⏱️ ~30 secondes', ['style' => 'margin-top: 10px; font-size: 12px; color: #666;']);
     echo html_writer::end_tag('div');
     
-    echo html_writer::tag('p', '⏱️ Temps de chargement estimé : ~30 secondes', ['style' => 'margin-top: 20px; font-style: italic; color: #666;']);
+    // Bouton 2 : Charger uniquement doublons utilisés
+    $loadused_url = new moodle_url('/local/question_diagnostic/questions_cleanup.php', ['loadusedduplicates' => 1, 'show' => 100]);
+    echo html_writer::start_tag('div', ['style' => 'text-align: center;']);
+    echo html_writer::link(
+        $loadused_url,
+        '📋 Charger Doublons Utilisés',
+        ['class' => 'btn btn-lg btn-primary', 'style' => 'font-size: 18px; padding: 20px 30px;']
+    );
+    echo html_writer::tag('p', '⏱️ ~20 secondes (liste ciblée)', ['style' => 'margin-top: 10px; font-size: 12px; color: #666;']);
+    echo html_writer::tag('p', 'Questions en doublon avec ≥1 version utilisée', ['style' => 'font-size: 11px; color: #999; font-style: italic;']);
+    echo html_writer::end_tag('div');
+    
+    echo html_writer::end_tag('div');
+    
+    echo html_writer::tag('p', '💡 <strong>Astuce</strong> : Commencez par "Doublons Utilisés" pour cibler rapidement les questions à nettoyer.', ['style' => 'margin-top: 30px; text-align: center; font-style: italic; color: #666;']);
     echo html_writer::end_tag('div');
     
     echo $OUTPUT->footer();
@@ -586,11 +809,13 @@ try {
     echo '<li>Utilisez les <strong>filtres</strong> pour affiner les résultats</li>';
     echo '<li>Changez le nombre de questions affichées : ';
     
-    $url_10 = new moodle_url('/local/question_diagnostic/questions_cleanup.php', ['show' => 10]);
-    $url_50 = new moodle_url('/local/question_diagnostic/questions_cleanup.php', ['show' => 50]);
-    $url_100 = new moodle_url('/local/question_diagnostic/questions_cleanup.php', ['show' => 100]);
-    $url_500 = new moodle_url('/local/question_diagnostic/questions_cleanup.php', ['show' => 500]);
-    $url_1000 = new moodle_url('/local/question_diagnostic/questions_cleanup.php', ['show' => 1000]);
+    // Construire les URLs selon le mode de chargement
+    $base_params = $load_used_duplicates ? ['loadusedduplicates' => 1] : ['loadstats' => 1];
+    $url_10 = new moodle_url('/local/question_diagnostic/questions_cleanup.php', array_merge($base_params, ['show' => 10]));
+    $url_50 = new moodle_url('/local/question_diagnostic/questions_cleanup.php', array_merge($base_params, ['show' => 50]));
+    $url_100 = new moodle_url('/local/question_diagnostic/questions_cleanup.php', array_merge($base_params, ['show' => 100]));
+    $url_500 = new moodle_url('/local/question_diagnostic/questions_cleanup.php', array_merge($base_params, ['show' => 500]));
+    $url_1000 = new moodle_url('/local/question_diagnostic/questions_cleanup.php', array_merge($base_params, ['show' => 1000]));
     
     echo html_writer::link($url_10, '10', ['class' => $max_questions_display == 10 ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-secondary']);
     echo ' ';
@@ -606,9 +831,31 @@ try {
     echo '<p style="margin-top: 15px;"><em>Les statistiques globales ci-dessus concernent bien <strong>TOUTES les ' . number_format($total_questions, 0, ',', ' ') . ' questions</strong>.</em></p>';
     echo html_writer::end_tag('div');
     
-    // 🔥 MODIFICATION CRITIQUE : Limiter le nombre de questions chargées
-    $limit = min($max_questions_display, $total_questions);
-    $questions_with_stats = question_analyzer::get_all_questions_with_stats($include_duplicates, $limit);
+    // 🆕 v1.8.0 : Mode de chargement ciblé pour doublons utilisés
+    if ($load_used_duplicates) {
+        // Charger uniquement les doublons avec au moins 1 version utilisée
+        $questions = question_analyzer::get_used_duplicates_questions($max_questions_display);
+        
+        // Enrichir avec les stats
+        $questions_with_stats = [];
+        foreach ($questions as $q) {
+            $stats = question_analyzer::get_question_stats($q);
+            $questions_with_stats[] = $stats;
+        }
+        
+        // Message d'information spécifique
+        echo html_writer::start_tag('div', ['class' => 'alert alert-success', 'style' => 'margin: 20px 0; border-left: 4px solid #28a745;']);
+        echo html_writer::tag('h3', '📋 Mode Doublons Utilisés Activé', ['style' => 'margin-top: 0; color: #28a745;']);
+        echo html_writer::tag('p', '<strong>' . count($questions_with_stats) . ' questions</strong> en doublon avec au moins 1 version utilisée ont été chargées.');
+        echo html_writer::tag('p', '✅ Ce mode affiche uniquement les groupes de doublons qui sont actuellement utilisés dans des quiz ou ont des tentatives.');
+        echo html_writer::tag('p', '<strong>💡 Conseil</strong> : Utilisez les filtres "Usage = Inutilisées" pour identifier rapidement les versions à supprimer.');
+        echo html_writer::end_tag('div');
+        
+    } else {
+        // Mode normal : charger toutes les questions
+        $limit = min($max_questions_display, $total_questions);
+        $questions_with_stats = question_analyzer::get_all_questions_with_stats($include_duplicates, $limit);
+    }
     
 } catch (Exception $e) {
     echo html_writer::start_tag('script');

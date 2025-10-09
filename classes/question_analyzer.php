@@ -584,6 +584,66 @@ class question_analyzer {
     }
 
     /**
+     * Récupère les questions qui ont des doublons avec au moins 1 version utilisée
+     * 🆕 v1.8.0 : Pour le chargement ciblé des doublons problématiques
+     * 
+     * @param int $limit Limite de questions à retourner
+     * @return array Tableau des questions avec stats
+     */
+    public static function get_used_duplicates_questions($limit = 100) {
+        global $DB;
+        
+        try {
+            // Étape 1 : Trouver les groupes de doublons
+            $sql = "SELECT q.name, q.qtype, q.questiontext, COUNT(*) as dup_count
+                    FROM {question} q
+                    GROUP BY q.name, q.qtype, q.questiontext
+                    HAVING COUNT(*) > 1
+                    LIMIT 200";
+            
+            $duplicate_groups = $DB->get_records_sql($sql);
+            
+            // Étape 2 : Pour chaque groupe, vérifier si au moins 1 version est utilisée
+            $result_questions = [];
+            
+            foreach ($duplicate_groups as $group) {
+                // Récupérer toutes les questions de ce groupe
+                $questions_in_group = $DB->get_records('question', [
+                    'name' => $group->name,
+                    'qtype' => $group->qtype,
+                    'questiontext' => $group->questiontext
+                ]);
+                
+                // Vérifier si au moins une est utilisée
+                $has_used = false;
+                foreach ($questions_in_group as $q) {
+                    $usage = self::get_question_usage($q->id);
+                    if ($usage['is_used']) {
+                        $has_used = true;
+                        break;
+                    }
+                }
+                
+                // Si au moins une est utilisée, ajouter toutes les versions du groupe
+                if ($has_used) {
+                    foreach ($questions_in_group as $q) {
+                        $result_questions[] = $q;
+                        if (count($result_questions) >= $limit) {
+                            break 2; // Sortir des deux boucles
+                        }
+                    }
+                }
+            }
+            
+            return $result_questions;
+            
+        } catch (\Exception $e) {
+            debugging('Error in get_used_duplicates_questions: ' . $e->getMessage(), DEBUG_DEVELOPER);
+            return [];
+        }
+    }
+    
+    /**
      * Trouve les doublons EXACTS d'une question (même nom, type et texte)
      * 🆕 v1.7.0 : Pour le test aléatoire
      * 
