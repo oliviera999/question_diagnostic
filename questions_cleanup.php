@@ -33,6 +33,7 @@ $PAGE->set_pagelayout('report');
 // Ajouter les CSS et JavaScript personnalisés
 $PAGE->requires->css('/local/question_diagnostic/styles/main.css');
 $PAGE->requires->js('/local/question_diagnostic/scripts/main.js', true);
+$PAGE->requires->js('/local/question_diagnostic/scripts/questions.js', true);
 
 // ======================================================================
 // Section d'en-tête Moodle standard.
@@ -481,6 +482,72 @@ echo html_writer::end_tag('div'); // fin qd-filters-row
 
 // Compteur de résultats
 echo html_writer::tag('div', '', ['id' => 'filter-stats', 'style' => 'margin-top: 10px; font-size: 14px; color: #666;']);
+
+echo html_writer::end_tag('div'); // fin qd-filters
+
+// ======================================================================
+// FILTRES ET RECHERCHE
+// ======================================================================
+
+echo html_writer::start_tag('div', ['class' => 'qd-filters', 'style' => 'margin-top: 30px;']);
+echo html_writer::tag('h4', '🔍 Filtres et recherche', ['style' => 'margin-top: 0;']);
+
+echo html_writer::start_tag('div', ['class' => 'qd-filters-row']);
+
+// Recherche par nom/ID/texte
+echo html_writer::start_tag('div', ['class' => 'qd-filter-group']);
+echo html_writer::tag('label', 'Rechercher', ['for' => 'filter-search-questions']);
+echo html_writer::empty_tag('input', [
+    'type' => 'text',
+    'id' => 'filter-search-questions',
+    'placeholder' => 'Nom, ID, cours, module, texte...',
+    'class' => 'form-control'
+]);
+echo html_writer::end_tag('div');
+
+// Filtre par type de question
+echo html_writer::start_tag('div', ['class' => 'qd-filter-group']);
+echo html_writer::tag('label', 'Type de question', ['for' => 'filter-type-questions']);
+echo html_writer::start_tag('select', ['id' => 'filter-type-questions', 'class' => 'form-control']);
+echo html_writer::tag('option', 'Tous', ['value' => 'all']);
+
+// Récupérer les types uniques
+$types_list = [];
+if (isset($globalstats->by_type)) {
+    foreach ($globalstats->by_type as $qtype => $count) {
+        $types_list[$qtype] = $qtype . ' (' . $count . ')';
+    }
+    asort($types_list);
+    foreach ($types_list as $qtype => $label) {
+        echo html_writer::tag('option', $label, ['value' => $qtype]);
+    }
+}
+echo html_writer::end_tag('select');
+echo html_writer::end_tag('div');
+
+// Filtre par usage
+echo html_writer::start_tag('div', ['class' => 'qd-filter-group']);
+echo html_writer::tag('label', 'Usage', ['for' => 'filter-usage-questions']);
+echo html_writer::start_tag('select', ['id' => 'filter-usage-questions', 'class' => 'form-control']);
+echo html_writer::tag('option', 'Toutes', ['value' => 'all']);
+echo html_writer::tag('option', 'Utilisées (dans quiz ou tentatives)', ['value' => 'used']);
+echo html_writer::tag('option', 'Inutilisées (supprimables)', ['value' => 'unused']);
+echo html_writer::end_tag('select');
+echo html_writer::end_tag('div');
+
+// Filtre par doublons
+echo html_writer::start_tag('div', ['class' => 'qd-filter-group']);
+echo html_writer::tag('label', 'Doublons', ['for' => 'filter-duplicates-questions']);
+echo html_writer::start_tag('select', ['id' => 'filter-duplicates-questions', 'class' => 'form-control']);
+echo html_writer::tag('option', 'Toutes', ['value' => 'all']);
+echo html_writer::tag('option', 'Avec doublons', ['value' => 'yes']);
+echo html_writer::tag('option', 'Sans doublons', ['value' => 'no']);
+echo html_writer::end_tag('select');
+echo html_writer::end_tag('div');
+
+echo html_writer::end_tag('div'); // fin qd-filters-row
+
+echo html_writer::tag('div', '', ['id' => 'filter-stats-questions', 'style' => 'margin-top: 10px; font-size: 14px; color: #666;']);
 
 echo html_writer::end_tag('div'); // fin qd-filters
 

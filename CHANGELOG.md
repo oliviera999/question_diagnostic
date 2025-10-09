@@ -5,6 +5,109 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.7.2] - 2025-10-08
+
+### 🆕 NOUVELLE FONCTIONNALITÉ : Tri et filtres avancés pour le tableau des questions
+
+#### Fonctionnalités Ajoutées
+
+**1. Tri par colonnes (clic sur les en-têtes)** 📊
+
+Toutes les colonnes principales sont maintenant triables :
+- **ID** : Tri numérique
+- **Nom** : Tri alphabétique
+- **Type** : Tri par type de question
+- **Catégorie** : Tri alphabétique
+- **Cours** : Tri par nom de cours
+- **Quiz** : Tri par nombre d'utilisations
+- **Tentatives** : Tri numérique
+- **Doublons** : Tri par nombre de doublons
+
+**Utilisation** : Cliquer sur l'en-tête → tri ascendant, re-cliquer → tri descendant
+
+**Indicateur visuel** : Flèche ▲ (asc) ou ▼ (desc) sur la colonne active
+
+**2. Filtres avancés** 🔍
+
+Nouvelle section de filtres avec 4 critères :
+
+**a) Recherche textuelle**
+- Recherche dans : Nom, ID, Cours, Module, Texte de la question
+- Mise à jour en temps réel (debounce 300ms)
+- Recherche insensible à la casse
+
+**b) Filtre par Type de question**
+- Tous
+- Multichoice (21 094)
+- Description (1 184)
+- Truefalse (1 057)
+- Ddimageortext (970)
+- ... etc (tous les types avec leur comptage)
+
+**c) Filtre par Usage**
+- **Toutes** : Affiche toutes les questions
+- **Utilisées** : Questions dans au moins 1 quiz ou avec des tentatives
+- **Inutilisées (supprimables)** : Questions jamais utilisées
+
+**d) Filtre par Doublons**
+- **Toutes** : Affiche toutes les questions
+- **Avec doublons** : Questions qui ont des doublons stricts
+- **Sans doublons** : Questions uniques
+
+**3. Compteur de résultats** 📈
+
+Affichage dynamique : "X question(s) affichée(s) sur Y"
+
+#### Contexte Enrichi
+
+Le contexte est maintenant affiché de manière claire :
+- **Colonne Cours** : 📚 Nom du cours (ex: "📚 Mathématiques")
+- **Colonne Module** : 📝 Nom du module (masquée par défaut, peut être affichée)
+- **Tooltip** : Informations complètes au survol
+
+#### Interface
+
+**Section de filtres** :
+```
+🔍 Filtres et recherche
+┌─────────────────┬──────────────┬────────────────┬──────────────┐
+│ Rechercher      │ Type         │ Usage          │ Doublons     │
+│ [___________]   │ [Tous ▼]     │ [Toutes ▼]     │ [Toutes ▼]   │
+└─────────────────┴──────────────┴────────────────┴──────────────┘
+50 question(s) affichée(s) sur 50
+```
+
+**Tableau avec tri** :
+```
+┌────▲─┬─────────┬────────┬──────────┬────────┬──────▼┬────────┐
+│ ID  │ Nom     │ Type   │ Catégorie│ Cours  │ Quiz  │ Actions│
+│     │         │        │          │        │       │        │
+```
+(▲ et ▼ indiquent la colonne triée)
+
+#### Technique
+
+**Nouveau fichier** : `scripts/questions.js`
+- Gestion des filtres en temps réel
+- Tri dynamique des colonnes
+- Debounce sur la recherche (300ms)
+- Compteur de résultats
+
+**Modifications** : `questions_cleanup.php`
+- Inclusion de `questions.js`
+- Section de filtres avant le tableau
+- Attributs `data-*` déjà présents (inchangé)
+- En-têtes `sortable` déjà présents (inchangé)
+
+#### Fichiers
+
+- `scripts/questions.js` : Nouveau fichier JavaScript (198 lignes)
+- `questions_cleanup.php` : Section filtres + inclusion JS
+- `version.php` : v1.7.2
+- `CHANGELOG.md` : Documentation
+
+---
+
 ## [1.7.1] - 2025-10-08
 
 ### 🔧 FIX : Erreur header state dans le test aléatoire
