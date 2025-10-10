@@ -696,64 +696,6 @@ echo html_writer::end_tag('div');
 // FILTRES ET RECHERCHE
 // ======================================================================
 
-echo html_writer::start_tag('div', ['class' => 'qd-filters']);
-echo html_writer::tag('h4', '🔍 Filtres et recherche', ['style' => 'margin-top: 0;']);
-
-echo html_writer::start_tag('div', ['class' => 'qd-filters-row']);
-
-// Recherche par nom/ID
-echo html_writer::start_tag('div', ['class' => 'qd-filter-group']);
-echo html_writer::tag('label', 'Rechercher', ['for' => 'filter-search']);
-echo html_writer::empty_tag('input', [
-    'type' => 'text',
-    'id' => 'filter-search',
-    'placeholder' => 'Nom, ID, cours, module, texte...',
-    'class' => 'form-control'
-]);
-echo html_writer::end_tag('div');
-
-// Filtre par type
-echo html_writer::start_tag('div', ['class' => 'qd-filter-group']);
-echo html_writer::tag('label', 'Type de question', ['for' => 'filter-qtype']);
-echo html_writer::start_tag('select', ['id' => 'filter-qtype', 'class' => 'form-control']);
-echo html_writer::tag('option', 'Tous', ['value' => 'all']);
-foreach ($globalstats->by_type as $qtype => $count) {
-    echo html_writer::tag('option', ucfirst($qtype) . " ($count)", ['value' => $qtype]);
-}
-echo html_writer::end_tag('select');
-echo html_writer::end_tag('div');
-
-// Filtre par statut d'usage
-echo html_writer::start_tag('div', ['class' => 'qd-filter-group']);
-echo html_writer::tag('label', 'Usage', ['for' => 'filter-usage']);
-echo html_writer::start_tag('select', ['id' => 'filter-usage', 'class' => 'form-control']);
-echo html_writer::tag('option', 'Toutes', ['value' => 'all']);
-echo html_writer::tag('option', 'Utilisées', ['value' => 'used']);
-echo html_writer::tag('option', 'Inutilisées', ['value' => 'unused']);
-echo html_writer::end_tag('select');
-echo html_writer::end_tag('div');
-
-// Filtre par doublon
-echo html_writer::start_tag('div', ['class' => 'qd-filter-group']);
-echo html_writer::tag('label', 'Doublons', ['for' => 'filter-duplicate']);
-echo html_writer::start_tag('select', ['id' => 'filter-duplicate', 'class' => 'form-control']);
-echo html_writer::tag('option', 'Toutes', ['value' => 'all']);
-echo html_writer::tag('option', 'Avec doublons', ['value' => 'duplicate']);
-echo html_writer::tag('option', 'Sans doublons', ['value' => 'no_duplicate']);
-echo html_writer::end_tag('select');
-echo html_writer::end_tag('div');
-
-echo html_writer::end_tag('div'); // fin qd-filters-row
-
-// Compteur de résultats
-echo html_writer::tag('div', '', ['id' => 'filter-stats', 'style' => 'margin-top: 10px; font-size: 14px; color: #666;']);
-
-echo html_writer::end_tag('div'); // fin qd-filters
-
-// ======================================================================
-// FILTRES ET RECHERCHE
-// ======================================================================
-
 echo html_writer::start_tag('div', ['class' => 'qd-filters', 'style' => 'margin-top: 30px;']);
 echo html_writer::tag('h4', '🔍 Filtres et recherche', ['style' => 'margin-top: 0;']);
 

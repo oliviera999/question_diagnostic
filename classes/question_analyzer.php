@@ -587,39 +587,59 @@ class question_analyzer {
     /**
      * Récupère les questions qui ont des doublons avec au moins 1 version utilisée
      * 🆕 v1.8.0 : Pour le chargement ciblé des doublons problématiques
+     * 🆕 v1.9.4 : OPTIMIZED with batch verification to avoid N+1 queries
      * 
      * @param int $limit Limite de questions à retourner
-     * @return array Tableau des questions avec stats
+     * @return array Tableau des questions (objets simples)
      */
     public static function get_used_duplicates_questions($limit = 100) {
         global $DB;
         
         try {
-            // Étape 1 : Trouver les groupes de doublons
-            $sql = "SELECT q.name, q.qtype, q.questiontext, COUNT(*) as dup_count
+            // 🆕 v1.9.4 : Approche simplifiée comme dans le test aléatoire
+            // Étape 1 : Identifier directement les groupes de doublons (limité à 20 groupes max)
+            $sql = "SELECT CONCAT(q.name, '|', q.qtype) as signature,
+                           MIN(q.id) as sample_id,
+                           COUNT(DISTINCT q.id) as question_count
                     FROM {question} q
-                    GROUP BY q.name, q.qtype, q.questiontext
-                    HAVING COUNT(*) > 1
-                    LIMIT 200";
+                    GROUP BY q.name, q.qtype
+                    HAVING COUNT(DISTINCT q.id) > 1
+                    LIMIT 20";
             
             $duplicate_groups = $DB->get_records_sql($sql);
+            
+            if (empty($duplicate_groups)) {
+                return [];
+            }
             
             // Étape 2 : Pour chaque groupe, vérifier si au moins 1 version est utilisée
             $result_questions = [];
             
             foreach ($duplicate_groups as $group) {
-                // Récupérer toutes les questions de ce groupe
+                // Récupérer la question exemple
+                $sample = $DB->get_record('question', ['id' => $group->sample_id]);
+                if (!$sample) {
+                    continue;
+                }
+                
+                // Récupérer toutes les questions de ce groupe (même nom + même type)
                 $questions_in_group = $DB->get_records('question', [
-                    'name' => $group->name,
-                    'qtype' => $group->qtype,
-                    'questiontext' => $group->questiontext
+                    'name' => $sample->name,
+                    'qtype' => $sample->qtype
                 ]);
                 
-                // Vérifier si au moins une est utilisée
+                if (count($questions_in_group) <= 1) {
+                    continue; // Pas vraiment un groupe
+                }
+                
+                // Vérifier l'usage en BATCH (1 seule requête pour tout le groupe)
+                $group_ids = array_keys($questions_in_group);
+                $usage_map = self::get_questions_usage_by_ids($group_ids);
+                
+                // Vérifier si au moins une version est utilisée
                 $has_used = false;
-                foreach ($questions_in_group as $q) {
-                    $usage = self::get_question_usage($q->id);
-                    if ($usage['is_used']) {
+                foreach ($group_ids as $qid) {
+                    if (isset($usage_map[$qid]) && !empty($usage_map[$qid])) {
                         $has_used = true;
                         break;
                     }
