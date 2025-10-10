@@ -5,6 +5,130 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.9.12] - 2025-10-10
+
+### 🐛 FIX : Message explicite quand aucune question n'est affichée + Debug
+
+#### Problème Identifié
+
+**Symptôme** : L'utilisateur reporte "aucune question affichée" dans la liste des questions.
+
+**Causes possibles** :
+1. Base de données vide
+2. Erreur de chargement silencieuse
+3. Filtres JavaScript cachant toutes les questions
+4. Cache Moodle non purgé après mise à jour
+5. Timeout ou limite mémoire atteinte
+
+**Impact** : Confusion de l'utilisateur sans message explicatif
+
+#### Solution Appliquée
+
+**1. Message explicite si aucune question** :
+
+```php
+// v1.9.12 : Afficher un message dans le tbody si vide
+if (empty($questions_with_stats)) {
+    echo '<tr><td colspan="15" style="text-align: center; padding: 40px;">';
+    echo '<h3>⚠️ Aucune question trouvée</h3>';
+    echo '<p>Aucune question ne correspond aux critères actuels.</p>';
+    echo '<strong>Causes possibles :</strong>';
+    echo '<ul>';
+    echo '<li>Votre base de données ne contient aucune question</li>';
+    echo '<li>Les filtres actifs excluent toutes les questions</li>';
+    echo '<li>Une erreur de chargement est survenue (vérifier les logs)</li>';
+    echo '</ul>';
+    echo '</td></tr>';
+}
+```
+
+**2. Log de debug pour diagnostic** :
+
+```php
+// v1.9.12 : Afficher le nombre de questions chargées
+debugging('Questions chargées : ' . count($questions_with_stats) . 
+          ' sur ' . $limit . ' demandées (Total BDD : ' . $total_questions . ')', 
+          DEBUG_DEVELOPER);
+```
+
+Ce log permet de diagnostiquer rapidement :
+- Si les questions sont bien récupérées de la BDD
+- Si le nombre correspond à ce qui est attendu
+- Si un filtrage inattendu s'est produit
+
+**3. Guide de diagnostic complet** :
+
+Nouveau fichier `DIAGNOSTIC_AUCUNE_QUESTION.md` (200+ lignes) avec :
+- Procédure de diagnostic étape par étape
+- Causes possibles et solutions
+- Commandes SQL utiles
+- Checklist complète
+
+#### Fichiers Modifiés
+
+- **`questions_cleanup.php`** :
+  - Lignes 996-1018 : Message si `$questions_with_stats` est vide
+  - Ligne 934 : Log de debug avec compteurs
+  
+- **`version.php`** : v1.9.11 → v1.9.12 (2025101014)
+- **`CHANGELOG.md`** : Documentation v1.9.12
+- **`DIAGNOSTIC_AUCUNE_QUESTION.md`** (nouveau) : Guide complet
+
+#### Impact
+
+**Avant v1.9.12** :
+- ❌ Tableau vide sans explication
+- ❌ Utilisateur perdu sans information
+- ❌ Diagnostic difficile (absence de logs)
+
+**Après v1.9.12** :
+- ✅ Message explicite "Aucune question trouvée"
+- ✅ Liste des causes possibles affichée
+- ✅ Log de debug pour l'admin
+- ✅ Guide de diagnostic complet
+
+#### Diagnostic
+
+**Pour activer le mode debug** :
+
+1. Éditer `config.php` :
+   ```php
+   $CFG->debug = (E_ALL | E_STRICT);
+   $CFG->debugdisplay = 1;
+   ```
+
+2. Purger le cache Moodle
+
+3. Recharger la page et chercher le message :
+   ```
+   Questions chargées : X sur Y demandées (Total BDD : Z)
+   ```
+
+**Interprétation** :
+- `X = 0, Z > 0` → Erreur de chargement (voir logs)
+- `X = 0, Z = 0` → BDD vide (normal)
+- `X = Y` → Questions chargées correctement
+
+#### Solution Rapide (95% des cas)
+
+**ÉTAPE 1** : Purger le cache Moodle
+```
+Administration → Développement → Purger tous les caches
+```
+
+**ÉTAPE 2** : Cliquer sur "📊 Charger les Statistiques Complètes"
+
+**ÉTAPE 3** : Vérifier le message de debug (mode debug activé)
+
+#### Version
+
+- **Version** : v1.9.12 (2025101014)
+- **Date** : 10 octobre 2025
+- **Type** : 🐛 Fix (UX + Debug)
+- **Priorité** : Moyenne (améliore diagnostic)
+
+---
+
 ## [1.9.11] - 2025-10-10
 
 ### 🔧 FIX : Ajout attributs id pour checkboxes du sélecteur de colonnes

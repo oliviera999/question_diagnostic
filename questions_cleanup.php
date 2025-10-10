@@ -930,6 +930,9 @@ try {
         $questions_with_stats = question_analyzer::get_all_questions_with_stats($include_duplicates, $limit);
     }
     
+    // 🔍 v1.9.12 DEBUG : Afficher le nombre de questions chargées
+    debugging('Questions chargées : ' . count($questions_with_stats) . ' sur ' . $limit . ' demandées (Total BDD : ' . $total_questions . ')', DEBUG_DEVELOPER);
+    
 } catch (Exception $e) {
     echo html_writer::start_tag('script');
     echo "
@@ -993,11 +996,29 @@ echo html_writer::end_tag('thead');
 // Corps du tableau
 echo html_writer::start_tag('tbody');
 
-// 🆕 v1.9.0 : VÉRIFICATION BATCH pour les boutons de suppression (performance optimisée)
-// Extraire tous les IDs de questions
-$question_ids = array_map(function($item) { return $item->question->id; }, $questions_with_stats);
-// Vérifier en une seule fois si elles peuvent être supprimées
-$deletability_map = question_analyzer::can_delete_questions_batch($question_ids);
+// 🆕 v1.9.12 : VÉRIFIER SI DES QUESTIONS SONT DISPONIBLES
+if (empty($questions_with_stats)) {
+    // Afficher un message si aucune question n'est trouvée
+    $colspan = 15; // Nombre de colonnes dans le tableau
+    echo html_writer::start_tag('tr');
+    echo html_writer::start_tag('td', ['colspan' => $colspan, 'style' => 'text-align: center; padding: 40px;']);
+    echo html_writer::tag('h3', '⚠️ Aucune question trouvée', ['style' => 'color: #f0ad4e; margin-bottom: 15px;']);
+    echo html_writer::tag('p', 'Aucune question ne correspond aux critères actuels.');
+    echo html_writer::tag('p', '<strong>Causes possibles :</strong>');
+    echo html_writer::start_tag('ul', ['style' => 'text-align: left; display: inline-block; margin-top: 10px;']);
+    echo html_writer::tag('li', 'Votre base de données ne contient aucune question');
+    echo html_writer::tag('li', 'Les filtres actifs excluent toutes les questions');
+    echo html_writer::tag('li', 'Une erreur de chargement est survenue (vérifier les logs)');
+    echo html_writer::end_tag('ul');
+    echo html_writer::end_tag('td');
+    echo html_writer::end_tag('tr');
+} else {
+    // 🆕 v1.9.0 : VÉRIFICATION BATCH pour les boutons de suppression (performance optimisée)
+    // Extraire tous les IDs de questions
+    $question_ids = array_map(function($item) { return $item->question->id; }, $questions_with_stats);
+    // Vérifier en une seule fois si elles peuvent être supprimées
+    $deletability_map = question_analyzer::can_delete_questions_batch($question_ids);
+}
 
 foreach ($questions_with_stats as $item) {
     $q = $item->question;
