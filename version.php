@@ -9,8 +9,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'local_question_diagnostic';
-$plugin->version = 2025101002;  // YYYYMMDDXX format (v1.9.0 - NEW: Batch delete verification with optimized performance)
+$plugin->version = 2025101003;  // YYYYMMDDXX format (v1.9.1 - HOTFIX: Random test used duplicates optimization)
 $plugin->requires = 2023100900; // Moodle 4.0+
 $plugin->maturity = MATURITY_STABLE;
-$plugin->release = 'v1.9.0';
+$plugin->release = 'v1.9.1';
 

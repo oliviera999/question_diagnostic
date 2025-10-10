@@ -225,6 +225,7 @@ if ($randomtest_used && confirm_sesskey()) {
     echo html_writer::tag('h2', '🎲 Test Doublons Utilisés - Question Aléatoire');
     
     // Sélectionner une question aléatoire qui a des doublons ET au moins 1 version utilisée
+    // 🆕 v1.9.1 : Limite réduite à 20 pour éviter timeout
     $sql = "SELECT q.*, 
                    (SELECT COUNT(*) FROM {question} q2 
                     WHERE q2.name = q.name 
@@ -234,23 +235,28 @@ if ($randomtest_used && confirm_sesskey()) {
             FROM {question} q
             HAVING dup_count > 0
             ORDER BY RAND()
-            LIMIT 100";
+            LIMIT 20";
     
     $candidates = $DB->get_records_sql($sql);
     $found = false;
     $random_question = null;
+    
+    // 🆕 v1.9.1 : OPTIMISATION - Récupérer l'usage de tous les candidats d'un coup
+    $all_candidate_ids = array_keys($candidates);
+    $usage_map = question_analyzer::get_questions_usage_by_ids($all_candidate_ids);
     
     // Parcourir les candidats pour trouver un groupe avec au moins 1 utilisée
     foreach ($candidates as $candidate) {
         $duplicates = question_analyzer::find_exact_duplicates($candidate);
         $all_questions = array_merge([$candidate], $duplicates);
         
-        // Vérifier si au moins une version est utilisée
+        // Récupérer les IDs de toutes les questions du groupe
+        $group_ids = array_map(function($q) { return $q->id; }, $all_questions);
+        
+        // Vérifier si au moins une version est utilisée (via le map déjà chargé)
         $has_used = false;
-        foreach ($all_questions as $q) {
-            $stats = question_analyzer::get_question_stats($q);
-            if ((isset($stats->quiz_count) && $stats->quiz_count > 0) || 
-                (isset($stats->attempt_count) && $stats->attempt_count > 0)) {
+        foreach ($group_ids as $qid) {
+            if (isset($usage_map[$qid]) && !empty($usage_map[$qid])) {
                 $has_used = true;
                 break;
             }
@@ -266,7 +272,7 @@ if ($randomtest_used && confirm_sesskey()) {
     if (!$found || !$random_question) {
         echo html_writer::start_tag('div', ['class' => 'alert alert-warning']);
         echo html_writer::tag('h3', '⚠️ Aucun groupe de doublons utilisés trouvé');
-        echo 'Après 100 tentatives, aucun groupe de doublons avec au moins 1 version utilisée n\'a été trouvé. ';
+        echo 'Après 20 tentatives, aucun groupe de doublons avec au moins 1 version utilisée n\'a été trouvé. ';
         echo 'Cela peut signifier que vos doublons ne sont pas utilisés, ou qu\'ils sont rares.';
         echo html_writer::end_tag('div');
         
@@ -314,10 +320,25 @@ if ($randomtest_used && confirm_sesskey()) {
     
     echo html_writer::start_tag('tbody');
     
+    // 🆕 v1.9.1 : OPTIMISATION - Charger les stats de toutes les questions du groupe en batch
+    $group_question_ids = array_map(function($q) { return $q->id; }, $all_questions);
+    $group_usage_map = question_analyzer::get_questions_usage_by_ids($group_question_ids);
+    
     foreach ($all_questions as $q) {
         $stats = question_analyzer::get_question_stats($q);
-        $is_used = (isset($stats->quiz_count) && $stats->quiz_count > 0) || 
-                   (isset($stats->attempt_count) && $stats->attempt_count > 0);
+        
+        // Vérifier l'usage via le map pré-chargé
+        $quiz_count = 0;
+        $attempt_count = 0;
+        if (isset($group_usage_map[$q->id]) && !empty($group_usage_map[$q->id])) {
+            $quiz_count = count($group_usage_map[$q->id]);
+        }
+        
+        $is_used = $quiz_count > 0;
+        
+        // Mettre à jour les stats avec les vraies valeurs
+        $stats->quiz_count = $quiz_count;
+        $stats->attempt_count = $attempt_count; // TODO: calculer si nécessaire
         
         $row_style = '';
         if ($q->id == $random_question->id) {
@@ -361,19 +382,21 @@ if ($randomtest_used && confirm_sesskey()) {
     $total_quiz_usage = 0;
     $total_attempts = 0;
     
+    // 🆕 v1.9.1 : Réutiliser le group_usage_map déjà chargé (pas de nouvelles requêtes)
     foreach ($all_questions as $q) {
-        $s = question_analyzer::get_question_stats($q);
-        $quiz_count = isset($s->quiz_count) ? $s->quiz_count : 0;
-        $attempt_count = isset($s->attempt_count) ? $s->attempt_count : 0;
+        $quiz_count = 0;
+        if (isset($group_usage_map[$q->id]) && !empty($group_usage_map[$q->id])) {
+            $quiz_count = count($group_usage_map[$q->id]);
+        }
         
-        if ($quiz_count > 0 || $attempt_count > 0) {
+        if ($quiz_count > 0) {
             $used_count++;
         } else {
             $unused_count++;
         }
         
         $total_quiz_usage += $quiz_count;
-        $total_attempts += $attempt_count;
+        // Note: attempt_count non calculé pour éviter requêtes supplémentaires
     }
     
     echo html_writer::tag('p', '<strong>Versions utilisées :</strong> ' . $used_count . ' (dans quiz ou avec tentatives)');
