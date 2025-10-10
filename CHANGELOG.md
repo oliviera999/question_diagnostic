@@ -5,6 +5,61 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.9.24] - 2025-10-10
+
+### 🎯 AMÉLIORATION : Ajout colonne "Contexte" dans tableau Détails
+
+#### Demande Utilisateur
+
+Ajouter une colonne "Contexte" dans le tableau de détails de toutes les versions (page Test Doublons Utilisés).
+
+#### Modification Appliquée
+
+**Fichier** : `questions_cleanup.php`
+
+**Ajout colonne "Contexte"** entre "Catégorie" et "Cours" :
+
+```
+| ID | Nom | Type | Catégorie | Contexte | Cours | Dans Quiz | ...
+```
+
+**Données affichées** :
+- Contexte système
+- Contexte cours
+- Contexte module
+- Format : Texte court (font-size: 12px)
+
+**Exemple** :
+```
+Catégorie : "Reproductions"
+Contexte  : "Cours: Biologie"
+Cours     : "📚 Biologie Niveau 2"
+```
+
+#### Fichiers Modifiés
+
+- **`questions_cleanup.php`** :
+  - Ligne 435 : Ajout `<th>Contexte</th>` dans en-tête
+  - Ligne 499 : Ajout `<td>contexte</td>` dans boucle
+  
+- **`version.php`** : v1.9.23 → v1.9.24
+- **`CHANGELOG.md`** : Documentation
+
+#### Impact
+
+- ✅ Meilleure visibilité de l'origine des questions
+- ✅ Aide à identifier doublons entre contextes différents
+- ✅ Information supplémentaire pour prise de décision
+
+#### Version
+
+- **Version** : v1.9.24 (2025101026)
+- **Date** : 10 octobre 2025
+- **Type** : 🎯 Amélioration (UX)
+- **Priorité** : Basse (amélioration visuelle)
+
+---
+
 ## [1.9.23] - 2025-10-10
 
 ### 🎯 FEATURE : Suppression en Masse + FIX Détection Doublons

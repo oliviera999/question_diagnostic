@@ -431,6 +431,7 @@ if ($randomtest_used && confirm_sesskey()) {
     echo html_writer::tag('th', 'Nom');
     echo html_writer::tag('th', 'Type');
     echo html_writer::tag('th', 'Catégorie');
+    echo html_writer::tag('th', 'Contexte');
     echo html_writer::tag('th', 'Cours');
     echo html_writer::tag('th', '📊 Dans Quiz', ['title' => 'Nombre de quiz utilisant cette question']);
     echo html_writer::tag('th', '🔢 Utilisations', ['title' => 'Nombre total d\'utilisations (dans différents quiz)']);
@@ -493,6 +494,7 @@ if ($randomtest_used && confirm_sesskey()) {
         echo html_writer::tag('td', format_string($q->name));
         echo html_writer::tag('td', $q->qtype);
         echo html_writer::tag('td', isset($stats->category_name) ? $stats->category_name : 'N/A');
+        echo html_writer::tag('td', isset($stats->context_name) ? $stats->context_name : '-', ['style' => 'font-size: 12px;']);
         echo html_writer::tag('td', isset($stats->course_name) ? '📚 ' . $stats->course_name : '-');
         
         // Colonne "Dans Quiz" - Nombre de quiz différents
