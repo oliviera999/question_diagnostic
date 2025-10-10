@@ -240,7 +240,7 @@ if ($randomtest_used && confirm_sesskey()) {
     // 4. Sinon → Chercher une autre question utilisée
     
     // Étape 1 : Récupérer TOUTES les questions utilisées (UNIQUEMENT dans les quiz)
-    // 🔧 v1.9.18 SIMPLIFICATION : Basé UNIQUEMENT sur présence dans quiz (pas tentatives)
+    // 🔧 v1.9.19 FIX : Utiliser l'approche éprouvée de question_analyzer (INNER JOIN au lieu de EXISTS)
     $used_question_ids = [];
     
     try {
@@ -249,29 +249,20 @@ if ($randomtest_used && confirm_sesskey()) {
         
         if (isset($columns['questionbankentryid'])) {
             // Moodle 4.1+ : utilise questionbankentryid
-            $sql_used = "SELECT DISTINCT q.id
-                         FROM {question} q
-                         WHERE EXISTS (
-                             SELECT 1 FROM {question_bank_entries} qbe
-                             INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
-                             INNER JOIN {quiz_slots} qs ON qs.questionbankentryid = qbe.id
-                             WHERE qv.questionid = q.id
-                         )";
+            // Approche directe avec INNER JOIN (comme question_analyzer::get_question_usage)
+            $sql_used = "SELECT DISTINCT qv.questionid
+                         FROM {quiz_slots} qs
+                         INNER JOIN {question_bank_entries} qbe ON qbe.id = qs.questionbankentryid
+                         INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id";
+            $used_question_ids = $DB->get_fieldset_sql($sql_used);
         } else if (isset($columns['questionid'])) {
             // Moodle 3.x/4.0 : utilise questionid directement
-            $sql_used = "SELECT DISTINCT q.id
-                         FROM {question} q
-                         WHERE EXISTS (
-                             SELECT 1 FROM {quiz_slots} qs
-                             WHERE qs.questionid = q.id
-                         )";
+            $sql_used = "SELECT DISTINCT qs.questionid
+                         FROM {quiz_slots} qs";
+            $used_question_ids = $DB->get_fieldset_sql($sql_used);
         } else {
             // Aucune colonne reconnue - impossible de déterminer l'usage
-            $sql_used = null;
-        }
-        
-        if ($sql_used) {
-            $used_question_ids = $DB->get_fieldset_sql($sql_used);
+            $used_question_ids = [];
         }
     } catch (\Exception $e) {
         debugging('Erreur récupération questions utilisées : ' . $e->getMessage(), DEBUG_DEVELOPER);
