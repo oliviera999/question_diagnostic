@@ -1299,6 +1299,223 @@ class question_analyzer {
     }
 
     /**
+     * Vérifie si PLUSIEURS questions peuvent être supprimées (VERSION BATCH OPTIMISÉE)
+     * 🆕 v1.9.0 : Version batch pour éviter N+1 queries
+     * 
+     * @param array $questionids Tableau d'IDs de questions
+     * @return array Map [question_id => {can_delete, reason, details}]
+     */
+    public static function can_delete_questions_batch($questionids) {
+        global $DB;
+        
+        if (empty($questionids)) {
+            return [];
+        }
+        
+        $results = [];
+        
+        try {
+            // Initialiser tous les résultats
+            foreach ($questionids as $qid) {
+                $results[$qid] = (object)[
+                    'can_delete' => false,
+                    'reason' => '',
+                    'details' => []
+                ];
+            }
+            
+            // ÉTAPE 1 : Récupérer toutes les questions d'un coup
+            list($insql, $params) = $DB->get_in_or_equal($questionids);
+            $questions = $DB->get_records_select('question', "id $insql", $params, '', 'id, name, qtype, questiontext');
+            
+            // ÉTAPE 2 : Vérifier l'usage de TOUTES les questions en une seule requête
+            $usage_map = self::get_questions_usage_by_ids($questionids);
+            
+            // ÉTAPE 3 : Trouver les doublons pour chaque question (groupé par signature)
+            // Créer un map de signatures → liste de questions
+            $signature_map = [];
+            foreach ($questions as $q) {
+                $signature = md5($q->name . '|' . $q->qtype . '|' . $q->questiontext);
+                if (!isset($signature_map[$signature])) {
+                    $signature_map[$signature] = [];
+                }
+                $signature_map[$signature][] = $q->id;
+            }
+            
+            // ÉTAPE 4 : Analyser chaque question
+            foreach ($questions as $q) {
+                $qid = $q->id;
+                
+                // Vérification 1 : Question utilisée ?
+                if (isset($usage_map[$qid])) {
+                    $usage = $usage_map[$qid];
+                    if (!empty($usage)) {
+                        $quiz_count = 0;
+                        foreach ($usage as $u) {
+                            $quiz_count++;
+                        }
+                        
+                        if ($quiz_count > 0) {
+                            $results[$qid]->reason = 'Question utilisée dans ' . $quiz_count . ' quiz';
+                            $results[$qid]->details['quiz_count'] = $quiz_count;
+                            continue;
+                        }
+                    }
+                }
+                
+                // Vérification 2 : Question a des doublons ?
+                $signature = md5($q->name . '|' . $q->qtype . '|' . $q->questiontext);
+                $duplicate_ids = $signature_map[$signature];
+                
+                // Enlever la question elle-même
+                $duplicate_ids = array_filter($duplicate_ids, function($id) use ($qid) {
+                    return $id != $qid;
+                });
+                
+                if (count($duplicate_ids) == 0) {
+                    $results[$qid]->reason = 'Question unique (pas de doublon)';
+                    $results[$qid]->details['is_unique'] = true;
+                    continue;
+                }
+                
+                // Si on arrive ici : question inutilisée ET en doublon → SUPPRIMABLE
+                $results[$qid]->can_delete = true;
+                $results[$qid]->reason = 'Doublon inutilisé';
+                $results[$qid]->details['duplicate_count'] = count($duplicate_ids);
+                $results[$qid]->details['duplicate_ids'] = array_values($duplicate_ids);
+            }
+            
+        } catch (\Exception $e) {
+            debugging('Error in can_delete_questions_batch: ' . $e->getMessage(), DEBUG_DEVELOPER);
+            // En cas d'erreur, marquer toutes comme non supprimables
+            foreach ($questionids as $qid) {
+                if (!isset($results[$qid])) {
+                    $results[$qid] = (object)[
+                        'can_delete' => false,
+                        'reason' => 'Erreur de vérification',
+                        'details' => []
+                    ];
+                }
+            }
+        }
+        
+        return $results;
+    }
+    
+    /**
+     * Vérifie si une question peut être supprimée en toute sécurité
+     * 🚨 DEPRECATED : Utiliser can_delete_questions_batch() pour de meilleures performances
+     * 
+     * Règles de protection :
+     * 1. Question utilisée dans un quiz → NON SUPPRIMABLE
+     * 2. Question avec tentatives → NON SUPPRIMABLE
+     * 3. Question unique (pas de doublon) → NON SUPPRIMABLE
+     * 4. Question en doublon ET inutilisée → SUPPRIMABLE
+     *
+     * @param int $questionid ID de la question
+     * @return object Objet avec can_delete (bool), reason (string), details (array)
+     */
+    public static function can_delete_question($questionid) {
+        global $DB;
+        
+        $result = new \stdClass();
+        $result->can_delete = false;
+        $result->reason = '';
+        $result->details = [];
+        
+        try {
+            // Récupérer la question
+            $question = $DB->get_record('question', ['id' => $questionid]);
+            if (!$question) {
+                $result->reason = 'Question introuvable';
+                return $result;
+            }
+            
+            // Vérification 1 : La question est-elle utilisée ?
+            $usage = self::get_question_usage($questionid);
+            
+            if ($usage['is_used']) {
+                $result->reason = 'Question utilisée';
+                $result->details['quiz_count'] = $usage['quiz_count'];
+                $result->details['attempt_count'] = $usage['attempt_count'];
+                $result->details['quiz_list'] = $usage['quiz_list'];
+                return $result;
+            }
+            
+            // Vérification 2 : La question a-t-elle des doublons ?
+            $duplicates = self::find_exact_duplicates($question);
+            
+            if (count($duplicates) == 0) {
+                $result->reason = 'Question unique (pas de doublon)';
+                $result->details['is_unique'] = true;
+                return $result;
+            }
+            
+            // Si on arrive ici : question inutilisée ET en doublon → SUPPRIMABLE
+            $result->can_delete = true;
+            $result->reason = 'Question supprimable (doublon inutilisé)';
+            $result->details['duplicate_count'] = count($duplicates);
+            $result->details['duplicate_ids'] = array_map(function($q) { return $q->id; }, $duplicates);
+            
+        } catch (\Exception $e) {
+            $result->reason = 'Erreur lors de la vérification : ' . $e->getMessage();
+        }
+        
+        return $result;
+    }
+    
+    /**
+     * Supprime une question en toute sécurité (avec vérifications)
+     * Utilise l'API Moodle pour supprimer proprement
+     *
+     * @param int $questionid ID de la question
+     * @return bool|string True si succès, message d'erreur sinon
+     */
+    public static function delete_question_safe($questionid) {
+        global $DB, $CFG;
+        
+        require_once($CFG->dirroot . '/question/editlib.php');
+        
+        // Vérifier si la suppression est autorisée
+        $check = self::can_delete_question($questionid);
+        
+        if (!$check->can_delete) {
+            return 'Suppression interdite : ' . $check->reason;
+        }
+        
+        try {
+            // Récupérer la question et sa catégorie
+            $question = $DB->get_record('question', ['id' => $questionid], '*', MUST_EXIST);
+            
+            // Récupérer la catégorie via question_bank_entries (Moodle 4.x)
+            $category_sql = "SELECT qc.* 
+                            FROM {question_categories} qc
+                            INNER JOIN {question_bank_entries} qbe ON qbe.questioncategoryid = qc.id
+                            INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+                            WHERE qv.questionid = :questionid
+                            LIMIT 1";
+            $category = $DB->get_record_sql($category_sql, ['questionid' => $questionid]);
+            
+            if (!$category) {
+                return 'Catégorie de la question introuvable';
+            }
+            
+            // Utiliser l'API Moodle pour supprimer proprement la question
+            // Cela gère automatiquement :
+            // - Les entrées dans question_bank_entries
+            // - Les versions dans question_versions
+            // - Les fichiers associés
+            // - Les données spécifiques au type de question
+            question_delete_question($questionid);
+            
+            return true;
+            
+        } catch (\Exception $e) {
+            return 'Erreur lors de la suppression : ' . $e->getMessage();
+        }
+    }
+
+    /**
      * Exporte les questions au format CSV
      *
      * @param array $questions Tableau de questions avec stats

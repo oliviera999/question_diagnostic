@@ -209,3 +209,22 @@ $string['test_page_heading'] = 'Page de test';
 $string['test_page_desc'] = 'Page de test pour effectuer des vérifications et des tests de fonctionnalités.';
 $string['test_content'] = 'Test';
 
+// 🆕 v1.9.0 : Suppression sécurisée de questions
+$string['delete_question_forbidden'] = 'Suppression interdite';
+$string['cannot_delete_question'] = 'Cette question ne peut pas être supprimée';
+$string['reason'] = 'Raison';
+$string['protection_rules'] = 'Règles de Protection';
+$string['protection_rules_desc'] = 'Pour garantir la sécurité de vos données pédagogiques, ce plugin applique des règles strictes :';
+$string['rule_used_protected'] = 'Les questions utilisées dans des quiz ou ayant des tentatives sont PROTÉGÉES';
+$string['rule_unique_protected'] = 'Les questions uniques (sans doublon) sont PROTÉGÉES';
+$string['rule_duplicate_deletable'] = 'Seules les questions en doublon ET inutilisées peuvent être supprimées';
+$string['backtoquestions'] = 'Retour à la liste des questions';
+$string['confirm_delete_question'] = 'Confirmer la suppression';
+$string['question_to_delete'] = 'Question à supprimer';
+$string['duplicate_info'] = 'Informations sur les doublons';
+$string['action_irreversible'] = 'Cette action est IRRÉVERSIBLE !';
+$string['confirm_delete_message'] = 'Êtes-vous absolument certain de vouloir supprimer cette question ? Les autres versions (doublons) seront conservées.';
+$string['confirm_delete'] = 'Oui, supprimer définitivement';
+$string['question_deleted_success'] = 'Question supprimée avec succès';
+$string['question_protected'] = 'Question protégée';
+

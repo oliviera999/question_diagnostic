@@ -910,6 +910,12 @@ echo html_writer::end_tag('thead');
 // Corps du tableau
 echo html_writer::start_tag('tbody');
 
+// 🆕 v1.9.0 : VÉRIFICATION BATCH pour les boutons de suppression (performance optimisée)
+// Extraire tous les IDs de questions
+$question_ids = array_map(function($item) { return $item->question->id; }, $questions_with_stats);
+// Vérifier en une seule fois si elles peuvent être supprimées
+$deletability_map = question_analyzer::can_delete_questions_batch($question_ids);
+
 foreach ($questions_with_stats as $item) {
     $q = $item->question;
     $s = $item->stats;
@@ -1089,34 +1095,31 @@ foreach ($questions_with_stats as $item) {
         );
       }
      
-     // 🚫 DÉSACTIVÉ TEMPORAIREMENT : Trop de requêtes SQL (cause timeout)
-     // TODO v1.9.1 : Implémenter vérification batch ou page détail séparée
-     /*
-     // 🆕 Bouton supprimer (UNIQUEMENT si la question peut être supprimée)
-     $can_delete_check = question_analyzer::can_delete_question($q->id);
-     if ($can_delete_check->can_delete) {
+     // 🆕 v1.9.0 : Bouton supprimer (OPTIMISÉ avec vérification batch)
+     $can_delete_check = isset($deletability_map[$q->id]) ? $deletability_map[$q->id] : null;
+     if ($can_delete_check && $can_delete_check->can_delete) {
          $delete_url = new moodle_url('/local/question_diagnostic/actions/delete_question.php', [
              'id' => $q->id,
              'sesskey' => sesskey()
          ]);
          echo html_writer::link(
              $delete_url,
-             '🗑️ Supprimer',
+             '🗑️',
              [
                  'class' => 'qd-btn qd-btn-delete',
                  'title' => 'Supprimer ce doublon inutilisé',
-                 'style' => 'background: #d9534f; color: white; margin-left: 5px;'
+                 'style' => 'background: #d9534f; color: white; padding: 5px 10px; border-radius: 3px; margin-left: 5px; text-decoration: none;'
              ]
          );
      } else {
          // Bouton désactivé avec tooltip expliquant pourquoi
-         echo html_writer::tag('span', '🔒 Protégée', [
+         $reason = $can_delete_check ? $can_delete_check->reason : 'Vérification impossible';
+         echo html_writer::tag('span', '🔒', [
              'class' => 'qd-btn qd-btn-disabled',
-             'title' => 'Protection active : ' . $can_delete_check->reason,
-             'style' => 'background: #ccc; color: #666; cursor: not-allowed; margin-left: 5px;'
+             'title' => 'Protection : ' . $reason,
+             'style' => 'background: #e0e0e0; color: #999; padding: 5px 10px; border-radius: 3px; cursor: not-allowed; margin-left: 5px; display: inline-block;'
          ]);
      }
-     */
      
      echo html_writer::end_tag('div');
     echo html_writer::end_tag('td');

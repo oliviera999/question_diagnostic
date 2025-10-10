@@ -209,3 +209,22 @@ $string['test_page_heading'] = 'Test page';
 $string['test_page_desc'] = 'Test page to perform checks and test functionalities.';
 $string['test_content'] = 'Test';
 
+// 🆕 v1.9.0 : Safe question deletion
+$string['delete_question_forbidden'] = 'Deletion Forbidden';
+$string['cannot_delete_question'] = 'This question cannot be deleted';
+$string['reason'] = 'Reason';
+$string['protection_rules'] = 'Protection Rules';
+$string['protection_rules_desc'] = 'To ensure the safety of your educational data, this plugin applies strict rules:';
+$string['rule_used_protected'] = 'Questions used in quizzes or with attempts are PROTECTED';
+$string['rule_unique_protected'] = 'Unique questions (without duplicates) are PROTECTED';
+$string['rule_duplicate_deletable'] = 'Only duplicate AND unused questions can be deleted';
+$string['backtoquestions'] = 'Back to questions list';
+$string['confirm_delete_question'] = 'Confirm Deletion';
+$string['question_to_delete'] = 'Question to Delete';
+$string['duplicate_info'] = 'Duplicate Information';
+$string['action_irreversible'] = 'This action is IRREVERSIBLE!';
+$string['confirm_delete_message'] = 'Are you absolutely sure you want to delete this question? Other versions (duplicates) will be kept.';
+$string['confirm_delete'] = 'Yes, delete permanently';
+$string['question_deleted_success'] = 'Question successfully deleted';
+$string['question_protected'] = 'Protected question';
+

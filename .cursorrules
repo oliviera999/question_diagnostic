@@ -16,6 +16,7 @@ Ce projet est un **plugin Moodle** (local plugin) pour le diagnostic et la gesti
 2. **Consulter la documentation officielle** Moodle 4.5 et la documentation pour les développeurs
 3. **Vérifier les noms de colonnes, types et contraintes**
 4. **Ne JAMAIS supposer qu'une colonne existe sans vérification**
+5. consulter les forums d'experts dev moodle
 
 Les structures peuvent changer entre versions de Moodle. Une requête qui fonctionne sur Moodle 4.3 peut échouer sur 4.5.
 
