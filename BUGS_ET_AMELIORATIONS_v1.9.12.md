@@ -56,16 +56,11 @@ if ($total_count > 0) {
 
 **Option 2 : SQL Multi-SGBD**
 
-```php
-// Utiliser $DB->sql_random() de Moodle
-$sql = "SELECT * FROM {question} ORDER BY " . $DB->sql_random() . " LIMIT 1";
-$random_question = $DB->get_record_sql($sql);
-```
+⚠️ **MISE À JOUR v1.9.14** : `$DB->sql_random()` **N'EXISTE PAS** dans Moodle !
 
-**Note** : `$DB->sql_random()` retourne la fonction appropriée selon le SGBD :
-- MySQL: `RAND()`
-- PostgreSQL: `RANDOM()`
-- MSSQL: `NEWID()`
+Cette option était incorrecte. J'ai cru à tort que cette méthode existait.
+
+**Solution réellement appliquée** : Voir Option 1 (randomisation PHP)
 
 ---
 
