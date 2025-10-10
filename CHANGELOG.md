@@ -5,6 +5,75 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.9.3] - 2025-10-10
+
+### 🐛 HOTFIX : Correction Visibilité de Méthode
+
+#### Problème
+
+**Symptôme** : Exception lors du clic sur "🎲 Test Doublons Utilisés"
+```
+Exception : Call to private method local_question_diagnostic\question_analyzer::get_questions_usage_by_ids() 
+from global scope
+```
+
+**Cause** :
+- La méthode `get_questions_usage_by_ids()` était déclarée **`private`** dans `question_analyzer.php`
+- Elle était appelée depuis `questions_cleanup.php` (scope externe)
+- PHP interdit l'appel de méthodes privées depuis l'extérieur de la classe
+
+#### Solution
+
+**Changement de visibilité** : `private` → `public`
+
+```php
+// AVANT
+private static function get_questions_usage_by_ids($question_ids) {
+    // ...
+}
+
+// APRÈS
+public static function get_questions_usage_by_ids($question_ids) {
+    // ...
+}
+```
+
+#### Justification
+
+Cette méthode est maintenant utilisée :
+1. En interne par `get_all_questions_with_stats()` (usage original)
+2. En externe par `questions_cleanup.php` pour le test aléatoire (v1.9.2)
+3. En externe par `can_delete_questions_batch()` (v1.9.0)
+
+**Conclusion** : La méthode doit être **publique** pour permettre ces usages légitimes.
+
+#### Fichiers Modifiés
+
+- `classes/question_analyzer.php` :
+  - Ligne 302 : `private` → `public static`
+  - Ajout commentaire sur la raison du changement
+
+- `version.php` : v1.9.3 (2025101005)
+- `CHANGELOG.md` : Documentation
+
+#### Impact
+
+**Résolu** :
+- ✅ Le bouton "🎲 Test Doublons Utilisés" fonctionne maintenant
+- ✅ Plus d'exception de visibilité
+- ✅ Toutes les fonctionnalités utilisant cette méthode fonctionnent
+
+**Pas d'effet secondaire** :
+- ✅ Rendre une méthode publique n'a pas d'impact négatif
+- ✅ La méthode reste sécurisée (validation des paramètres en interne)
+
+#### Version
+- Version : v1.9.3 (2025101005)
+- Date : 10 octobre 2025
+- Type : 🐛 Hotfix (Correction simple)
+
+---
+
 ## [1.9.2] - 2025-10-10
 
 ### 🐛 HOTFIX CRITIQUE : Approche Simplifiée pour Test Aléatoire

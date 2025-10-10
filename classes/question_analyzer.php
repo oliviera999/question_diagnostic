@@ -294,11 +294,12 @@ class question_analyzer {
 
     /**
      * Récupère l'usage pour un ensemble spécifique de questions (optimisé pour limite)
+     * 🆕 v1.9.2 : Changed to public for external use (random test, batch operations)
      *
      * @param array $question_ids IDs des questions
      * @return array Map [question_id => usage_info]
      */
-    private static function get_questions_usage_by_ids($question_ids) {
+    public static function get_questions_usage_by_ids($question_ids) {
         global $DB;
 
         if (empty($question_ids)) {
