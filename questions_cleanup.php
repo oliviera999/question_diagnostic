@@ -343,6 +343,13 @@ if ($randomtest_used && confirm_sesskey()) {
     $group_question_ids = array_map(function($q) { return $q->id; }, $all_questions);
     $group_usage_map = question_analyzer::get_questions_usage_by_ids($group_question_ids);
     
+    // 🆕 v1.9.7 : DEBUG - Vérifier la structure de $group_usage_map
+    debugging('DEBUG group_usage_map structure: ' . print_r(array_keys($group_usage_map), true), DEBUG_DEVELOPER);
+    foreach ($group_question_ids as $qid) {
+        $count = isset($group_usage_map[$qid]) ? count($group_usage_map[$qid]) : 0;
+        debugging("DEBUG Question ID $qid has $count usages in map", DEBUG_DEVELOPER);
+    }
+    
     // 🆕 v1.9.6 : Vérifier la supprimabilité de toutes les questions du groupe en batch
     $group_question_ids_for_delete = array_map(function($q) { return $q->id; }, $all_questions);
     $deletability_map = question_analyzer::can_delete_questions_batch($group_question_ids_for_delete);
