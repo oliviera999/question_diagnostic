@@ -95,9 +95,15 @@ if ($randomtest && confirm_sesskey()) {
     echo html_writer::tag('h2', '🎲 Test de Détection de Doublons - Question Aléatoire');
     
     // Sélectionner une question aléatoire
-    // 🔧 v1.9.13 FIX : Utiliser sql_random() pour compatibilité multi-SGBD (PostgreSQL, MSSQL)
-    $sql_random = "SELECT * FROM {question} ORDER BY " . $DB->sql_random() . " LIMIT 1";
-    $random_question = $DB->get_record_sql($sql_random);
+    // 🔧 v1.9.14 FIX CRITIQUE : sql_random() n'existe pas ! Utiliser PHP rand() à la place
+    $total_questions = $DB->count_records('question');
+    if ($total_questions > 0) {
+        $random_offset = rand(0, $total_questions - 1);
+        $questions = $DB->get_records('question', null, 'id ASC', '*', $random_offset, 1);
+        $random_question = $questions ? reset($questions) : null;
+    } else {
+        $random_question = null;
+    }
     
     if (!$random_question) {
         echo html_writer::start_tag('div', ['class' => 'alert alert-danger']);
@@ -230,18 +236,30 @@ if ($randomtest_used && confirm_sesskey()) {
     // Au lieu de chercher parmi des candidats, on identifie directement les groupes de doublons
     
     // Étape 1 : Trouver les signatures de questions qui ont des doublons ET sont utilisées
-    // 🔧 v1.9.13 FIX : Utiliser sql_concat() et sql_random() pour compatibilité multi-SGBD
-    $signature_field = $DB->sql_concat('q.name', "'|'", 'q.qtype');
-    $sql = "SELECT {$signature_field} as signature,
+    // 🔧 v1.9.14 FIX CRITIQUE : sql_random() n'existe pas ! Approche différente
+    // Au lieu d'ordonner aléatoirement en SQL, on récupère TOUS les groupes puis on mélange en PHP
+    $sql = "SELECT q.name, q.qtype,
                    MIN(q.id) as sample_id,
                    COUNT(DISTINCT q.id) as question_count
             FROM {question} q
             GROUP BY q.name, q.qtype
-            HAVING COUNT(DISTINCT q.id) > 1
-            ORDER BY " . $DB->sql_random() . "
-            LIMIT 5";
+            HAVING COUNT(DISTINCT q.id) > 1";
     
-    $duplicate_groups = $DB->get_records_sql($sql);
+    $all_duplicate_groups = $DB->get_records_sql($sql);
+    
+    // Mélanger aléatoirement en PHP et prendre les 5 premiers
+    if (!empty($all_duplicate_groups)) {
+        $all_duplicate_groups = array_values($all_duplicate_groups); // Réindexer
+        shuffle($all_duplicate_groups); // Mélanger aléatoirement
+        $duplicate_groups = array_slice($all_duplicate_groups, 0, 5); // Prendre 5
+        
+        // Reformater pour correspondre à l'ancien format avec 'signature'
+        foreach ($duplicate_groups as $group) {
+            $group->signature = $group->name . '|' . $group->qtype;
+        }
+    } else {
+        $duplicate_groups = [];
+    }
     
     if (empty($duplicate_groups)) {
         $found = false;
