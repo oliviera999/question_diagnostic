@@ -224,55 +224,71 @@ $randomtest_used = optional_param('randomtest_used', 0, PARAM_INT);
 if ($randomtest_used && confirm_sesskey()) {
     echo html_writer::tag('h2', '🎲 Test Doublons Utilisés - Question Aléatoire');
     
-    // Sélectionner une question aléatoire qui a des doublons ET au moins 1 version utilisée
-    // 🆕 v1.9.1 : Limite réduite à 20 pour éviter timeout
-    $sql = "SELECT q.*, 
-                   (SELECT COUNT(*) FROM {question} q2 
-                    WHERE q2.name = q.name 
-                    AND q2.qtype = q.qtype 
-                    AND q2.questiontext = q.questiontext 
-                    AND q2.id != q.id) as dup_count
+    // 🆕 v1.9.2 : APPROCHE SIMPLIFIÉE - Sélectionner directement un groupe de doublons utilisés
+    // Au lieu de chercher parmi des candidats, on identifie directement les groupes de doublons
+    
+    // Étape 1 : Trouver les signatures de questions qui ont des doublons ET sont utilisées
+    $sql = "SELECT CONCAT(q.name, '|', q.qtype) as signature,
+                   MIN(q.id) as sample_id,
+                   COUNT(DISTINCT q.id) as question_count
             FROM {question} q
-            HAVING dup_count > 0
+            GROUP BY q.name, q.qtype
+            HAVING COUNT(DISTINCT q.id) > 1
             ORDER BY RAND()
-            LIMIT 20";
+            LIMIT 5";
     
-    $candidates = $DB->get_records_sql($sql);
-    $found = false;
-    $random_question = null;
+    $duplicate_groups = $DB->get_records_sql($sql);
     
-    // 🆕 v1.9.1 : OPTIMISATION - Récupérer l'usage de tous les candidats d'un coup
-    $all_candidate_ids = array_keys($candidates);
-    $usage_map = question_analyzer::get_questions_usage_by_ids($all_candidate_ids);
-    
-    // Parcourir les candidats pour trouver un groupe avec au moins 1 utilisée
-    foreach ($candidates as $candidate) {
-        $duplicates = question_analyzer::find_exact_duplicates($candidate);
-        $all_questions = array_merge([$candidate], $duplicates);
+    if (empty($duplicate_groups)) {
+        $found = false;
+        $random_question = null;
+    } else {
+        // Étape 2 : Pour chaque groupe, vérifier si au moins 1 version est utilisée
+        $found = false;
+        $random_question = null;
         
-        // Récupérer les IDs de toutes les questions du groupe
-        $group_ids = array_map(function($q) { return $q->id; }, $all_questions);
-        
-        // Vérifier si au moins une version est utilisée (via le map déjà chargé)
-        $has_used = false;
-        foreach ($group_ids as $qid) {
-            if (isset($usage_map[$qid]) && !empty($usage_map[$qid])) {
-                $has_used = true;
+        foreach ($duplicate_groups as $group) {
+            // Récupérer la question exemple
+            $sample = $DB->get_record('question', ['id' => $group->sample_id]);
+            if (!$sample) {
+                continue;
+            }
+            
+            // Trouver toutes les questions de ce groupe
+            $all_in_group = $DB->get_records('question', [
+                'name' => $sample->name,
+                'qtype' => $sample->qtype
+            ]);
+            
+            if (count($all_in_group) <= 1) {
+                continue; // Pas vraiment un groupe
+            }
+            
+            // Vérifier l'usage du groupe entier
+            $group_ids = array_keys($all_in_group);
+            $usage_map = question_analyzer::get_questions_usage_by_ids($group_ids);
+            
+            // Vérifier si au moins une version est utilisée
+            $has_used = false;
+            foreach ($group_ids as $qid) {
+                if (isset($usage_map[$qid]) && !empty($usage_map[$qid])) {
+                    $has_used = true;
+                    break;
+                }
+            }
+            
+            if ($has_used) {
+                $random_question = $sample;
+                $found = true;
                 break;
             }
-        }
-        
-        if ($has_used) {
-            $random_question = $candidate;
-            $found = true;
-            break;
         }
     }
     
     if (!$found || !$random_question) {
         echo html_writer::start_tag('div', ['class' => 'alert alert-warning']);
         echo html_writer::tag('h3', '⚠️ Aucun groupe de doublons utilisés trouvé');
-        echo 'Après 20 tentatives, aucun groupe de doublons avec au moins 1 version utilisée n\'a été trouvé. ';
+        echo 'Après 5 tentatives, aucun groupe de doublons avec au moins 1 version utilisée n\'a été trouvé. ';
         echo 'Cela peut signifier que vos doublons ne sont pas utilisés, ou qu\'ils sont rares.';
         echo html_writer::end_tag('div');
         
@@ -286,16 +302,19 @@ if ($randomtest_used && confirm_sesskey()) {
         exit;
     }
     
-    // Trouver tous les doublons de cette question
-    $duplicates = question_analyzer::find_exact_duplicates($random_question);
-    $all_questions = array_merge([$random_question], $duplicates);
+    // Trouver tous les doublons de cette question (même nom + même type)
+    $all_questions = $DB->get_records('question', [
+        'name' => $random_question->name,
+        'qtype' => $random_question->qtype
+    ]);
     
     echo html_writer::start_tag('div', ['class' => 'alert alert-success', 'style' => 'margin: 20px 0;']);
     echo html_writer::tag('h3', '🎯 Groupe de Doublons Utilisés Trouvé !', ['style' => 'margin-top: 0;']);
     echo html_writer::tag('p', '<strong>Question sélectionnée ID :</strong> ' . $random_question->id);
     echo html_writer::tag('p', '<strong>Nom :</strong> ' . format_string($random_question->name));
     echo html_writer::tag('p', '<strong>Type :</strong> ' . $random_question->qtype);
-    echo html_writer::tag('p', '<strong>Nombre de versions totales :</strong> ' . count($all_questions) . ' (1 originale + ' . count($duplicates) . ' doublon(s))');
+    $duplicate_count = count($all_questions) - 1; // -1 pour exclure la question elle-même
+    echo html_writer::tag('p', '<strong>Nombre de versions totales :</strong> ' . count($all_questions) . ' (1 originale + ' . $duplicate_count . ' doublon(s))');
     echo html_writer::end_tag('div');
     
     // Tableau détaillé
