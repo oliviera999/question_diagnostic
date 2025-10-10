@@ -9,8 +9,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'local_question_diagnostic';
-$plugin->version = 2025101022;  // YYYYMMDDXX format (v1.9.20 - DEBUG: Add detailed logging for SQL issues)
+$plugin->version = 2025101023;  // YYYYMMDDXX format (v1.9.21 - FIX: Moodle 4.5 question_references)
 $plugin->requires = 2023100900; // Moodle 4.0+
 $plugin->maturity = MATURITY_STABLE;
-$plugin->release = 'v1.9.20';
+$plugin->release = 'v1.9.21';
 

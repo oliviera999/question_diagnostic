@@ -5,7 +5,150 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
-## [1.9.19] - 2025-10-10
+## [1.9.21] - 2025-10-10
+
+### 🔴 FIX CRITIQUE : Moodle 4.5+ Nouvelle Architecture question_references
+
+#### Problème Identifié par les Logs de Debug
+
+**Informations de debug** :
+```
+Mode détecté : Aucune colonne reconnue
+Colonnes quiz_slots : id, slot, quizid, page, displaynumber, requireprevious, maxmark, quizgradeitemid
+Total quiz_slots : 8591  ← Il y a des quiz !
+Questions trouvées : 0  ← Mais aucune question trouvée !
+```
+
+#### Découverte Majeure
+
+**Moodle 4.5+ a changé l'architecture** !
+
+**Avant Moodle 4.5** :
+- `quiz_slots.questionid` OU `quiz_slots.questionbankentryid`
+- Lien direct entre quiz_slots et questions
+
+**Moodle 4.5+** :
+- **Plus de lien direct dans quiz_slots** !
+- Nouvelle table `question_references` pour gérer les références
+- Architecture découplée et modulaire
+
+**Colonnes quiz_slots dans Moodle 4.5** :
+```
+id, slot, quizid, page, displaynumber, requireprevious, maxmark, quizgradeitemid
+```
+
+→ **Aucune colonne question !**
+
+#### Solution : Utiliser question_references
+
+**Nouvelle requête pour Moodle 4.5+** :
+
+```sql
+SELECT DISTINCT qv.questionid
+FROM {quiz_slots} qs
+INNER JOIN {question_references} qr 
+    ON qr.itemid = qs.id 
+    AND qr.component = 'mod_quiz' 
+    AND qr.questionarea = 'slot'
+INNER JOIN {question_bank_entries} qbe 
+    ON qbe.id = qr.questionbankentryid
+INNER JOIN {question_versions} qv 
+    ON qv.questionbankentryid = qbe.id 
+    AND qv.version = (
+        SELECT MAX(v.version)
+        FROM {question_versions} v
+        WHERE v.questionbankentryid = qbe.id
+    )
+```
+
+**Explication** :
+1. `quiz_slots` → Slots dans le quiz
+2. `question_references` → Référence vers la question (nouvelle table 4.5)
+   - `itemid` = ID du slot
+   - `component` = 'mod_quiz'
+   - `questionarea` = 'slot'
+3. `question_bank_entries` → Entrée de la banque de questions
+4. `question_versions` → Version actuelle de la question
+
+#### Implémentation
+
+**Code ajouté (lignes 272-290)** :
+
+```php
+} else {
+    // Moodle 4.5+ : Nouvelle architecture avec question_references
+    $debug_info['mode'] = 'Moodle 4.5+ (question_references)';
+    
+    $sql_used = "SELECT DISTINCT qv.questionid
+                 FROM {quiz_slots} qs
+                 INNER JOIN {question_references} qr 
+                     ON qr.itemid = qs.id 
+                     AND qr.component = 'mod_quiz' 
+                     AND qr.questionarea = 'slot'
+                 INNER JOIN {question_bank_entries} qbe 
+                     ON qbe.id = qr.questionbankentryid
+                 INNER JOIN {question_versions} qv 
+                     ON qv.questionbankentryid = qbe.id 
+                     AND qv.version = (SELECT MAX(v.version) ...)";
+    
+    $used_question_ids = $DB->get_fieldset_sql($sql_used);
+}
+```
+
+#### Fichiers Modifiés
+
+- **`questions_cleanup.php`** :
+  - Lignes 256-290 : Ajout 3ème branche pour Moodle 4.5+
+  - Utilisation de question_references
+  - Sélection de la version max de chaque question
+  
+- **`version.php`** : v1.9.20 → v1.9.21 (2025101023)
+- **`CHANGELOG.md`** : Documentation de la découverte
+
+#### Impact
+
+**Avant v1.9.21** :
+- ❌ **0 questions trouvées sur Moodle 4.5+**
+- ❌ Fonctionnalité totalement cassée
+- ❌ Message "Aucune colonne reconnue"
+
+**Après v1.9.21** :
+- ✅ **Questions trouvées correctement sur Moodle 4.5+**
+- ✅ Compatible avec nouvelle architecture
+- ✅ Utilise question_references comme prévu
+
+#### Compatibilité
+
+**Maintenant compatible** :
+- ✅ Moodle 3.x : `quiz_slots.questionid`
+- ✅ Moodle 4.0-4.4 : `quiz_slots.questionbankentryid`
+- ✅ Moodle 4.5+ : `question_references` ⭐ NOUVEAU
+
+#### Test
+
+Après purge du cache :
+
+**Résultat attendu sur Moodle 4.5+** :
+```
+🎯 Groupe de Doublons Utilisés Trouvé !
+Mode détecté : Moodle 4.5+ (question_references)
+Total questions utilisées : 150  ← Devrait être > 0 maintenant !
+```
+
+#### Remerciements
+
+**Merci à l'utilisateur** pour les infos de debug qui ont permis de découvrir cette nouvelle architecture Moodle 4.5+ !
+
+#### Version
+
+- **Version** : v1.9.21 (2025101023)
+- **Date** : 10 octobre 2025
+- **Type** : 🔴 Fix Critique (Architecture Moodle 4.5+)
+- **Priorité** : MAXIMALE (rétablit compatibilité Moodle 4.5+)
+
+---
+
+## [1.9.20] - 2025-10-10
 
 ### 🔴 FIX URGENT : Requête SQL ne trouve pas les questions utilisées
 

@@ -270,9 +270,25 @@ if ($randomtest_used && confirm_sesskey()) {
             $debug_info['sql'] = $sql_used;
             $used_question_ids = $DB->get_fieldset_sql($sql_used);
         } else {
-            // Aucune colonne reconnue
-            $debug_info['mode'] = 'Aucune colonne reconnue';
-            $used_question_ids = [];
+            // 🔧 v1.9.21 FIX CRITIQUE : Moodle 4.5+ - Nouvelle architecture avec question_references
+            $debug_info['mode'] = 'Moodle 4.5+ (nouvelle architecture avec question_references)';
+            
+            // Dans Moodle 4.5+, quiz_slots ne contient plus de lien direct vers les questions
+            // Il faut passer par question_references
+            $sql_used = "SELECT DISTINCT qv.questionid
+                         FROM {quiz_slots} qs
+                         INNER JOIN {question_references} qr ON qr.itemid = qs.id 
+                             AND qr.component = 'mod_quiz' 
+                             AND qr.questionarea = 'slot'
+                         INNER JOIN {question_bank_entries} qbe ON qbe.id = qr.questionbankentryid
+                         INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id 
+                             AND qv.version = (
+                                 SELECT MAX(v.version)
+                                 FROM {question_versions} v
+                                 WHERE v.questionbankentryid = qbe.id
+                             )";
+            $debug_info['sql'] = $sql_used;
+            $used_question_ids = $DB->get_fieldset_sql($sql_used);
         }
         
         $debug_info['count'] = count($used_question_ids);
