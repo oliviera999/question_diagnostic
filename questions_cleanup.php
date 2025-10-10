@@ -232,122 +232,89 @@ $randomtest_used = optional_param('randomtest_used', 0, PARAM_INT);
 if ($randomtest_used && confirm_sesskey()) {
     echo html_writer::tag('h2', '🎲 Test Doublons Utilisés - Question Aléatoire');
     
-    // 🆕 v1.9.2 : APPROCHE SIMPLIFIÉE - Sélectionner directement un groupe de doublons utilisés
-    // Au lieu de chercher parmi des candidats, on identifie directement les groupes de doublons
+    // 🔧 v1.9.16 REFONTE COMPLÈTE : Nouvelle logique (suggestion utilisateur)
+    // LOGIQUE CORRECTE :
+    // 1. Trouver UNE question UTILISÉE (aléatoire)
+    // 2. Chercher SES doublons
+    // 3. Si doublons trouvés → Afficher
+    // 4. Sinon → Chercher une autre question utilisée
     
-    // Étape 1 : Trouver les signatures de questions qui ont des doublons ET sont utilisées
-    // 🔧 v1.9.14 FIX CRITIQUE : sql_random() n'existe pas ! Approche différente
-    // Au lieu d'ordonner aléatoirement en SQL, on récupère TOUS les groupes puis on mélange en PHP
-    $sql = "SELECT q.name, q.qtype,
-                   MIN(q.id) as sample_id,
-                   COUNT(DISTINCT q.id) as question_count
-            FROM {question} q
-            GROUP BY q.name, q.qtype
-            HAVING COUNT(DISTINCT q.id) > 1";
+    // Étape 1 : Récupérer TOUTES les questions utilisées (dans quiz OU avec tentatives)
+    $sql_used = "SELECT DISTINCT q.id
+                 FROM {question} q
+                 WHERE EXISTS (
+                     SELECT 1 FROM {question_bank_entries} qbe
+                     INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+                     INNER JOIN {quiz_slots} qs ON qs.questionbankentryid = qbe.id
+                     WHERE qv.questionid = q.id
+                 )
+                 OR EXISTS (
+                     SELECT 1 FROM {question_attempts} qa
+                     WHERE qa.questionid = q.id
+                 )";
     
-    $all_duplicate_groups = $DB->get_records_sql($sql);
+    $used_question_ids = $DB->get_fieldset_sql($sql_used);
     
-    // Mélanger aléatoirement en PHP et prendre les premiers
-    // 🔧 v1.9.15 FIX : Augmenter de 5 à 20 pour avoir plus de chances de trouver un groupe utilisé
-    if (!empty($all_duplicate_groups)) {
-        $all_duplicate_groups = array_values($all_duplicate_groups); // Réindexer
-        shuffle($all_duplicate_groups); // Mélanger aléatoirement
-        $duplicate_groups = array_slice($all_duplicate_groups, 0, 20); // Prendre 20 au lieu de 5
+    if (empty($used_question_ids)) {
+        // Aucune question utilisée dans la base
+        echo html_writer::start_tag('div', ['class' => 'alert alert-warning']);
+        echo html_writer::tag('h3', '⚠️ Aucune question utilisée trouvée');
+        echo 'Votre base de données ne contient aucune question utilisée dans un quiz ou avec des tentatives.';
+        echo html_writer::end_tag('div');
         
-        // Reformater pour correspondre à l'ancien format avec 'signature'
-        foreach ($duplicate_groups as $group) {
-            $group->signature = $group->name . '|' . $group->qtype;
-        }
-    } else {
-        $duplicate_groups = [];
+        echo html_writer::start_tag('div', ['style' => 'margin-top: 30px;']);
+        echo html_writer::link(new moodle_url('/local/question_diagnostic/questions_cleanup.php', ['loadstats' => 1]), '← Retour', ['class' => 'btn btn-secondary']);
+        echo html_writer::end_tag('div');
+        
+        echo $OUTPUT->footer();
+        exit;
     }
     
-    if (empty($duplicate_groups)) {
-        $found = false;
-        $random_question = null;
-    } else {
-        // Étape 2 : Pour chaque groupe, vérifier si au moins 1 version est utilisée
-        $found = false;
-        $random_question = null;
-        $groups_tested = 0; // 🔧 v1.9.15 : Compter les groupes testés
+    // Étape 2 : Mélanger aléatoirement les questions utilisées
+    shuffle($used_question_ids);
+    
+    // Étape 3 : Pour chaque question utilisée, chercher ses doublons
+    $found = false;
+    $random_question = null;
+    $tested_count = 0;
+    
+    foreach ($used_question_ids as $qid) {
+        $tested_count++;
         
-        foreach ($duplicate_groups as $group) {
-            $groups_tested++; // Incrémenter le compteur
-            // Récupérer la question exemple
-            $sample = $DB->get_record('question', ['id' => $group->sample_id]);
-            if (!$sample) {
-                continue;
-            }
-            
-            // Trouver toutes les questions de ce groupe
-            $all_in_group = $DB->get_records('question', [
-                'name' => $sample->name,
-                'qtype' => $sample->qtype
-            ]);
-            
-            if (count($all_in_group) <= 1) {
-                continue; // Pas vraiment un groupe
-            }
-            
-            // Vérifier l'usage du groupe entier
-            $group_ids = array_keys($all_in_group);
-            $usage_map = question_analyzer::get_questions_usage_by_ids($group_ids);
-            
-            // Vérifier si au moins une version est utilisée
-            $has_used = false;
-            
-            // 🔍 v1.9.10 DEBUG : Afficher les données pour comprendre le problème
-            $debug_usage = [];
-            
-            foreach ($group_ids as $qid) {
-                // 🐛 v1.9.9 FIX : !empty() sur un tableau retourne toujours true, même avec des 0 !
-                // ✅ Vérifier explicitement le flag is_used ou les compteurs
-                
-                // 🔍 DEBUG : Collecter les infos
-                if (isset($usage_map[$qid])) {
-                    $debug_usage[$qid] = [
-                        'is_used' => $usage_map[$qid]['is_used'],
-                        'quiz_count' => $usage_map[$qid]['quiz_count'],
-                        'attempt_count' => $usage_map[$qid]['attempt_count']
-                    ];
-                }
-                
-                if (isset($usage_map[$qid]) && 
-                    ($usage_map[$qid]['is_used'] === true || 
-                     $usage_map[$qid]['quiz_count'] > 0 || 
-                     $usage_map[$qid]['attempt_count'] > 0)) {
-                    $has_used = true;
-                    break;
-                }
-            }
-            
-            // 🔍 v1.9.10 DEBUG : Si ce groupe est marqué comme utilisé, afficher pourquoi
-            if ($has_used && count($debug_usage) > 0) {
-                debugging('GROUPE MARQUÉ COMME UTILISÉ - Détails : ' . json_encode($debug_usage), DEBUG_DEVELOPER);
-            }
-            
-            if ($has_used) {
-                $random_question = $sample;
-                $found = true;
-                break;
-            }
+        $question = $DB->get_record('question', ['id' => $qid]);
+        if (!$question) {
+            continue;
+        }
+        
+        // Chercher les doublons de CETTE question (même nom + même type, ID différent)
+        $duplicates = $DB->get_records_select('question',
+            'name = :name AND qtype = :qtype AND id != :id',
+            ['name' => $question->name, 'qtype' => $question->qtype, 'id' => $question->id]
+        );
+        
+        // Si au moins 1 doublon trouvé → On a notre groupe !
+        if (!empty($duplicates)) {
+            $random_question = $question;
+            $found = true;
+            break;
         }
     }
     
-    // 🔧 v1.9.15 DEBUG : Log pour comprendre pourquoi un groupe inutilisé est affiché
-    debugging('TEST DOUBLONS UTILISÉS - found=' . ($found ? 'true' : 'false') . 
+    // 🔧 v1.9.16 DEBUG : Log de la nouvelle logique
+    debugging('TEST DOUBLONS UTILISÉS v1.9.16 - found=' . ($found ? 'true' : 'false') . 
               ', random_question=' . ($random_question ? 'id=' . $random_question->id : 'null') .
-              ', groups_tested=' . (isset($groups_tested) ? $groups_tested : 0), 
+              ', tested=' . $tested_count . 
+              ', total_used_questions=' . count($used_question_ids), 
               DEBUG_DEVELOPER);
     
     if ($found === false || $random_question === null) {
         echo html_writer::start_tag('div', ['class' => 'alert alert-warning']);
-        echo html_writer::tag('h3', '⚠️ Aucun groupe de doublons utilisés trouvé');
-        echo 'Après avoir testé <strong>' . (isset($groups_tested) ? $groups_tested : 0) . ' groupe(s) de doublons</strong>, ';
-        echo 'aucun ne contient de version utilisée dans un quiz ou avec des tentatives. ';
+        echo html_writer::tag('h3', '⚠️ Aucune question utilisée avec doublons trouvée');
+        echo 'Après avoir testé <strong>' . $tested_count . ' question(s) utilisée(s)</strong>, ';
+        echo 'aucune ne possède de doublon. ';
         echo '<br><br>';
-        echo '💡 <strong>Cela signifie que</strong> : Tous vos groupes de doublons sont actuellement inutilisés. ';
-        echo 'Vous pouvez les supprimer en toute sécurité.';
+        echo '💡 <strong>Résultat</strong> : Toutes vos questions utilisées sont uniques. ';
+        echo 'Vos doublons (s\'ils existent) ne sont pas utilisés actuellement.';
         echo html_writer::end_tag('div');
         
         echo html_writer::start_tag('div', ['style' => 'margin-top: 30px;']);
@@ -368,12 +335,13 @@ if ($randomtest_used && confirm_sesskey()) {
     
     echo html_writer::start_tag('div', ['class' => 'alert alert-success', 'style' => 'margin: 20px 0;']);
     echo html_writer::tag('h3', '🎯 Groupe de Doublons Utilisés Trouvé !', ['style' => 'margin-top: 0;']);
-    echo html_writer::tag('p', '✅ Trouvé après avoir testé <strong>' . (isset($groups_tested) ? $groups_tested : '?') . ' groupe(s)</strong>');
-    echo html_writer::tag('p', '<strong>Question sélectionnée ID :</strong> ' . $random_question->id);
+    echo html_writer::tag('p', '✅ Trouvé après avoir testé <strong>' . $tested_count . ' question(s) utilisée(s)</strong>');
+    echo html_writer::tag('p', '📊 Total de questions utilisées dans la base : <strong>' . count($used_question_ids) . '</strong>');
+    echo html_writer::tag('p', '<strong>Question sélectionnée ID :</strong> ' . $random_question->id . ' (Cette question est UTILISÉE dans un quiz ou possède des tentatives)');
     echo html_writer::tag('p', '<strong>Nom :</strong> ' . format_string($random_question->name));
     echo html_writer::tag('p', '<strong>Type :</strong> ' . $random_question->qtype);
     $duplicate_count = count($all_questions) - 1; // -1 pour exclure la question elle-même
-    echo html_writer::tag('p', '<strong>Nombre de versions totales :</strong> ' . count($all_questions) . ' (1 originale + ' . $duplicate_count . ' doublon(s))');
+    echo html_writer::tag('p', '<strong>Nombre de versions totales :</strong> ' . count($all_questions) . ' (1 utilisée + ' . $duplicate_count . ' doublon(s))');
     echo html_writer::end_tag('div');
     
     // Tableau détaillé

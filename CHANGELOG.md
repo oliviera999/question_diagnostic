@@ -5,6 +5,182 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.9.16] - 2025-10-10
+
+### 🔧 REFONTE COMPLÈTE : Test Doublons Utilisés - Logique Inversée Corrigée
+
+#### Problème Fondamental
+
+**Depuis le début, la logique était inversée** ! L'utilisateur a identifié le vrai problème.
+
+**Symptôme persistant** :
+```
+🎯 Groupe de Doublons Utilisés Trouvé !
+Versions utilisées : 0  ← IMPOSSIBLE !
+```
+
+**Cause racine** : La logique était à l'envers :
+
+```
+❌ ANCIENNE LOGIQUE (v1.9.2 - v1.9.15) :
+1. Trouver des groupes de doublons (peu importe si utilisés)
+2. Pour chaque groupe → Vérifier si au moins 1 version est utilisée
+3. Si utilisé → Afficher
+
+PROBLÈME : On peut tomber sur 20 groupes inutilisés d'affilée !
+```
+
+**Suggestion utilisateur** (CORRECTE) :
+```
+✅ NOUVELLE LOGIQUE (v1.9.16) :
+1. Chercher UNE question UTILISÉE (aléatoire)
+2. Chercher SES doublons
+3. Si doublons trouvés → AFFICHER
+4. Sinon → Chercher AUTRE question utilisée
+5. Répéter jusqu'à succès ou fin de la liste
+
+AVANTAGE : La question de départ est GARANTIE d'être utilisée !
+```
+
+#### Implémentation
+
+**Nouvelle logique complète (lignes 235-328)** :
+
+```php
+// Étape 1 : Récupérer TOUTES les questions utilisées
+$sql_used = "SELECT DISTINCT q.id
+             FROM {question} q
+             WHERE EXISTS (
+                 SELECT 1 FROM {question_bank_entries} qbe
+                 INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+                 INNER JOIN {quiz_slots} qs ON qs.questionbankentryid = qbe.id
+                 WHERE qv.questionid = q.id
+             )
+             OR EXISTS (
+                 SELECT 1 FROM {question_attempts} qa
+                 WHERE qa.questionid = q.id
+             )";
+
+$used_question_ids = $DB->get_fieldset_sql($sql_used);
+
+// Mélanger aléatoirement
+shuffle($used_question_ids);
+
+// Pour chaque question utilisée
+foreach ($used_question_ids as $qid) {
+    $question = $DB->get_record('question', ['id' => $qid]);
+    
+    // Chercher SES doublons
+    $duplicates = $DB->get_records_select('question',
+        'name = :name AND qtype = :qtype AND id != :id',
+        ['name' => $question->name, 'qtype' => $question->qtype, 'id' => $question->id]
+    );
+    
+    // Si doublons trouvés → AFFICHER !
+    if (!empty($duplicates)) {
+        $random_question = $question; // Cette question EST utilisée
+        $found = true;
+        break;
+    }
+}
+```
+
+**Garantie** : La question affichée est **TOUJOURS utilisée** car elle provient de la liste `$used_question_ids`.
+
+#### Avantages de la Nouvelle Logique
+
+1. ✅ **Garantit** que la question de départ est TOUJOURS utilisée
+2. ✅ **Impossible** d'afficher "Versions utilisées : 0"
+3. ✅ **Plus rapide** : teste directement les questions utilisées (pas de double vérification)
+4. ✅ **Plus clair** : logique intuitive et compréhensible
+5. ✅ **Probabilité de succès** : ~100% si des doublons de questions utilisées existent
+
+#### Messages Améliorés
+
+**Affichage si groupe trouvé** :
+```
+🎯 Groupe de Doublons Utilisés Trouvé !
+✅ Trouvé après avoir testé 3 question(s) utilisée(s)
+📊 Total de questions utilisées dans la base : 150
+
+Question ID: 7125 (Cette question est UTILISÉE dans un quiz)
+Nombre de versions : 2 (1 utilisée + 1 doublon)
+```
+
+**Si aucun doublon trouvé** :
+```
+⚠️ Aucune question utilisée avec doublons trouvée
+
+Après avoir testé 150 question(s) utilisée(s), aucune ne possède de doublon.
+
+💡 Résultat : Toutes vos questions utilisées sont uniques.
+Vos doublons (s'ils existent) ne sont pas utilisés actuellement.
+```
+
+#### Différence Conceptuelle
+
+**Ancienne logique (v1.9.15)** :
+- Recherche parmi les doublons
+- Espère tomber sur un utilisé
+- ❌ Peut échouer même si doublons utilisés existent
+
+**Nouvelle logique (v1.9.16)** :
+- Recherche parmi les questions utilisées
+- Cherche si elles ont des doublons
+- ✅ Garantit que la question de départ est utilisée
+
+#### Fichiers Modifiés
+
+- **`questions_cleanup.php`** :
+  - Lignes 235-328 : Logique complètement refaite
+  - Nouvelle requête SQL pour questions utilisées
+  - Boucle inversée : questions utilisées → chercher doublons
+  - Messages adaptés
+  
+- **`version.php`** : v1.9.15 → v1.9.16 (2025101018)
+- **`CHANGELOG.md`** : Documentation de la refonte
+
+#### Impact
+
+**Avant v1.9.16** :
+- ❌ Affichage fréquent de groupes inutilisés
+- ❌ Confusion totale de l'utilisateur
+- ❌ Logique inversée et incohérente
+
+**Après v1.9.16** :
+- ✅ **Garantie à 100%** : question de départ = utilisée
+- ✅ **Impossible** d'afficher "Versions utilisées : 0"
+- ✅ Logique correcte et intuitive
+- ✅ Messages clairs et précis
+
+#### Test
+
+Après purge du cache :
+
+**Résultat attendu A** :
+```
+🎯 Groupe Trouvé !
+✅ Testé 3 question(s) utilisée(s)
+
+Versions utilisées : ≥ 1 (GARANTI !)
+```
+
+**Résultat attendu B** :
+```
+⚠️ Aucune question utilisée avec doublons
+
+Toutes vos questions utilisées sont uniques.
+```
+
+#### Version
+
+- **Version** : v1.9.16 (2025101018)
+- **Date** : 10 octobre 2025
+- **Type** : 🔧 Refonte (Logique fondamentale)
+- **Priorité** : MAXIMALE (corrige comportement incorrect depuis v1.9.2)
+
+---
+
 ## [1.9.15] - 2025-10-10
 
 ### 🐛 FIX : "Test Doublons Utilisés" affiche des groupes inutilisés
