@@ -484,6 +484,9 @@ if ($randomtest_used && confirm_sesskey()) {
         echo html_writer::start_tag('tr', ['style' => $row_style, 'data-question-id' => $q->id]);
         
         // 🆕 v1.9.23 : Checkbox de sélection (uniquement pour questions supprimables)
+        // 🔧 v1.9.25 FIX : Récupérer can_delete_check depuis deletability_map
+        $can_delete_check = isset($deletability_map[$q->id]) ? $deletability_map[$q->id] : null;
+        
         echo html_writer::start_tag('td', ['style' => 'text-align: center;']);
         if ($can_delete_check && $can_delete_check->can_delete) {
             echo '<input type="checkbox" class="question-select-checkbox" value="' . $q->id . '" data-question-id="' . $q->id . '">';

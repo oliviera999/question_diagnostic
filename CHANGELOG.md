@@ -5,6 +5,79 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.9.25] - 2025-10-10
+
+### 🐛 FIX : Checkboxes de sélection n'apparaissaient pas sur les lignes
+
+#### Problème Reporté
+
+**Symptôme** : Les checkboxes n'apparaissent que dans l'en-tête du tableau, pas sur chaque ligne.
+
+**Cause** : Variable `$can_delete_check` non récupérée depuis `$deletability_map` dans la boucle.
+
+**Code problématique (v1.9.23-v1.9.24)** :
+```php
+// ❌ $can_delete_check n'est jamais défini dans la boucle !
+if ($can_delete_check && $can_delete_check->can_delete) {
+    echo checkbox...
+}
+```
+
+#### Solution
+
+**Ajout de la ligne manquante** (ligne 487) :
+
+```php
+// ✅ Récupérer can_delete_check depuis deletability_map
+$can_delete_check = isset($deletability_map[$q->id]) ? $deletability_map[$q->id] : null;
+
+// Maintenant la condition fonctionne
+if ($can_delete_check && $can_delete_check->can_delete) {
+    echo '<input type="checkbox" class="question-select-checkbox" ...>';
+}
+```
+
+**$deletability_map** est déjà calculé ligne 452 pour toutes les questions du groupe.
+
+#### Fichiers Modifiés
+
+- **`questions_cleanup.php`** : Ligne 487 - Récupération de can_delete_check
+- **`version.php`** : v1.9.24 → v1.9.25
+- **`CHANGELOG.md`** : Documentation du fix
+
+#### Impact
+
+**Avant v1.9.25** :
+- ❌ Checkboxes invisibles sur les lignes
+- ❌ Impossible de sélectionner les questions
+- ❌ Suppression en masse inutilisable
+
+**Après v1.9.25** :
+- ✅ Checkboxes visibles sur lignes supprimables
+- ✅ Sélection fonctionnelle
+- ✅ Suppression en masse opérationnelle
+
+#### Test
+
+Après purge du cache :
+
+**Résultat attendu** :
+```
+[☐]  ID      Nom          Statut          Actions
+──────────────────────────────────────────────────
+[ ]  94958   Visite...    ✅ Utilisée     👁️ 🔒
+[☐]  313623  Visite...    ⚠️ Inutilisée   👁️ 🗑️  ← Checkbox visible !
+```
+
+#### Version
+
+- **Version** : v1.9.25 (2025101027)
+- **Date** : 10 octobre 2025
+- **Type** : 🐛 Hotfix (Fonctionnalité cassée)
+- **Priorité** : Haute (restaure suppression masse)
+
+---
+
 ## [1.9.24] - 2025-10-10
 
 ### 🎯 AMÉLIORATION : Ajout colonne "Contexte" dans tableau Détails

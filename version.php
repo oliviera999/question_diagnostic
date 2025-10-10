@@ -9,8 +9,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'local_question_diagnostic';
-$plugin->version = 2025101026;  // YYYYMMDDXX format (v1.9.24 - Add Context column in details table)
+$plugin->version = 2025101027;  // YYYYMMDDXX format (v1.9.25 - FIX: Checkboxes not showing in rows)
 $plugin->requires = 2023100900; // Moodle 4.0+
 $plugin->maturity = MATURITY_STABLE;
-$plugin->release = 'v1.9.24';
+$plugin->release = 'v1.9.25';
 
