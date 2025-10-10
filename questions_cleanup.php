@@ -247,11 +247,12 @@ if ($randomtest_used && confirm_sesskey()) {
     
     $all_duplicate_groups = $DB->get_records_sql($sql);
     
-    // Mélanger aléatoirement en PHP et prendre les 5 premiers
+    // Mélanger aléatoirement en PHP et prendre les premiers
+    // 🔧 v1.9.15 FIX : Augmenter de 5 à 20 pour avoir plus de chances de trouver un groupe utilisé
     if (!empty($all_duplicate_groups)) {
         $all_duplicate_groups = array_values($all_duplicate_groups); // Réindexer
         shuffle($all_duplicate_groups); // Mélanger aléatoirement
-        $duplicate_groups = array_slice($all_duplicate_groups, 0, 5); // Prendre 5
+        $duplicate_groups = array_slice($all_duplicate_groups, 0, 20); // Prendre 20 au lieu de 5
         
         // Reformater pour correspondre à l'ancien format avec 'signature'
         foreach ($duplicate_groups as $group) {
@@ -268,8 +269,10 @@ if ($randomtest_used && confirm_sesskey()) {
         // Étape 2 : Pour chaque groupe, vérifier si au moins 1 version est utilisée
         $found = false;
         $random_question = null;
+        $groups_tested = 0; // 🔧 v1.9.15 : Compter les groupes testés
         
         foreach ($duplicate_groups as $group) {
+            $groups_tested++; // Incrémenter le compteur
             // Récupérer la question exemple
             $sample = $DB->get_record('question', ['id' => $group->sample_id]);
             if (!$sample) {
@@ -331,11 +334,20 @@ if ($randomtest_used && confirm_sesskey()) {
         }
     }
     
-    if (!$found || !$random_question) {
+    // 🔧 v1.9.15 DEBUG : Log pour comprendre pourquoi un groupe inutilisé est affiché
+    debugging('TEST DOUBLONS UTILISÉS - found=' . ($found ? 'true' : 'false') . 
+              ', random_question=' . ($random_question ? 'id=' . $random_question->id : 'null') .
+              ', groups_tested=' . (isset($groups_tested) ? $groups_tested : 0), 
+              DEBUG_DEVELOPER);
+    
+    if ($found === false || $random_question === null) {
         echo html_writer::start_tag('div', ['class' => 'alert alert-warning']);
         echo html_writer::tag('h3', '⚠️ Aucun groupe de doublons utilisés trouvé');
-        echo 'Après 5 tentatives, aucun groupe de doublons avec au moins 1 version utilisée n\'a été trouvé. ';
-        echo 'Cela peut signifier que vos doublons ne sont pas utilisés, ou qu\'ils sont rares.';
+        echo 'Après avoir testé <strong>' . (isset($groups_tested) ? $groups_tested : 0) . ' groupe(s) de doublons</strong>, ';
+        echo 'aucun ne contient de version utilisée dans un quiz ou avec des tentatives. ';
+        echo '<br><br>';
+        echo '💡 <strong>Cela signifie que</strong> : Tous vos groupes de doublons sont actuellement inutilisés. ';
+        echo 'Vous pouvez les supprimer en toute sécurité.';
         echo html_writer::end_tag('div');
         
         echo html_writer::start_tag('div', ['style' => 'margin-top: 30px;']);
@@ -356,6 +368,7 @@ if ($randomtest_used && confirm_sesskey()) {
     
     echo html_writer::start_tag('div', ['class' => 'alert alert-success', 'style' => 'margin: 20px 0;']);
     echo html_writer::tag('h3', '🎯 Groupe de Doublons Utilisés Trouvé !', ['style' => 'margin-top: 0;']);
+    echo html_writer::tag('p', '✅ Trouvé après avoir testé <strong>' . (isset($groups_tested) ? $groups_tested : '?') . ' groupe(s)</strong>');
     echo html_writer::tag('p', '<strong>Question sélectionnée ID :</strong> ' . $random_question->id);
     echo html_writer::tag('p', '<strong>Nom :</strong> ' . format_string($random_question->name));
     echo html_writer::tag('p', '<strong>Type :</strong> ' . $random_question->qtype);

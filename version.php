@@ -9,8 +9,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'local_question_diagnostic';
-$plugin->version = 2025101016;  // YYYYMMDDXX format (v1.9.14 - HOTFIX: sql_random() does not exist)
+$plugin->version = 2025101017;  // YYYYMMDDXX format (v1.9.15 - FIX: Test Doublons Utilisés + debug)
 $plugin->requires = 2023100900; // Moodle 4.0+
 $plugin->maturity = MATURITY_STABLE;
-$plugin->release = 'v1.9.14';
+$plugin->release = 'v1.9.15';
 
