@@ -329,8 +329,8 @@ if ($randomtest_used && confirm_sesskey()) {
     echo html_writer::tag('th', 'Type');
     echo html_writer::tag('th', 'Catégorie');
     echo html_writer::tag('th', 'Cours');
-    echo html_writer::tag('th', 'Quiz');
-    echo html_writer::tag('th', 'Tentatives');
+    echo html_writer::tag('th', '📊 Dans Quiz', ['title' => 'Nombre de quiz utilisant cette question']);
+    echo html_writer::tag('th', '🔢 Utilisations', ['title' => 'Nombre total d\'utilisations (dans différents quiz)']);
     echo html_writer::tag('th', 'Statut');
     echo html_writer::tag('th', 'Créée le');
     echo html_writer::tag('th', 'Actions');
@@ -346,18 +346,24 @@ if ($randomtest_used && confirm_sesskey()) {
     foreach ($all_questions as $q) {
         $stats = question_analyzer::get_question_stats($q);
         
-        // Vérifier l'usage via le map pré-chargé
-        $quiz_count = 0;
-        $attempt_count = 0;
+        // 🆕 v1.9.5 : Calculer correctement l'usage via le map pré-chargé
+        $quiz_count = 0;      // Nombre de quiz différents
+        $total_usages = 0;    // Nombre total d'utilisations (peut être plusieurs fois dans le même quiz)
+        
         if (isset($group_usage_map[$q->id]) && !empty($group_usage_map[$q->id])) {
             $quiz_count = count($group_usage_map[$q->id]);
+            
+            // Compter le nombre total d'utilisations (somme de toutes les apparitions)
+            foreach ($group_usage_map[$q->id] as $usage_info) {
+                $total_usages++; // Chaque entrée = 1 utilisation dans un quiz
+            }
         }
         
         $is_used = $quiz_count > 0;
         
         // Mettre à jour les stats avec les vraies valeurs
         $stats->quiz_count = $quiz_count;
-        $stats->attempt_count = $attempt_count; // TODO: calculer si nécessaire
+        $stats->total_usages = $total_usages;
         
         $row_style = '';
         if ($q->id == $random_question->id) {
@@ -372,8 +378,21 @@ if ($randomtest_used && confirm_sesskey()) {
         echo html_writer::tag('td', $q->qtype);
         echo html_writer::tag('td', isset($stats->category_name) ? $stats->category_name : 'N/A');
         echo html_writer::tag('td', isset($stats->course_name) ? '📚 ' . $stats->course_name : '-');
-        echo html_writer::tag('td', isset($stats->quiz_count) ? $stats->quiz_count : 0, ['style' => $stats->quiz_count > 0 ? 'font-weight: bold; color: #28a745;' : '']);
-        echo html_writer::tag('td', isset($stats->attempt_count) ? $stats->attempt_count : 0, ['style' => $stats->attempt_count > 0 ? 'font-weight: bold; color: #0f6cbf;' : '']);
+        
+        // Colonne "Dans Quiz" - Nombre de quiz différents
+        $quiz_style = $quiz_count > 0 ? 'font-weight: bold; color: #28a745;' : 'color: #999;';
+        echo html_writer::tag('td', $quiz_count, [
+            'style' => $quiz_style,
+            'title' => $quiz_count > 0 ? "Cette question est utilisée dans $quiz_count quiz" : "Non utilisée"
+        ]);
+        
+        // Colonne "Utilisations" - Nombre total d'utilisations
+        $usage_style = $total_usages > 0 ? 'font-weight: bold; color: #0f6cbf;' : 'color: #999;';
+        echo html_writer::tag('td', $total_usages, [
+            'style' => $usage_style,
+            'title' => $total_usages > 0 ? "Total de $total_usages utilisation(s)" : "Aucune utilisation"
+        ]);
+        
         echo html_writer::tag('td', $is_used ? '✅ Utilisée' : '⚠️ Inutilisée');
         echo html_writer::tag('td', userdate($q->timecreated, '%d/%m/%Y %H:%M'));
         
@@ -398,14 +417,17 @@ if ($randomtest_used && confirm_sesskey()) {
     
     $used_count = 0;
     $unused_count = 0;
-    $total_quiz_usage = 0;
-    $total_attempts = 0;
+    $total_quiz_count = 0;         // Nombre total de quiz différents
+    $total_usages = 0;             // Nombre total d'utilisations
     
-    // 🆕 v1.9.1 : Réutiliser le group_usage_map déjà chargé (pas de nouvelles requêtes)
+    // 🆕 v1.9.5 : Calculer correctement les statistiques du groupe
     foreach ($all_questions as $q) {
         $quiz_count = 0;
+        $question_usages = 0;
+        
         if (isset($group_usage_map[$q->id]) && !empty($group_usage_map[$q->id])) {
             $quiz_count = count($group_usage_map[$q->id]);
+            $question_usages = count($group_usage_map[$q->id]); // Chaque entrée = 1 utilisation
         }
         
         if ($quiz_count > 0) {
@@ -414,14 +436,14 @@ if ($randomtest_used && confirm_sesskey()) {
             $unused_count++;
         }
         
-        $total_quiz_usage += $quiz_count;
-        // Note: attempt_count non calculé pour éviter requêtes supplémentaires
+        $total_quiz_count += $quiz_count;
+        $total_usages += $question_usages;
     }
     
-    echo html_writer::tag('p', '<strong>Versions utilisées :</strong> ' . $used_count . ' (dans quiz ou avec tentatives)');
+    echo html_writer::tag('p', '<strong>Versions utilisées :</strong> ' . $used_count . ' (présentes dans au moins 1 quiz)');
     echo html_writer::tag('p', '<strong>Versions inutilisées (supprimables) :</strong> ' . $unused_count);
-    echo html_writer::tag('p', '<strong>Total utilisations dans quiz :</strong> ' . $total_quiz_usage);
-    echo html_writer::tag('p', '<strong>Total tentatives :</strong> ' . $total_attempts);
+    echo html_writer::tag('p', '<strong>Total quiz utilisant ces versions :</strong> ' . $total_quiz_count . ' quiz');
+    echo html_writer::tag('p', '<strong>Total utilisations :</strong> ' . $total_usages . ' utilisation(s) dans des quiz');
     
     echo html_writer::start_tag('div', ['style' => 'margin-top: 20px; padding: 15px; background: #e7f3ff; border-left: 4px solid #0f6cbf;']);
     echo html_writer::tag('strong', '💡 Recommandation : ');

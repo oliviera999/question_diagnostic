@@ -5,6 +5,125 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.9.5] - 2025-10-10
+
+### 🐛 HOTFIX : Clarification Colonnes Test Aléatoire & Correction Compteurs
+
+#### Problèmes Identifiés
+
+L'utilisateur a signalé 3 problèmes dans le tableau du test aléatoire doublons utilisés :
+
+**Problème 1 : Colonne "Quiz" pas claire**
+- **Symptôme** : Colonne intitulée "Quiz" sans explication
+- **Confusion** : L'utilisateur ne savait pas ce que cette colonne représentait
+- **Impact** : Difficulté à interpréter les résultats
+
+**Problème 2 : Pas de colonne "Utilisations"**
+- **Symptôme** : Manque d'une colonne montrant le nombre total d'utilisations
+- **Impact** : Information incomplète sur l'usage réel des questions
+
+**Problème 3 : Valeurs "Tentatives" incorrectes**
+- **Symptôme** : Colonne "Tentatives" affichait toujours 0
+- **Cause** : Variable fixée à 0 avec un TODO non implémenté (ligne 360)
+- **Impact** : Données incorrectes, impossibilité de voir les vraies tentatives
+
+#### Solutions Appliquées
+
+**Fix 1 : Clarification des en-têtes de colonnes**
+
+Anciens en-têtes :
+- "Quiz" → Pas clair
+- "Tentatives" → Toujours 0
+
+Nouveaux en-têtes :
+- **"📊 Dans Quiz"** : Nombre de quiz différents utilisant cette question
+- **"🔢 Utilisations"** : Nombre total d'utilisations (dans différents quiz)
+
+Avec tooltips explicatifs au survol :
+- 📊 : "Nombre de quiz utilisant cette question"
+- 🔢 : "Nombre total d'utilisations (dans différents quiz)"
+
+**Fix 2 : Calcul correct des utilisations**
+
+```php
+// AVANT (v1.9.4)
+$quiz_count = 0;
+$attempt_count = 0; // ← Fixé à 0 !
+if (isset($group_usage_map[$q->id])) {
+    $quiz_count = count($group_usage_map[$q->id]);
+}
+
+// APRÈS (v1.9.5)
+$quiz_count = 0;      // Nombre de quiz différents
+$total_usages = 0;    // Nombre total d'utilisations
+
+if (isset($group_usage_map[$q->id])) {
+    $quiz_count = count($group_usage_map[$q->id]);
+    
+    // Compter le nombre total d'utilisations
+    foreach ($group_usage_map[$q->id] as $usage_info) {
+        $total_usages++; // Chaque entrée = 1 utilisation
+    }
+}
+```
+
+**Fix 3 : Mise à jour du résumé statistique**
+
+Anciennes statistiques :
+- "Total utilisations dans quiz" → Nombre de quiz (confusion)
+- "Total tentatives" → 0 (incorrect)
+
+Nouvelles statistiques :
+- **"Total quiz utilisant ces versions"** : X quiz (clair)
+- **"Total utilisations"** : Y utilisation(s) dans des quiz (précis)
+
+#### Signification des Colonnes
+
+Pour clarifier une fois pour toutes :
+
+| Colonne | Signification | Exemple |
+|---------|---------------|---------|
+| **📊 Dans Quiz** | Nombre de quiz **différents** utilisant cette question | Si = 3 → Dans 3 quiz différents |
+| **🔢 Utilisations** | Nombre **total** d'utilisations (peut être plusieurs fois dans le même quiz) | Si = 5 → Utilisée 5 fois au total |
+| **Statut** | ✅ Utilisée (≥1 quiz) ou ⚠️ Inutilisée (0 quiz) | Visuel clair |
+
+**Exemple concret** :
+- Question A utilisée 2 fois dans Quiz 1, 1 fois dans Quiz 2
+- **📊 Dans Quiz** : 2 (2 quiz différents)
+- **🔢 Utilisations** : 3 (2+1 = 3 utilisations totales)
+
+#### Fichiers Modifiés
+
+- `questions_cleanup.php` :
+  - Lignes 332-336 : En-têtes clarifiés avec tooltips
+  - Lignes 349-366 : Calcul correct de quiz_count et total_usages
+  - Lignes 382-394 : Affichage des 2 colonnes avec styles et tooltips
+  - Lignes 418-446 : Résumé statistique mis à jour
+
+- `version.php` : v1.9.5 (2025101007)
+- `CHANGELOG.md` : Documentation complète
+
+#### Impact
+
+**Résolu** :
+- ✅ Colonnes claires avec icônes explicites (📊 📊)
+- ✅ Tooltips au survol pour expliquer chaque colonne
+- ✅ Calcul correct des utilisations (plus de 0 fixe)
+- ✅ Résumé statistique cohérent et précis
+- ✅ Interface plus professionnelle et compréhensible
+
+**Amélioration UX** :
+- ✅ L'utilisateur comprend immédiatement la signification
+- ✅ Données correctes et fiables
+- ✅ Meilleure prise de décision pour le nettoyage
+
+#### Version
+- Version : v1.9.5 (2025101007)
+- Date : 10 octobre 2025
+- Type : 🐛 Hotfix (UI + Data Accuracy)
+
+---
+
 ## [1.9.4] - 2025-10-10
 
 ### 🐛 HOTFIX : Filtres dupliqués & Chargement doublons utilisés
