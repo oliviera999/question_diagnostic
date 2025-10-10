@@ -9,8 +9,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'local_question_diagnostic';
-$plugin->version = 2025101021;  // YYYYMMDDXX format (v1.9.19 - FIX: SQL query INNER JOIN instead of EXISTS)
+$plugin->version = 2025101022;  // YYYYMMDDXX format (v1.9.20 - DEBUG: Add detailed logging for SQL issues)
 $plugin->requires = 2023100900; // Moodle 4.0+
 $plugin->maturity = MATURITY_STABLE;
-$plugin->release = 'v1.9.19';
+$plugin->release = 'v1.9.20';
 

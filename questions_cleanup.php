@@ -240,43 +240,71 @@ if ($randomtest_used && confirm_sesskey()) {
     // 4. Sinon → Chercher une autre question utilisée
     
     // Étape 1 : Récupérer TOUTES les questions utilisées (UNIQUEMENT dans les quiz)
-    // 🔧 v1.9.19 FIX : Utiliser l'approche éprouvée de question_analyzer (INNER JOIN au lieu de EXISTS)
+    // 🔧 v1.9.20 DEBUG : Ajouter logs détaillés pour comprendre pourquoi aucune question n'est trouvée
     $used_question_ids = [];
+    $debug_info = ['columns' => [], 'sql' => '', 'count' => 0, 'error' => ''];
     
     try {
         // Vérifier quelle colonne existe dans quiz_slots
         $columns = $DB->get_columns('quiz_slots');
+        $debug_info['columns'] = array_keys($columns);
+        
+        // D'abord, compter combien de quiz_slots existent
+        $total_slots = $DB->count_records('quiz_slots');
+        $debug_info['total_slots'] = $total_slots;
         
         if (isset($columns['questionbankentryid'])) {
             // Moodle 4.1+ : utilise questionbankentryid
-            // Approche directe avec INNER JOIN (comme question_analyzer::get_question_usage)
+            $debug_info['mode'] = 'Moodle 4.1+ (questionbankentryid)';
             $sql_used = "SELECT DISTINCT qv.questionid
                          FROM {quiz_slots} qs
                          INNER JOIN {question_bank_entries} qbe ON qbe.id = qs.questionbankentryid
                          INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id";
+            $debug_info['sql'] = $sql_used;
             $used_question_ids = $DB->get_fieldset_sql($sql_used);
         } else if (isset($columns['questionid'])) {
             // Moodle 3.x/4.0 : utilise questionid directement
+            $debug_info['mode'] = 'Moodle 3.x/4.0 (questionid)';
             $sql_used = "SELECT DISTINCT qs.questionid
                          FROM {quiz_slots} qs";
+            $debug_info['sql'] = $sql_used;
             $used_question_ids = $DB->get_fieldset_sql($sql_used);
         } else {
-            // Aucune colonne reconnue - impossible de déterminer l'usage
+            // Aucune colonne reconnue
+            $debug_info['mode'] = 'Aucune colonne reconnue';
             $used_question_ids = [];
         }
+        
+        $debug_info['count'] = count($used_question_ids);
     } catch (\Exception $e) {
+        $debug_info['error'] = $e->getMessage();
         debugging('Erreur récupération questions utilisées : ' . $e->getMessage(), DEBUG_DEVELOPER);
         $used_question_ids = [];
     }
     
+    // 🔍 v1.9.20 DEBUG : Afficher les infos de debug
+    debugging('DEBUG QUESTIONS UTILISÉES : ' . json_encode($debug_info), DEBUG_DEVELOPER);
+    
     if (empty($used_question_ids)) {
         // Aucune question utilisée dans la base
-        echo html_writer::start_tag('div', ['class' => 'alert alert-warning']);
+        echo html_writer::start_tag('div', ['class' => 'alert alert-danger']);
         echo html_writer::tag('h3', '⚠️ Aucune question utilisée trouvée');
         echo 'Votre base de données ne contient aucune question utilisée dans un quiz.';
         echo '<br><br>';
-        echo '💡 <strong>Note</strong> : Seules les questions présentes dans des quiz sont considérées comme "utilisées" pour ce test. ';
-        echo 'Les tentatives passées ne sont pas prises en compte.';
+        
+        // 🔍 v1.9.20 DEBUG : Afficher les infos pour diagnostic
+        echo html_writer::tag('h4', '🔍 Informations de Debug', ['style' => 'margin-top: 20px;']);
+        echo html_writer::start_tag('ul', ['style' => 'font-family: monospace; font-size: 12px;']);
+        echo html_writer::tag('li', '<strong>Mode détecté :</strong> ' . (isset($debug_info['mode']) ? $debug_info['mode'] : 'Inconnu'));
+        echo html_writer::tag('li', '<strong>Colonnes quiz_slots :</strong> ' . (isset($debug_info['columns']) ? implode(', ', $debug_info['columns']) : 'Aucune'));
+        echo html_writer::tag('li', '<strong>Total quiz_slots :</strong> ' . (isset($debug_info['total_slots']) ? $debug_info['total_slots'] : '?'));
+        echo html_writer::tag('li', '<strong>Questions trouvées :</strong> ' . (isset($debug_info['count']) ? $debug_info['count'] : 0));
+        if (!empty($debug_info['error'])) {
+            echo html_writer::tag('li', '<strong style="color: red;">Erreur :</strong> ' . $debug_info['error']);
+        }
+        echo html_writer::end_tag('ul');
+        
+        echo html_writer::tag('p', '<strong>💡 Action recommandée :</strong> Copiez ces informations et vérifiez votre structure de base de données.', ['style' => 'margin-top: 15px;']);
         echo html_writer::end_tag('div');
         
         echo html_writer::start_tag('div', ['style' => 'margin-top: 30px;']);
