@@ -5,6 +5,94 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.9.8] - 2025-10-10
+
+### 🐛 HOTFIX : Erreur JavaScript "Cannot read properties of null"
+
+#### Problème Identifié
+
+**Symptôme** : Erreur JavaScript dans la console en mode "Charger Doublons Utilisés"
+```
+Uncaught TypeError: Cannot read properties of null (reading 'style')
+    at questions_cleanup.php?loadusedduplicates=1&show=100:696
+```
+
+**Cause** :
+- Le code JavaScript essayait de masquer l'élément `loading-indicator`
+- Cet élément n'existe que si `loadstats=1` (ligne 526)
+- En mode `loadusedduplicates=1`, l'élément n'existe pas
+- `getElementById()` retourne `null` → `null.style` → **Erreur**
+
+**Impact** :
+- Erreur JavaScript visible dans la console (mauvaise expérience)
+- Pas de blocage fonctionnel mais pollue les logs
+
+#### Solution Appliquée
+
+**AVANT (v1.9.7)** - ❌ ERREUR :
+```javascript
+document.getElementById('loading-indicator').style.display = 'none';
+// Si l'élément n'existe pas → null.style → TypeError
+```
+
+**APRÈS (v1.9.8)** - ✅ SÉCURISÉ :
+```javascript
+var loadingIndicator = document.getElementById('loading-indicator');
+if (loadingIndicator) {
+    loadingIndicator.style.display = 'none';
+}
+// Vérifie l'existence avant manipulation → Pas d'erreur
+```
+
+**Correction appliquée à 3 endroits** :
+1. Ligne 601-606 : `loading-indicator`
+2. Ligne 910-915 : `loading-questions` (dans catch)
+3. Ligne 935-940 : `loading-questions` (après chargement)
+
+#### Fichiers Modifiés
+
+- `questions_cleanup.php` :
+  - Lignes 599-607 : Vérification existence avant manipulation (loading-indicator)
+  - Lignes 909-916 : Vérification existence (loading-questions dans catch)
+  - Lignes 934-941 : Vérification existence (loading-questions après succès)
+
+- `version.php` : v1.9.8 (2025101010)
+- `CHANGELOG.md` : Documentation
+
+#### Bonnes Pratiques JavaScript
+
+Cette correction applique la **bonne pratique JavaScript** :
+```javascript
+// ❌ MAUVAIS - Risque d'erreur
+element.style.display = 'none';
+
+// ✅ BON - Sécurisé
+var element = document.getElementById('...');
+if (element) {
+    element.style.display = 'none';
+}
+```
+
+#### Impact
+
+**Résolu** :
+- ✅ Plus d'erreur JavaScript dans la console
+- ✅ Mode `loadusedduplicates` fonctionne sans erreur
+- ✅ Code JavaScript plus robuste et défensif
+- ✅ Console propre pour le debug
+
+**Expérience Utilisateur** :
+- ✅ Pas d'erreurs visibles dans la console
+- ✅ Logs propres pour faciliter le debug
+- ✅ Code plus professionnel
+
+#### Version
+- Version : v1.9.8 (2025101010)
+- Date : 10 octobre 2025
+- Type : 🐛 Hotfix (JavaScript Error)
+
+---
+
 ## [1.9.7] - 2025-10-10
 
 ### 🐛 FIX CRITIQUE : Accès Incorrect aux Clés du Map d'Usage

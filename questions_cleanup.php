@@ -596,9 +596,14 @@ try {
     exit;
 }
 
-// Masquer l'indicateur de chargement via JavaScript
+// Masquer l'indicateur de chargement via JavaScript (seulement si l'élément existe)
 echo html_writer::start_tag('script');
-echo "document.getElementById('loading-indicator').style.display = 'none';";
+echo "
+var loadingIndicator = document.getElementById('loading-indicator');
+if (loadingIndicator) {
+    loadingIndicator.style.display = 'none';
+}
+";
 echo html_writer::end_tag('script');
 
 // Message si statistiques simplifiées
@@ -902,7 +907,12 @@ try {
     
 } catch (Exception $e) {
     echo html_writer::start_tag('script');
-    echo "document.getElementById('loading-questions').style.display = 'none';";
+    echo "
+var loadingQuestions = document.getElementById('loading-questions');
+if (loadingQuestions) {
+    loadingQuestions.style.display = 'none';
+}
+";
     echo html_writer::end_tag('script');
     
     echo html_writer::start_tag('div', ['class' => 'alert alert-danger']);
@@ -922,7 +932,12 @@ try {
 }
 
 echo html_writer::start_tag('script');
-echo "document.getElementById('loading-questions').style.display = 'none';";
+echo "
+var loadingQuestions = document.getElementById('loading-questions');
+if (loadingQuestions) {
+    loadingQuestions.style.display = 'none';
+}
+";
 echo html_writer::end_tag('script');
 
 echo html_writer::start_tag('div', ['class' => 'qd-table-wrapper']);
