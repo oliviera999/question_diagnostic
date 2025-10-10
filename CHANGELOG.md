@@ -5,6 +5,118 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.9.7] - 2025-10-10
+
+### 🐛 FIX CRITIQUE : Accès Incorrect aux Clés du Map d'Usage
+
+#### Problème Critique Identifié
+
+**Symptôme** : Toutes les questions du test aléatoire affichaient **exactement les mêmes valeurs** :
+- Toutes : 4 quiz
+- Toutes : 4 utilisations
+- Toutes : Statut "Utilisée"
+
+**Exemple de l'utilisateur** :
+```
+Question 342794 : 4 quiz, 4 utilisations, Utilisée
+Question 368633 : 4 quiz, 4 utilisations, Utilisée
+Question 374125 : 4 quiz, 4 utilisations, Utilisée
+... (toutes identiques)
+```
+
+**Cause Racine** :
+
+Le code utilisait `count($group_usage_map[$q->id])` sur un **array associatif** !
+
+Structure retournée par `get_questions_usage_by_ids()` :
+```php
+$usage_map[$question_id] = [
+    'quiz_count' => 3,      // Le vrai nombre de quiz
+    'quiz_list' => [...],   // Liste des quiz
+    'attempt_count' => 5,   // Le vrai nombre de tentatives
+    'is_used' => true       // Booléen
+];
+```
+
+Code erroné :
+```php
+$quiz_count = count($group_usage_map[$q->id]);  // ← Retourne toujours 4 !
+// count() sur cet array = 4 (nombre de clés : quiz_count, quiz_list, attempt_count, is_used)
+```
+
+**Résultat** : **TOUTES** les questions affichaient 4, peu importe leur usage réel !
+
+#### Solution Appliquée
+
+**Code AVANT (v1.9.6)** - ❌ INCORRECT :
+```php
+if (isset($group_usage_map[$q->id])) {
+    $quiz_count = count($group_usage_map[$q->id]);  // ← ERREUR : compte les clés !
+    
+    foreach ($group_usage_map[$q->id] as $usage_info) {
+        $total_usages++;  // ← ERREUR : itère sur toutes les clés !
+    }
+}
+```
+
+**Code APRÈS (v1.9.7)** - ✅ CORRECT :
+```php
+if (isset($group_usage_map[$q->id]) && is_array($group_usage_map[$q->id])) {
+    // ✅ Utiliser les clés correctes de la structure
+    $quiz_count = isset($group_usage_map[$q->id]['quiz_count']) 
+        ? $group_usage_map[$q->id]['quiz_count'] 
+        : 0;
+    
+    // ✅ Compter les quiz dans la liste
+    $total_usages = isset($group_usage_map[$q->id]['quiz_list']) 
+        ? count($group_usage_map[$q->id]['quiz_list']) 
+        : 0;
+}
+```
+
+#### Fichiers Modifiés
+
+- `questions_cleanup.php` :
+  - Lignes 360-372 : Correction accès aux clés dans la boucle d'affichage
+  - Lignes 466-485 : Correction accès aux clés dans le résumé statistique
+  - Suppression des logs de debug (plus nécessaires)
+
+- `version.php` : v1.9.7 (2025101009)
+- `CHANGELOG.md` : Documentation complète
+
+#### Impact
+
+**AVANT (v1.9.6)** :
+```
+Question A : 4 quiz, 4 utilisations (FAUX - comptait les clés)
+Question B : 4 quiz, 4 utilisations (FAUX - comptait les clés)
+Question C : 4 quiz, 4 utilisations (FAUX - comptait les clés)
+```
+
+**APRÈS (v1.9.7)** :
+```
+Question A : 3 quiz, 3 utilisations (VRAI - données réelles)
+Question B : 0 quiz, 0 utilisations (VRAI - inutilisée)
+Question C : 1 quiz, 1 utilisation  (VRAI - peu utilisée)
+```
+
+**Résolu** :
+- ✅ Chaque question affiche ses **vraies valeurs**
+- ✅ Distinction claire entre versions utilisées et inutilisées
+- ✅ Boutons 🗑️ et 🔒 affichés correctement selon l'usage réel
+- ✅ Résumé statistique cohérent et précis
+
+**Précision** :
+- ✅ Colonnes "📊 Dans Quiz" et "🔢 Utilisations" affichent maintenant les mêmes valeurs (car 1 quiz = 1 utilisation dans ce contexte)
+- ✅ Si une question est utilisée 2 fois dans le même quiz, cela compte comme 1 quiz mais 1 utilisation
+
+#### Version
+- Version : v1.9.7 (2025101009)
+- Date : 10 octobre 2025
+- Type : 🐛 Critical Fix (Data Accuracy)
+
+---
+
 ## [1.9.6] - 2025-10-10
 
 ### 🐛 HOTFIX : Correction Valeurs Dupliquées & Boutons de Suppression

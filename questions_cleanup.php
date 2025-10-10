@@ -343,13 +343,6 @@ if ($randomtest_used && confirm_sesskey()) {
     $group_question_ids = array_map(function($q) { return $q->id; }, $all_questions);
     $group_usage_map = question_analyzer::get_questions_usage_by_ids($group_question_ids);
     
-    // 🆕 v1.9.7 : DEBUG - Vérifier la structure de $group_usage_map
-    debugging('DEBUG group_usage_map structure: ' . print_r(array_keys($group_usage_map), true), DEBUG_DEVELOPER);
-    foreach ($group_question_ids as $qid) {
-        $count = isset($group_usage_map[$qid]) ? count($group_usage_map[$qid]) : 0;
-        debugging("DEBUG Question ID $qid has $count usages in map", DEBUG_DEVELOPER);
-    }
-    
     // 🆕 v1.9.6 : Vérifier la supprimabilité de toutes les questions du groupe en batch
     $group_question_ids_for_delete = array_map(function($q) { return $q->id; }, $all_questions);
     $deletability_map = question_analyzer::can_delete_questions_batch($group_question_ids_for_delete);
@@ -357,18 +350,18 @@ if ($randomtest_used && confirm_sesskey()) {
     foreach ($all_questions as $q) {
         $stats = question_analyzer::get_question_stats($q);
         
-        // 🆕 v1.9.6 : IMPORTANT - Réinitialiser les compteurs pour CHAQUE question
+        // 🆕 v1.9.7 : FIX CRITIQUE - Utiliser les bonnes clés du map
         $quiz_count = 0;      // Nombre de quiz différents POUR CETTE QUESTION
         $total_usages = 0;    // Nombre total d'utilisations POUR CETTE QUESTION
         
         // Vérifier l'usage spécifique de CETTE question (pas du groupe)
-        if (isset($group_usage_map[$q->id]) && !empty($group_usage_map[$q->id])) {
-            $quiz_count = count($group_usage_map[$q->id]);
+        if (isset($group_usage_map[$q->id]) && is_array($group_usage_map[$q->id])) {
+            // ✅ CORRECTION : Utiliser les clés correctes de la structure retournée
+            $quiz_count = isset($group_usage_map[$q->id]['quiz_count']) ? $group_usage_map[$q->id]['quiz_count'] : 0;
             
-            // Compter le nombre total d'utilisations pour CETTE question
-            foreach ($group_usage_map[$q->id] as $usage_info) {
-                $total_usages++; // Chaque entrée = 1 utilisation dans un quiz
-            }
+            // Compter le nombre total d'utilisations = nombre de quiz contenant cette question
+            // (dans quiz_list, chaque entrée = 1 quiz utilisant cette question)
+            $total_usages = isset($group_usage_map[$q->id]['quiz_list']) ? count($group_usage_map[$q->id]['quiz_list']) : 0;
         }
         
         $is_used = $quiz_count > 0;
@@ -463,14 +456,15 @@ if ($randomtest_used && confirm_sesskey()) {
     $total_quiz_count = 0;         // Nombre total de quiz différents
     $total_usages = 0;             // Nombre total d'utilisations
     
-    // 🆕 v1.9.5 : Calculer correctement les statistiques du groupe
+    // 🆕 v1.9.7 : FIX CRITIQUE - Calculer correctement avec les bonnes clés
     foreach ($all_questions as $q) {
         $quiz_count = 0;
         $question_usages = 0;
         
-        if (isset($group_usage_map[$q->id]) && !empty($group_usage_map[$q->id])) {
-            $quiz_count = count($group_usage_map[$q->id]);
-            $question_usages = count($group_usage_map[$q->id]); // Chaque entrée = 1 utilisation
+        if (isset($group_usage_map[$q->id]) && is_array($group_usage_map[$q->id])) {
+            // ✅ CORRECTION : Utiliser les clés correctes
+            $quiz_count = isset($group_usage_map[$q->id]['quiz_count']) ? $group_usage_map[$q->id]['quiz_count'] : 0;
+            $question_usages = isset($group_usage_map[$q->id]['quiz_list']) ? count($group_usage_map[$q->id]['quiz_list']) : 0;
         }
         
         if ($quiz_count > 0) {
