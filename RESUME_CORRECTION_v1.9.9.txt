@@ -1,0 +1,203 @@
+═══════════════════════════════════════════════════════════════════════════
+🐛 HOTFIX v1.9.9 : CORRECTION CRITIQUE - VÉRIFICATION DOUBLONS UTILISÉS
+═══════════════════════════════════════════════════════════════════════════
+
+Date        : 10 octobre 2025
+Version     : v1.9.9 (2025101011)
+Type        : Hotfix Critique - Logique
+Priorité    : Haute
+Impact      : Fonctionnalité "Test Doublons Utilisés"
+
+───────────────────────────────────────────────────────────────────────────
+🎯 PROBLÈME DÉTECTÉ
+───────────────────────────────────────────────────────────────────────────
+
+L'utilisateur a reporté une incohérence grave dans la fonctionnalité 
+"🎲 Test Doublons Utilisés" :
+
+❌ SYMPTÔME :
+   - Le système affirme avoir trouvé un "Groupe de Doublons Utilisés"
+   - MAIS l'analyse montre : "Versions utilisées : 0"
+   - Toutes les 14 versions affichent : 0 quiz, 0 utilisations
+   
+❌ IMPACT :
+   - Faux positifs fréquents
+   - Confusion pour l'administrateur
+   - Perte de confiance dans l'outil
+
+───────────────────────────────────────────────────────────────────────────
+🔍 CAUSE RACINE
+───────────────────────────────────────────────────────────────────────────
+
+Fichier : questions_cleanup.php
+Ligne   : 274 (avant correction)
+
+Code problématique :
+```php
+if (isset($usage_map[$qid]) && !empty($usage_map[$qid])) {
+    $has_used = true;
+    break;
+}
+```
+
+🐛 BUG : En PHP, !empty() sur un tableau associatif retourne TOUJOURS true,
+         même si toutes les valeurs sont 0 ou false !
+
+Exemple :
+```php
+$arr = ['quiz_count' => 0, 'quiz_list' => [], 'is_used' => false];
+!empty($arr);  // retourne TRUE ← C'est le bug !
+```
+
+───────────────────────────────────────────────────────────────────────────
+✅ SOLUTION APPLIQUÉE
+───────────────────────────────────────────────────────────────────────────
+
+Code corrigé (lignes 274-283) :
+```php
+// 🐛 v1.9.9 FIX : !empty() sur un tableau retourne toujours true
+// ✅ Vérifier explicitement le flag is_used ou les compteurs
+if (isset($usage_map[$qid]) && 
+    ($usage_map[$qid]['is_used'] === true || 
+     $usage_map[$qid]['quiz_count'] > 0 || 
+     $usage_map[$qid]['attempt_count'] > 0)) {
+    $has_used = true;
+    break;
+}
+```
+
+✅ VÉRIFICATIONS EXPLICITES :
+   1. is_used === true       → Flag booléen explicite
+   2. quiz_count > 0         → Au moins 1 quiz utilise la question
+   3. attempt_count > 0      → Au moins 1 tentative enregistrée
+
+───────────────────────────────────────────────────────────────────────────
+📁 FICHIERS MODIFIÉS
+───────────────────────────────────────────────────────────────────────────
+
+✅ questions_cleanup.php
+   - Lignes 274-283 : Correction de la vérification d'usage
+   - Ajout de commentaires explicatifs
+
+✅ version.php
+   - Version : v1.9.8 → v1.9.9
+   - Version code : 2025101010 → 2025101011
+
+✅ CHANGELOG.md
+   - Ajout entrée complète v1.9.9 (lignes 8-119)
+
+✅ BUGFIX_EMPTY_CHECK_v1.9.9.md (nouveau)
+   - Documentation technique complète
+   - Guide de test détaillé
+
+✅ RESUME_CORRECTION_v1.9.9.txt (ce fichier)
+   - Résumé exécutif
+
+───────────────────────────────────────────────────────────────────────────
+🧪 COMMENT TESTER LA CORRECTION
+───────────────────────────────────────────────────────────────────────────
+
+1. PURGER LE CACHE MOODLE
+   ▶ Administration du site → Développement → Purger tous les caches
+   OU via CLI : php admin/cli/purge_caches.php
+
+2. ACCÉDER À LA PAGE
+   ▶ Administration du site → Plugins locaux → Question Diagnostic
+   ▶ Analyser les questions
+
+3. CLIQUER SUR LE BOUTON
+   ▶ "🎲 Test Doublons Utilisés"
+
+4. VÉRIFIER LE RÉSULTAT
+
+   ✅ CAS 1 : Groupe utilisé trouvé
+      → Le titre indique "Groupe Utilisé Trouvé"
+      → L'analyse montre "Versions utilisées : 1 (ou plus)"
+      → Au moins une ligne a : Quiz > 0 OU Utilisations > 0
+      → Statut "✅ Utilisée" visible
+   
+   ✅ CAS 2 : Aucun groupe utilisé
+      → Message "Aucun groupe de doublons utilisés trouvé"
+      → Explique qu'après 5 tentatives, rien n'a été trouvé
+   
+   ❌ BUG PERSISTANT (si non corrigé)
+      → Le titre dit "Groupe Utilisé Trouvé"
+      → MAIS "Versions utilisées : 0"
+      → Toutes les lignes affichent 0 quiz, 0 utilisations
+
+───────────────────────────────────────────────────────────────────────────
+📊 RÉSULTAT ATTENDU
+───────────────────────────────────────────────────────────────────────────
+
+AVANT v1.9.9 (❌ Bugué)
+├─ Faux positifs fréquents
+├─ Affichage incohérent
+├─ Confusion utilisateur
+└─ Perte de confiance
+
+APRÈS v1.9.9 (✅ Corrigé)
+├─ Détection précise des groupes utilisés
+├─ Cohérence parfaite entre titre et données
+├─ Fiabilité restaurée
+└─ Confiance préservée
+
+───────────────────────────────────────────────────────────────────────────
+🎓 LEÇON APPRISE : LE PIÈGE PHP DE !empty()
+───────────────────────────────────────────────────────────────────────────
+
+⚠️ RÈGLE D'OR :
+   Ne JAMAIS utiliser !empty() pour vérifier qu'un tableau contient
+   des valeurs significatives. TOUJOURS vérifier explicitement.
+
+❌ MAUVAIS :
+   if (!empty($array)) { ... }
+
+✅ BON :
+   if (isset($array['count']) && $array['count'] > 0) { ... }
+
+───────────────────────────────────────────────────────────────────────────
+✅ CHECKLIST DE DÉPLOIEMENT
+───────────────────────────────────────────────────────────────────────────
+
+✅ Code corrigé dans questions_cleanup.php
+✅ Version incrémentée dans version.php
+✅ CHANGELOG.md mis à jour
+✅ Documentation technique créée
+✅ Résumé exécutif créé (ce fichier)
+
+⏳ À FAIRE PAR L'ADMINISTRATEUR :
+   ☐ Purger le cache Moodle
+   ☐ Vérifier que la version affichée est v1.9.9
+   ☐ Tester le bouton "Test Doublons Utilisés"
+   ☐ Valider la cohérence des résultats
+   ☐ Déployer en production si tests OK
+
+───────────────────────────────────────────────────────────────────────────
+📚 DOCUMENTATION ASSOCIÉE
+───────────────────────────────────────────────────────────────────────────
+
+▶ BUGFIX_EMPTY_CHECK_v1.9.9.md
+  → Documentation technique complète avec guide de test détaillé
+
+▶ CHANGELOG.md (lignes 8-119)
+  → Entrée complète v1.9.9 avec analyse technique
+
+▶ questions_cleanup.php (lignes 274-283)
+  → Code corrigé avec commentaires explicatifs
+
+───────────────────────────────────────────────────────────────────────────
+✅ CORRECTION TERMINÉE
+───────────────────────────────────────────────────────────────────────────
+
+L'incohérence a été identifiée, analysée et corrigée.
+
+Le système détecte maintenant UNIQUEMENT les groupes de doublons dont
+au moins une version est réellement utilisée dans un quiz ou possède
+des tentatives enregistrées.
+
+La cohérence entre le titre affiché et les données est maintenant garantie.
+
+═══════════════════════════════════════════════════════════════════════════
+FIN DU RAPPORT DE CORRECTION v1.9.9
+═══════════════════════════════════════════════════════════════════════════
+

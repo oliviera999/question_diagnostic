@@ -270,11 +270,35 @@ if ($randomtest_used && confirm_sesskey()) {
             
             // Vérifier si au moins une version est utilisée
             $has_used = false;
+            
+            // 🔍 v1.9.10 DEBUG : Afficher les données pour comprendre le problème
+            $debug_usage = [];
+            
             foreach ($group_ids as $qid) {
-                if (isset($usage_map[$qid]) && !empty($usage_map[$qid])) {
+                // 🐛 v1.9.9 FIX : !empty() sur un tableau retourne toujours true, même avec des 0 !
+                // ✅ Vérifier explicitement le flag is_used ou les compteurs
+                
+                // 🔍 DEBUG : Collecter les infos
+                if (isset($usage_map[$qid])) {
+                    $debug_usage[$qid] = [
+                        'is_used' => $usage_map[$qid]['is_used'],
+                        'quiz_count' => $usage_map[$qid]['quiz_count'],
+                        'attempt_count' => $usage_map[$qid]['attempt_count']
+                    ];
+                }
+                
+                if (isset($usage_map[$qid]) && 
+                    ($usage_map[$qid]['is_used'] === true || 
+                     $usage_map[$qid]['quiz_count'] > 0 || 
+                     $usage_map[$qid]['attempt_count'] > 0)) {
                     $has_used = true;
                     break;
                 }
+            }
+            
+            // 🔍 v1.9.10 DEBUG : Si ce groupe est marqué comme utilisé, afficher pourquoi
+            if ($has_used && count($debug_usage) > 0) {
+                debugging('GROUPE MARQUÉ COMME UTILISÉ - Détails : ' . json_encode($debug_usage), DEBUG_DEVELOPER);
             }
             
             if ($has_used) {

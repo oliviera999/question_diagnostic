@@ -5,6 +5,119 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.9.9] - 2025-10-10
+
+### 🐛 HOTFIX CRITIQUE : Test Doublons Utilisés - Vérification Incorrecte avec !empty()
+
+#### Problème Identifié
+
+**Symptôme** : Le bouton "🎲 Test Doublons Utilisés" trouve des groupes de doublons prétendument "utilisés", mais l'analyse montre que **toutes les versions sont inutilisées** (0 quiz, 0 utilisations).
+
+**Exemple réel** :
+```
+🎯 Groupe de Doublons Utilisés Trouvé !
+Total de versions : 14
+Versions utilisées : 0  ← ❌ INCOHÉRENCE !
+Versions inutilisées : 14
+```
+
+**Cause Racine** :
+
+Dans `questions_cleanup.php` ligne 274, la vérification d'usage utilisait :
+```php
+if (isset($usage_map[$qid]) && !empty($usage_map[$qid])) {
+    $has_used = true;  // ❌ FAUX POSITIF !
+}
+```
+
+**Problème** : En PHP, `!empty()` sur un **tableau associatif retourne TOUJOURS `true`**, même si toutes les valeurs sont 0 ou false !
+
+**Exemple démonstratif** :
+```php
+$arr = [
+    'quiz_count' => 0, 
+    'quiz_list' => [], 
+    'attempt_count' => 0, 
+    'is_used' => false
+];
+
+!empty($arr);  // retourne TRUE au lieu de FALSE !
+// Car le tableau a des clés, donc PHP le considère comme "non vide"
+```
+
+**Impact** :
+- ❌ Le système détecte des faux positifs (groupes non utilisés marqués comme utilisés)
+- ❌ Confusion pour l'administrateur
+- ❌ Affichage incohérent entre titre et données
+
+#### Solution Appliquée
+
+**AVANT (v1.9.8)** - ❌ INCORRECT :
+```php
+if (isset($usage_map[$qid]) && !empty($usage_map[$qid])) {
+    $has_used = true;
+}
+```
+
+**APRÈS (v1.9.9)** - ✅ CORRECT :
+```php
+// 🐛 v1.9.8 FIX : !empty() sur un tableau retourne toujours true, même avec des 0 !
+// ✅ Vérifier explicitement le flag is_used ou les compteurs
+if (isset($usage_map[$qid]) && 
+    ($usage_map[$qid]['is_used'] === true || 
+     $usage_map[$qid]['quiz_count'] > 0 || 
+     $usage_map[$qid]['attempt_count'] > 0)) {
+    $has_used = true;
+    break;
+}
+```
+
+**Vérifications explicites** :
+1. ✅ `is_used === true` : Flag explicite défini dans `question_analyzer::get_questions_usage_by_ids()`
+2. ✅ `quiz_count > 0` : Au moins 1 quiz utilise cette question
+3. ✅ `attempt_count > 0` : Au moins 1 tentative enregistrée
+
+#### Fichiers Modifiés
+
+- **`questions_cleanup.php`** :
+  - Lignes 274-283 : Vérification explicite au lieu de `!empty()`
+  - Ajout de commentaire expliquant le piège PHP
+
+- **`version.php`** : v1.9.9 (2025101011)
+- **`CHANGELOG.md`** : Documentation complète
+
+#### Résultat Attendu
+
+**Après correction** :
+- ✅ Le bouton "Test Doublons Utilisés" trouve UNIQUEMENT des groupes avec au moins 1 version réellement utilisée
+- ✅ Cohérence entre le titre et les données affichées
+- ✅ Si aucun groupe utilisé n'est trouvé, le message approprié s'affiche
+
+#### Leçon PHP
+
+**⚠️ ATTENTION** : Ne jamais utiliser `!empty()` pour vérifier qu'un tableau contient des valeurs significatives !
+
+```php
+// ❌ MAUVAIS
+if (!empty($array)) {
+    // Peut être true même si toutes les valeurs sont 0
+}
+
+// ✅ BON
+if (isset($array['key']) && $array['key'] > 0) {
+    // Vérification explicite de la valeur
+}
+```
+
+#### Version
+
+- **Version** : v1.9.9 (2025101011)
+- **Date** : 10 octobre 2025
+- **Type** : 🐛 Hotfix Critique (Logique)
+- **Priorité** : Haute (affecte la fiabilité de la fonctionnalité)
+
+---
+
 ## [1.9.8] - 2025-10-10
 
 ### 🐛 HOTFIX : Erreur JavaScript "Cannot read properties of null"

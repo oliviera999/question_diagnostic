@@ -1,0 +1,186 @@
+═══════════════════════════════════════════════════════════════════════════
+🔍 GUIDE DE VÉRIFICATION RAPIDE - Bug Doublons Utilisés v1.9.9
+═══════════════════════════════════════════════════════════════════════════
+
+📋 LISTE DE VÉRIFICATION ÉTAPE PAR ÉTAPE
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│ ÉTAPE 1 : PURGER LE CACHE MOODLE (OBLIGATOIRE)                         │
+└─────────────────────────────────────────────────────────────────────────┘
+
+⚠️ CRITIQUE : Sans cette étape, la correction ne sera PAS active !
+
+Option A - Interface Web (RECOMMANDÉE) :
+   1. Connexion admin sur Moodle
+   2. Administration du site → Développement → Purger tous les caches
+   3. Cliquer "Purger tous les caches"
+   4. Attendre confirmation
+
+Option B - Ligne de commande :
+   php admin/cli/purge_caches.php
+
+✅ Résultat attendu : "Caches purged successfully"
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│ ÉTAPE 2 : VÉRIFIER LA VERSION DU PLUGIN                                │
+└─────────────────────────────────────────────────────────────────────────┘
+
+1. Administration du site → Plugins → Vue d'ensemble des plugins
+2. Rechercher : local_question_diagnostic
+3. Vérifier : v1.9.9 (2025101011)
+
+✅ Si version affichée = v1.9.9 → OK
+❌ Si version < v1.9.9 → Problème d'installation
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│ ÉTAPE 3 : TESTER LA FONCTIONNALITÉ CORRIGÉE                            │
+└─────────────────────────────────────────────────────────────────────────┘
+
+1. Administration du site → Plugins locaux → Question Diagnostic
+2. Cliquer : "Analyser les questions"
+3. Cliquer : "🎲 Test Doublons Utilisés"
+4. Observer le résultat
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│ RÉSULTATS POSSIBLES                                                     │
+└─────────────────────────────────────────────────────────────────────────┘
+
+✅ RÉSULTAT A : GROUPE UTILISÉ TROUVÉ (COHÉRENT)
+   ─────────────────────────────────────────────
+   🎯 Groupe de Doublons Utilisés Trouvé !
+   
+   Versions utilisées : 5 (ou plus)  ← DOIT être > 0
+   Versions inutilisées : 129
+   Total quiz : 5 quiz                ← DOIT être > 0
+   Total utilisations : 5             ← DOIT être > 0
+   
+   👉 CONCLUSION : ✅ CORRECTION FONCTIONNE
+   
+✅ RÉSULTAT B : AUCUN GROUPE TROUVÉ (NORMAL)
+   ─────────────────────────────────────────
+   ⚠️ Aucun groupe de doublons utilisés trouvé
+   
+   Après 5 tentatives, aucun groupe de doublons avec au moins
+   1 version utilisée n'a été trouvé.
+   
+   👉 CONCLUSION : ✅ CORRECTION FONCTIONNE
+                    (Vos doublons ne sont juste pas utilisés)
+
+❌ RÉSULTAT C : INCOHÉRENCE (BUG PERSISTANT)
+   ──────────────────────────────────────────
+   🎯 Groupe de Doublons Utilisés Trouvé !  ← Dit "utilisés"
+   
+   Versions utilisées : 0  ← ❌ INCOHÉRENCE
+   Versions inutilisées : 134
+   Total quiz : 0 quiz
+   Total utilisations : 0
+   
+   👉 CONCLUSION : ❌ PROBLÈME PERSISTANT
+   
+   🔍 CAUSES POSSIBLES :
+      1. Cache non purgé → Retour à ÉTAPE 1
+      2. Version non mise à jour → Vérifier ÉTAPE 2
+      3. Problème plus profond → Voir DÉBOGAGE ci-dessous
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│ DÉBOGAGE AVANCÉ (Si problème persiste)                                 │
+└─────────────────────────────────────────────────────────────────────────┘
+
+1. ACTIVER MODE DEBUG
+   ─────────────────────
+   Éditer config.php :
+   
+   $CFG->debug = (E_ALL | E_STRICT);
+   $CFG->debugdisplay = 1;
+   
+2. PURGER LE CACHE ENCORE UNE FOIS
+   ─────────────────────────────────
+   php admin/cli/purge_caches.php
+   
+3. RETESTER
+   ─────────
+   Cliquer à nouveau sur "🎲 Test Doublons Utilisés"
+   
+4. CONSULTER LES LOGS
+   ───────────────────
+   Chercher dans les logs (ou sur la page) :
+   
+   "GROUPE MARQUÉ COMME UTILISÉ - Détails : {...}"
+   
+   Ce message contient les données qui ont causé la détection
+   
+5. ANALYSER LES DONNÉES
+   ─────────────────────
+   Si le message montre :
+   {
+     "12345": {
+       "is_used": true,      ← Si true
+       "quiz_count": 0,      ← Mais 0
+       "attempt_count": 0    ← Et 0
+     }
+   }
+   
+   → Alors il y a un problème dans get_questions_usage_by_ids()
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│ TABLEAU DE DIAGNOSTIC                                                   │
+└─────────────────────────────────────────────────────────────────────────┘
+
+Symptôme                           | Cause probable            | Solution
+──────────────────────────────────|───────────────────────────|─────────────
+"0 utilisations" affiché          | Cache non purgé           | Purger cache
+Version < v1.9.9                  | Fichiers non à jour       | Vérifier MAJ
+Debug montre "is_used: true"      | Bug dans fonction         | Analyse
+  mais quiz_count = 0             |  get_questions_usage...   |  approfondie
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│ CHECKLIST COMPLÈTE                                                      │
+└─────────────────────────────────────────────────────────────────────────┘
+
+☐ 1. Cache Moodle purgé via interface OU CLI
+☐ 2. Version du plugin = v1.9.9 (2025101011)
+☐ 3. Page rafraîchie dans le navigateur (F5)
+☐ 4. Test effectué via bouton "Test Doublons Utilisés"
+☐ 5. Résultat observé et comparé avec ci-dessus
+
+Si TOUS cochés et problème persiste :
+☐ 6. Mode debug activé dans config.php
+☐ 7. Cache purgé à nouveau
+☐ 8. Logs consultés
+☐ 9. Message debug "GROUPE MARQUÉ..." trouvé
+☐ 10. Données du message analysées
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│ QUAND CONTACTER LE SUPPORT                                              │
+└─────────────────────────────────────────────────────────────────────────┘
+
+Contacter uniquement si :
+✅ Tous les points de la checklist sont cochés
+✅ Le problème persiste après purge cache
+✅ La version est bien v1.9.9
+✅ Les logs de debug ont été collectés
+
+Fournir :
+- Version Moodle exacte (Administration → Notifications)
+- Message debug complet "GROUPE MARQUÉ COMME UTILISÉ"
+- Capture d'écran du résultat affiché
+- Confirmation que cache a été purgé
+
+═══════════════════════════════════════════════════════════════════════════
+RÉSUMÉ EN 3 ÉTAPES
+═══════════════════════════════════════════════════════════════════════════
+
+1️⃣ PURGER LE CACHE
+   Administration → Développement → Purger tous les caches
+
+2️⃣ VÉRIFIER VERSION = v1.9.9
+   Administration → Plugins → Vue d'ensemble
+
+3️⃣ RETESTER
+   Question Diagnostic → Analyser questions → Test Doublons Utilisés
+
+═══════════════════════════════════════════════════════════════════════════
+
+Créé le : 10 octobre 2025
+Version : 1.0
+
