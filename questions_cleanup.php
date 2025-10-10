@@ -239,8 +239,8 @@ if ($randomtest_used && confirm_sesskey()) {
     // 3. Si doublons trouvés → Afficher
     // 4. Sinon → Chercher une autre question utilisée
     
-    // Étape 1 : Récupérer TOUTES les questions utilisées (dans quiz OU avec tentatives)
-    // 🔧 v1.9.17 FIX : Vérifier la structure de quiz_slots pour compatibilité
+    // Étape 1 : Récupérer TOUTES les questions utilisées (UNIQUEMENT dans les quiz)
+    // 🔧 v1.9.18 SIMPLIFICATION : Basé UNIQUEMENT sur présence dans quiz (pas tentatives)
     $used_question_ids = [];
     
     try {
@@ -256,10 +256,6 @@ if ($randomtest_used && confirm_sesskey()) {
                              INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
                              INNER JOIN {quiz_slots} qs ON qs.questionbankentryid = qbe.id
                              WHERE qv.questionid = q.id
-                         )
-                         OR EXISTS (
-                             SELECT 1 FROM {question_attempts} qa
-                             WHERE qa.questionid = q.id
                          )";
         } else if (isset($columns['questionid'])) {
             // Moodle 3.x/4.0 : utilise questionid directement
@@ -268,22 +264,15 @@ if ($randomtest_used && confirm_sesskey()) {
                          WHERE EXISTS (
                              SELECT 1 FROM {quiz_slots} qs
                              WHERE qs.questionid = q.id
-                         )
-                         OR EXISTS (
-                             SELECT 1 FROM {question_attempts} qa
-                             WHERE qa.questionid = q.id
                          )";
         } else {
-            // Fallback : seulement les tentatives
-            $sql_used = "SELECT DISTINCT q.id
-                         FROM {question} q
-                         WHERE EXISTS (
-                             SELECT 1 FROM {question_attempts} qa
-                             WHERE qa.questionid = q.id
-                         )";
+            // Aucune colonne reconnue - impossible de déterminer l'usage
+            $sql_used = null;
         }
         
-        $used_question_ids = $DB->get_fieldset_sql($sql_used);
+        if ($sql_used) {
+            $used_question_ids = $DB->get_fieldset_sql($sql_used);
+        }
     } catch (\Exception $e) {
         debugging('Erreur récupération questions utilisées : ' . $e->getMessage(), DEBUG_DEVELOPER);
         $used_question_ids = [];
@@ -293,9 +282,10 @@ if ($randomtest_used && confirm_sesskey()) {
         // Aucune question utilisée dans la base
         echo html_writer::start_tag('div', ['class' => 'alert alert-warning']);
         echo html_writer::tag('h3', '⚠️ Aucune question utilisée trouvée');
-        echo 'Votre base de données ne contient aucune question utilisée dans un quiz ou avec des tentatives.';
+        echo 'Votre base de données ne contient aucune question utilisée dans un quiz.';
         echo '<br><br>';
-        echo '💡 <strong>Note</strong> : Si vous pensez que c\'est incorrect, vérifiez les logs pour voir s\'il y a eu une erreur SQL.';
+        echo '💡 <strong>Note</strong> : Seules les questions présentes dans des quiz sont considérées comme "utilisées" pour ce test. ';
+        echo 'Les tentatives passées ne sont pas prises en compte.';
         echo html_writer::end_tag('div');
         
         echo html_writer::start_tag('div', ['style' => 'margin-top: 30px;']);
@@ -346,11 +336,11 @@ if ($randomtest_used && confirm_sesskey()) {
     if ($found === false || $random_question === null) {
         echo html_writer::start_tag('div', ['class' => 'alert alert-warning']);
         echo html_writer::tag('h3', '⚠️ Aucune question utilisée avec doublons trouvée');
-        echo 'Après avoir testé <strong>' . $tested_count . ' question(s) utilisée(s)</strong>, ';
+        echo 'Après avoir testé <strong>' . $tested_count . ' question(s) utilisée(s) dans des quiz</strong>, ';
         echo 'aucune ne possède de doublon. ';
         echo '<br><br>';
-        echo '💡 <strong>Résultat</strong> : Toutes vos questions utilisées sont uniques. ';
-        echo 'Vos doublons (s\'ils existent) ne sont pas utilisés actuellement.';
+        echo '💡 <strong>Résultat</strong> : Toutes vos questions présentes dans des quiz sont uniques. ';
+        echo 'Vos doublons (s\'ils existent) ne sont pas utilisés dans des quiz actuellement.';
         echo html_writer::end_tag('div');
         
         echo html_writer::start_tag('div', ['style' => 'margin-top: 30px;']);
@@ -371,13 +361,13 @@ if ($randomtest_used && confirm_sesskey()) {
     
     echo html_writer::start_tag('div', ['class' => 'alert alert-success', 'style' => 'margin: 20px 0;']);
     echo html_writer::tag('h3', '🎯 Groupe de Doublons Utilisés Trouvé !', ['style' => 'margin-top: 0;']);
-    echo html_writer::tag('p', '✅ Trouvé après avoir testé <strong>' . $tested_count . ' question(s) utilisée(s)</strong>');
+    echo html_writer::tag('p', '✅ Trouvé après avoir testé <strong>' . $tested_count . ' question(s) utilisée(s) dans des quiz</strong>');
     echo html_writer::tag('p', '📊 Total de questions utilisées dans la base : <strong>' . count($used_question_ids) . '</strong>');
-    echo html_writer::tag('p', '<strong>Question sélectionnée ID :</strong> ' . $random_question->id . ' (Cette question est UTILISÉE dans un quiz ou possède des tentatives)');
+    echo html_writer::tag('p', '<strong>Question sélectionnée ID :</strong> ' . $random_question->id . ' (Cette question est UTILISÉE dans au moins un quiz)');
     echo html_writer::tag('p', '<strong>Nom :</strong> ' . format_string($random_question->name));
     echo html_writer::tag('p', '<strong>Type :</strong> ' . $random_question->qtype);
     $duplicate_count = count($all_questions) - 1; // -1 pour exclure la question elle-même
-    echo html_writer::tag('p', '<strong>Nombre de versions totales :</strong> ' . count($all_questions) . ' (1 utilisée + ' . $duplicate_count . ' doublon(s))');
+    echo html_writer::tag('p', '<strong>Nombre de versions totales :</strong> ' . count($all_questions) . ' (1 utilisée dans quiz + ' . $duplicate_count . ' doublon(s))');
     echo html_writer::end_tag('div');
     
     // Tableau détaillé

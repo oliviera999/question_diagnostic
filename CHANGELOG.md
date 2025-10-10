@@ -5,6 +5,105 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.9.18] - 2025-10-10
+
+### 🎯 SIMPLIFICATION : Test Doublons Utilisés - UNIQUEMENT Quiz (Pas Tentatives)
+
+#### Changement Demandé par l'Utilisateur
+
+**Demande** : Simplifier la définition de "question utilisée" pour qu'elle soit basée **UNIQUEMENT sur la présence dans un quiz**, sans prendre en compte les tentatives passées.
+
+#### Modifications Appliquées
+
+**1. Suppression de la vérification des tentatives**
+
+**AVANT (v1.9.17)** : Question = utilisée si dans quiz **OU** tentatives
+```php
+$sql_used = "SELECT DISTINCT q.id FROM {question} q
+             WHERE EXISTS (quiz_slots)  -- Dans quiz
+             OR EXISTS (question_attempts)";  -- ❌ OU tentatives
+```
+
+**APRÈS (v1.9.18)** : Question = utilisée si dans quiz **UNIQUEMENT**
+```php
+$sql_used = "SELECT DISTINCT q.id FROM {question} q
+             WHERE EXISTS (quiz_slots)";  -- ✅ Seulement quiz
+```
+
+**Simplification** :
+- ✅ Requête SQL plus simple et plus rapide
+- ✅ Définition claire : "utilisée" = "dans un quiz"
+- ✅ Cohérence avec le nom "Test Doublons Utilisés"
+
+**2. Messages mis à jour**
+
+Tous les messages ont été clarifiés :
+
+```
+Aucune question utilisée dans un quiz  (au lieu de "ou avec tentatives")
+Testé X question(s) utilisée(s) dans des quiz
+Cette question est UTILISÉE dans au moins un quiz
+```
+
+**3. Note explicite**
+
+```
+💡 Note : Seules les questions présentes dans des quiz sont 
+considérées comme "utilisées" pour ce test. 
+Les tentatives passées ne sont pas prises en compte.
+```
+
+#### Avantages
+
+1. ✅ **Plus simple** : Moins de clauses SQL
+2. ✅ **Plus rapide** : Moins de vérifications
+3. ✅ **Plus clair** : Définition univoque de "utilisée"
+4. ✅ **Plus cohérent** : Focus sur les quiz (usage actif)
+
+#### Impact
+
+**Différence pratique** :
+
+**Avant v1.9.18** :
+- Question dans quiz → Utilisée ✅
+- Question avec tentatives mais pas dans quiz → Utilisée ✅
+
+**Après v1.9.18** :
+- Question dans quiz → Utilisée ✅
+- Question avec tentatives mais pas dans quiz → **Non utilisée** ❌
+
+**Justification** : Une question avec tentatives mais plus dans aucun quiz n'est pas "actuellement utilisée".
+
+#### Fichiers Modifiés
+
+- **`questions_cleanup.php`** :
+  - Lignes 243-279 : Suppression vérification tentatives
+  - Lignes 285-288 : Message mis à jour
+  - Lignes 339-343 : Messages clarifiés
+  - Lignes 364-370 : Affichage adapté
+  
+- **`version.php`** : v1.9.17 → v1.9.18 (2025101020)
+- **`CHANGELOG.md`** : Documentation de la simplification
+
+#### Test
+
+Après purge du cache :
+
+**Résultat** : Seules les questions **actuellement dans des quiz** sont considérées.
+
+**Exemple** :
+- Question A : Dans 2 quiz → ✅ Utilisée
+- Question B : 100 tentatives mais dans 0 quiz → ❌ Non utilisée
+
+#### Version
+
+- **Version** : v1.9.18 (2025101020)
+- **Date** : 10 octobre 2025
+- **Type** : 🎯 Simplification (Suite demande utilisateur)
+- **Priorité** : Moyenne (améliore clarté et cohérence)
+
+---
+
 ## [1.9.17] - 2025-10-10
 
 ### 🔴 HOTFIX URGENT : Erreur SQL sur la requête questions utilisées
