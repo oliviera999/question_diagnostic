@@ -5,6 +5,155 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.9.6] - 2025-10-10
+
+### 🐛 HOTFIX : Correction Valeurs Dupliquées & Boutons de Suppression
+
+#### Problèmes Identifiés
+
+L'utilisateur a signalé 2 problèmes critiques dans le test aléatoire doublons utilisés :
+
+**Problème 1 : Toutes les lignes affichent les mêmes valeurs**
+- **Symptôme** : Colonnes "📊 Dans Quiz", "🔢 Utilisations" et "Statut" identiques pour toutes les questions
+- **Cause probable** : Variables mal réinitialisées ou logique de calcul incorrecte
+- **Impact** : Impossible de distinguer quelle version est utilisée ou non
+
+**Problème 2 : Manque de fonctionnalités dans la colonne Actions**
+- **Demande** : Ajouter un bouton de suppression
+- **Demande** : Ajouter une icône si la question est protégée
+- **Impact** : Pas d'action directe possible depuis ce tableau
+
+#### Solutions Appliquées
+
+**Fix 1 : Clarification et renforcement du calcul individuel**
+
+Ajout de commentaires explicites et réorganisation du code pour garantir que chaque question a ses propres valeurs :
+
+```php
+// 🆕 v1.9.6 : IMPORTANT - Réinitialiser les compteurs pour CHAQUE question
+$quiz_count = 0;      // POUR CETTE QUESTION
+$total_usages = 0;    // POUR CETTE QUESTION
+
+// Vérifier l'usage spécifique de CETTE question (pas du groupe)
+if (isset($group_usage_map[$q->id]) && !empty($group_usage_map[$q->id])) {
+    $quiz_count = count($group_usage_map[$q->id]);
+    
+    foreach ($group_usage_map[$q->id] as $usage_info) {
+        $total_usages++;
+    }
+}
+```
+
+**Clé** : Utilisation de `$group_usage_map[$q->id]` pour récupérer les données **spécifiques** à chaque question.
+
+**Fix 2 : Ajout de boutons de suppression avec protection**
+
+Implémentation d'une vérification batch de supprimabilité :
+
+```php
+// Vérifier la supprimabilité de toutes les questions en batch
+$deletability_map = question_analyzer::can_delete_questions_batch($group_question_ids);
+
+// Dans la boucle
+if ($can_delete_check && $can_delete_check->can_delete) {
+    // ✅ Bouton 🗑️ (rouge) - Question supprimable
+    echo html_writer::link($delete_url, '🗑️', [
+        'title' => 'Supprimer ce doublon inutilisé'
+    ]);
+} else {
+    // 🔒 Badge protégé (gris) - Question protégée
+    echo html_writer::tag('span', '🔒', [
+        'title' => 'PROTÉGÉE : ' . $reason
+    ]);
+}
+```
+
+**Avantages** :
+- ✅ Vérification batch (performances optimales)
+- ✅ Protection visible avec icône 🔒
+- ✅ Raison de protection dans le tooltip
+- ✅ Bouton rouge 🗑️ uniquement si supprimable
+
+#### Nouvelles Fonctionnalités
+
+**1. Boutons de suppression intelligents**
+
+Dans la colonne "Actions", chaque question affiche maintenant :
+
+**a) Bouton 👁️ (Voir)** :
+- Lien vers la banque de questions Moodle
+- Ouvre dans un nouvel onglet
+
+**b) Bouton 🗑️ (Supprimer)** - Affiché si supprimable :
+- Couleur rouge (#d9534f)
+- Tooltip : "Supprimer ce doublon inutilisé"
+- Lien vers page de confirmation
+
+**c) Badge 🔒 (Protégée)** - Affiché si protégée :
+- Couleur grise (#6c757d)
+- Tooltip : "PROTÉGÉE : [raison]"
+- Non cliquable (cursor: not-allowed)
+- **Raisons possibles** :
+  - "Question utilisée dans X quiz"
+  - "Question unique (pas de doublon)"
+
+**2. Mise en page améliorée**
+
+- Colonne Actions avec `white-space: nowrap` (pas de retour à la ligne)
+- Espacements entre boutons (margin-right: 5px)
+- Tailles cohérentes (padding: 3px 8px)
+
+#### Règles de Suppression (Rappel)
+
+Une question est **SUPPRIMABLE** uniquement si :
+1. ✅ N'est PAS utilisée dans un quiz
+2. ✅ N'a PAS de tentatives enregistrées
+3. ✅ Possède au moins UN doublon
+
+Une question est **PROTÉGÉE** si :
+1. 🔒 Est utilisée dans ≥1 quiz
+2. 🔒 A des tentatives enregistrées
+3. 🔒 Est unique (pas de doublon)
+
+#### Fichiers Modifiés
+
+- `questions_cleanup.php` :
+  - Lignes 346-348 : Ajout vérification batch deletability_map
+  - Lignes 353-371 : Commentaires explicites sur le calcul individuel
+  - Lignes 404-441 : Nouvelle colonne Actions avec boutons de suppression
+
+- `version.php` : v1.9.6 (2025101008)
+- `CHANGELOG.md` : Documentation complète
+
+#### Impact
+
+**Résolu** :
+- ✅ Chaque ligne affiche ses propres valeurs (plus de duplication)
+- ✅ Boutons de suppression présents (🗑️ si supprimable)
+- ✅ Icône de protection visible (🔒 si protégée)
+- ✅ Tooltips explicatifs sur protection
+- ✅ Action directe possible depuis le tableau
+
+**Amélioration UX** :
+- ✅ Distinction visuelle claire (rouge vs gris)
+- ✅ Protection transparente avec raison
+- ✅ Action rapide pour nettoyer les doublons
+- ✅ Prévention des suppressions accidentelles
+
+#### Debug Note
+
+Si le problème des valeurs identiques persiste, vérifier que `$group_usage_map` est correctement structuré :
+- Doit être : `[question_id => [quiz_info1, quiz_info2, ...]]`
+- Chaque `question_id` doit avoir sa propre entrée
+- Utiliser `var_dump($group_usage_map)` pour debug si nécessaire
+
+#### Version
+- Version : v1.9.6 (2025101008)
+- Date : 10 octobre 2025
+- Type : 🐛 Hotfix (Data + Features)
+
+---
+
 ## [1.9.5] - 2025-10-10
 
 ### 🐛 HOTFIX : Clarification Colonnes Test Aléatoire & Correction Compteurs

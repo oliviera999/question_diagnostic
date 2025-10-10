@@ -343,17 +343,22 @@ if ($randomtest_used && confirm_sesskey()) {
     $group_question_ids = array_map(function($q) { return $q->id; }, $all_questions);
     $group_usage_map = question_analyzer::get_questions_usage_by_ids($group_question_ids);
     
+    // 🆕 v1.9.6 : Vérifier la supprimabilité de toutes les questions du groupe en batch
+    $group_question_ids_for_delete = array_map(function($q) { return $q->id; }, $all_questions);
+    $deletability_map = question_analyzer::can_delete_questions_batch($group_question_ids_for_delete);
+    
     foreach ($all_questions as $q) {
         $stats = question_analyzer::get_question_stats($q);
         
-        // 🆕 v1.9.5 : Calculer correctement l'usage via le map pré-chargé
-        $quiz_count = 0;      // Nombre de quiz différents
-        $total_usages = 0;    // Nombre total d'utilisations (peut être plusieurs fois dans le même quiz)
+        // 🆕 v1.9.6 : IMPORTANT - Réinitialiser les compteurs pour CHAQUE question
+        $quiz_count = 0;      // Nombre de quiz différents POUR CETTE QUESTION
+        $total_usages = 0;    // Nombre total d'utilisations POUR CETTE QUESTION
         
+        // Vérifier l'usage spécifique de CETTE question (pas du groupe)
         if (isset($group_usage_map[$q->id]) && !empty($group_usage_map[$q->id])) {
             $quiz_count = count($group_usage_map[$q->id]);
             
-            // Compter le nombre total d'utilisations (somme de toutes les apparitions)
+            // Compter le nombre total d'utilisations pour CETTE question
             foreach ($group_usage_map[$q->id] as $usage_info) {
                 $total_usages++; // Chaque entrée = 1 utilisation dans un quiz
             }
@@ -361,7 +366,7 @@ if ($randomtest_used && confirm_sesskey()) {
         
         $is_used = $quiz_count > 0;
         
-        // Mettre à jour les stats avec les vraies valeurs
+        // Mettre à jour les stats avec les vraies valeurs pour CETTE question
         $stats->quiz_count = $quiz_count;
         $stats->total_usages = $total_usages;
         
@@ -397,11 +402,42 @@ if ($randomtest_used && confirm_sesskey()) {
         echo html_writer::tag('td', userdate($q->timecreated, '%d/%m/%Y %H:%M'));
         
         // Actions
-        echo html_writer::start_tag('td');
+        echo html_writer::start_tag('td', ['style' => 'white-space: nowrap;']);
+        
+        // Bouton Voir
         $view_url = question_analyzer::get_question_bank_url($q);
         if ($view_url) {
-            echo html_writer::link($view_url, '👁️', ['class' => 'btn btn-sm btn-primary', 'target' => '_blank', 'title' => 'Voir']);
+            echo html_writer::link($view_url, '👁️', [
+                'class' => 'btn btn-sm btn-primary', 
+                'target' => '_blank', 
+                'title' => 'Voir',
+                'style' => 'margin-right: 5px;'
+            ]);
         }
+        
+        // 🆕 v1.9.6 : Bouton Supprimer avec protection
+        $can_delete_check = isset($deletability_map[$q->id]) ? $deletability_map[$q->id] : null;
+        if ($can_delete_check && $can_delete_check->can_delete) {
+            // Question supprimable
+            $delete_url = new moodle_url('/local/question_diagnostic/actions/delete_question.php', [
+                'id' => $q->id,
+                'sesskey' => sesskey()
+            ]);
+            echo html_writer::link($delete_url, '🗑️', [
+                'class' => 'btn btn-sm btn-danger',
+                'title' => 'Supprimer ce doublon inutilisé',
+                'style' => 'background: #d9534f; color: white; padding: 3px 8px; margin-right: 5px;'
+            ]);
+        } else {
+            // Question protégée
+            $reason = $can_delete_check ? $can_delete_check->reason : 'Vérification impossible';
+            echo html_writer::tag('span', '🔒', [
+                'class' => 'btn btn-sm btn-secondary',
+                'title' => 'PROTÉGÉE : ' . $reason,
+                'style' => 'background: #6c757d; color: white; padding: 3px 8px; cursor: not-allowed; margin-right: 5px;'
+            ]);
+        }
+        
         echo html_writer::end_tag('td');
         
         echo html_writer::end_tag('tr');
