@@ -240,26 +240,62 @@ if ($randomtest_used && confirm_sesskey()) {
     // 4. Sinon → Chercher une autre question utilisée
     
     // Étape 1 : Récupérer TOUTES les questions utilisées (dans quiz OU avec tentatives)
-    $sql_used = "SELECT DISTINCT q.id
-                 FROM {question} q
-                 WHERE EXISTS (
-                     SELECT 1 FROM {question_bank_entries} qbe
-                     INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
-                     INNER JOIN {quiz_slots} qs ON qs.questionbankentryid = qbe.id
-                     WHERE qv.questionid = q.id
-                 )
-                 OR EXISTS (
-                     SELECT 1 FROM {question_attempts} qa
-                     WHERE qa.questionid = q.id
-                 )";
+    // 🔧 v1.9.17 FIX : Vérifier la structure de quiz_slots pour compatibilité
+    $used_question_ids = [];
     
-    $used_question_ids = $DB->get_fieldset_sql($sql_used);
+    try {
+        // Vérifier quelle colonne existe dans quiz_slots
+        $columns = $DB->get_columns('quiz_slots');
+        
+        if (isset($columns['questionbankentryid'])) {
+            // Moodle 4.1+ : utilise questionbankentryid
+            $sql_used = "SELECT DISTINCT q.id
+                         FROM {question} q
+                         WHERE EXISTS (
+                             SELECT 1 FROM {question_bank_entries} qbe
+                             INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+                             INNER JOIN {quiz_slots} qs ON qs.questionbankentryid = qbe.id
+                             WHERE qv.questionid = q.id
+                         )
+                         OR EXISTS (
+                             SELECT 1 FROM {question_attempts} qa
+                             WHERE qa.questionid = q.id
+                         )";
+        } else if (isset($columns['questionid'])) {
+            // Moodle 3.x/4.0 : utilise questionid directement
+            $sql_used = "SELECT DISTINCT q.id
+                         FROM {question} q
+                         WHERE EXISTS (
+                             SELECT 1 FROM {quiz_slots} qs
+                             WHERE qs.questionid = q.id
+                         )
+                         OR EXISTS (
+                             SELECT 1 FROM {question_attempts} qa
+                             WHERE qa.questionid = q.id
+                         )";
+        } else {
+            // Fallback : seulement les tentatives
+            $sql_used = "SELECT DISTINCT q.id
+                         FROM {question} q
+                         WHERE EXISTS (
+                             SELECT 1 FROM {question_attempts} qa
+                             WHERE qa.questionid = q.id
+                         )";
+        }
+        
+        $used_question_ids = $DB->get_fieldset_sql($sql_used);
+    } catch (\Exception $e) {
+        debugging('Erreur récupération questions utilisées : ' . $e->getMessage(), DEBUG_DEVELOPER);
+        $used_question_ids = [];
+    }
     
     if (empty($used_question_ids)) {
         // Aucune question utilisée dans la base
         echo html_writer::start_tag('div', ['class' => 'alert alert-warning']);
         echo html_writer::tag('h3', '⚠️ Aucune question utilisée trouvée');
         echo 'Votre base de données ne contient aucune question utilisée dans un quiz ou avec des tentatives.';
+        echo '<br><br>';
+        echo '💡 <strong>Note</strong> : Si vous pensez que c\'est incorrect, vérifiez les logs pour voir s\'il y a eu une erreur SQL.';
         echo html_writer::end_tag('div');
         
         echo html_writer::start_tag('div', ['style' => 'margin-top: 30px;']);

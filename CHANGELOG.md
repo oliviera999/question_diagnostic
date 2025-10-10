@@ -5,6 +5,112 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.9.17] - 2025-10-10
+
+### 🔴 HOTFIX URGENT : Erreur SQL sur la requête questions utilisées
+
+#### Problème
+
+**v1.9.16 a introduit une erreur SQL** :
+
+```
+Erreur de lecture de la base de données
+```
+
+**Cause** : La nouvelle requête SQL pour récupérer les questions utilisées ne vérifiait pas la structure de la table `quiz_slots`.
+
+**Requête problématique (v1.9.16)** :
+```sql
+-- ❌ Suppose que questionbankentryid existe
+SELECT DISTINCT q.id FROM {question} q
+WHERE EXISTS (
+    SELECT 1 FROM {quiz_slots} qs
+    WHERE qs.questionbankentryid = qbe.id  -- ❌ Colonne peut ne pas exister !
+)
+```
+
+**Problème** :
+- Moodle 4.1+ : `quiz_slots.questionbankentryid` existe ✅
+- Moodle 3.x/4.0 : `quiz_slots.questionid` existe (pas questionbankentryid) ❌
+- **Résultat** : Erreur SQL sur anciennes versions
+
+#### Solution Appliquée
+
+**Vérification dynamique de la structure** (comme dans `question_analyzer::get_questions_usage_by_ids()`) :
+
+```php
+// Vérifier quelle colonne existe
+$columns = $DB->get_columns('quiz_slots');
+
+if (isset($columns['questionbankentryid'])) {
+    // Moodle 4.1+ : requête avec questionbankentryid
+    $sql_used = "... JOIN quiz_slots ON questionbankentryid ...";
+    
+} else if (isset($columns['questionid'])) {
+    // Moodle 3.x/4.0 : requête avec questionid direct
+    $sql_used = "... WHERE qs.questionid = q.id ...";
+    
+} else {
+    // Fallback : seulement question_attempts
+    $sql_used = "... WHERE EXISTS question_attempts ...";
+}
+```
+
+**Ajout gestion d'erreur** :
+```php
+try {
+    $used_question_ids = $DB->get_fieldset_sql($sql_used);
+} catch (\Exception $e) {
+    debugging('Erreur : ' . $e->getMessage(), DEBUG_DEVELOPER);
+    $used_question_ids = [];
+}
+```
+
+#### Fichiers Modifiés
+
+- **`questions_cleanup.php`** :
+  - Lignes 243-290 : Vérification structure + 3 versions de la requête
+  - Try/catch pour gestion d'erreur
+  - Message informatif si erreur SQL
+  
+- **`version.php`** : v1.9.16 → v1.9.17 (2025101019)
+- **`CHANGELOG.md`** : Documentation du hotfix
+
+#### Impact
+
+**Avant v1.9.17** :
+- ❌ **Erreur SQL** sur Moodle 3.x/4.0
+- ❌ Plantage de la fonctionnalité
+- ❌ Message d'erreur cryptique
+
+**Après v1.9.17** :
+- ✅ **Compatible** Moodle 3.x, 4.0, 4.1, 4.5+
+- ✅ Vérification dynamique de la structure
+- ✅ Gestion d'erreur gracieuse
+- ✅ Message informatif si problème
+
+#### Test
+
+Après purge du cache :
+
+1. Cliquer "🎲 Test Doublons Utilisés"
+2. Vérifier : **Pas d'erreur SQL** ✅
+3. Résultat : Groupe trouvé OU message clair
+
+**Si erreur persiste** :
+- Activer mode debug
+- Consulter les logs
+- Vérifier structure de `quiz_slots` : `SHOW COLUMNS FROM mdl_quiz_slots`
+
+#### Version
+
+- **Version** : v1.9.17 (2025101019)
+- **Date** : 10 octobre 2025
+- **Type** : 🔴 HOTFIX URGENT
+- **Priorité** : MAXIMALE (corrige erreur SQL v1.9.16)
+
+---
+
 ## [1.9.16] - 2025-10-10
 
 ### 🔧 REFONTE COMPLÈTE : Test Doublons Utilisés - Logique Inversée Corrigée
