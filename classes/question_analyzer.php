@@ -1379,10 +1379,13 @@ class question_analyzer {
             $usage_map = self::get_questions_usage_by_ids($questionids);
             
             // ÉTAPE 3 : Trouver les doublons pour chaque question (groupé par signature)
+            // 🔧 v1.9.23 FIX : Utiliser nom+type UNIQUEMENT (pas le texte complet)
+            // Raison : Le texte peut avoir de légères différences (espaces, HTML) mais c'est quand même un doublon
             // Créer un map de signatures → liste de questions
             $signature_map = [];
             foreach ($questions as $q) {
-                $signature = md5($q->name . '|' . $q->qtype . '|' . $q->questiontext);
+                // Utiliser UNIQUEMENT nom + type (comme dans la page Test Doublons)
+                $signature = md5($q->name . '|' . $q->qtype);
                 if (!isset($signature_map[$signature])) {
                     $signature_map[$signature] = [];
                 }
@@ -1411,7 +1414,8 @@ class question_analyzer {
                 }
                 
                 // Vérification 2 : Question a des doublons ?
-                $signature = md5($q->name . '|' . $q->qtype . '|' . $q->questiontext);
+                // 🔧 v1.9.23 FIX : Utiliser nom+type UNIQUEMENT (cohérence avec page Test Doublons)
+                $signature = md5($q->name . '|' . $q->qtype);
                 $duplicate_ids = $signature_map[$signature];
                 
                 // Enlever la question elle-même

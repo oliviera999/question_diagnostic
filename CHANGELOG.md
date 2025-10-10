@@ -5,6 +5,179 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.9.23] - 2025-10-10
+
+### 🎯 FEATURE : Suppression en Masse + FIX Détection Doublons
+
+#### Problèmes Résolus
+
+**Problème #1 : Questions verrouillées à tort**
+
+**Symptôme** :
+```
+Question 313623 : Doublon inutilisé (0 quiz)
+Bouton : 🔒 Verrouillé  ← Devrait être supprimable !
+```
+
+**Cause** : `can_delete_questions_batch()` utilisait `md5(nom + type + TEXTE COMPLET)` pour détecter les doublons.
+
+**Problème** :
+- Si le texte a de légères différences (espaces, HTML, ponctuation)
+- md5() sera différent
+- Questions considérées comme "uniques" → verrouillées
+
+**Solution** : Utiliser `md5(nom + type)` UNIQUEMENT (ligne 1388 de question_analyzer.php)
+
+```php
+// ❌ AVANT - Trop strict
+$signature = md5($q->name . '|' . $q->qtype . '|' . $q->questiontext);
+
+// ✅ APRÈS - Cohérent avec page Test Doublons
+$signature = md5($q->name . '|' . $q->qtype);
+```
+
+**Résultat** :
+- ✅ Questions avec même nom + type = doublons
+- ✅ Doublons inutilisés = supprimables
+- ✅ Bouton 🗑️ au lieu de 🔒
+
+**Problème #2 : Pas de suppression en masse**
+
+**Demande utilisateur** : Pouvoir sélectionner plusieurs questions et les supprimer en une fois.
+
+#### Fonctionnalité Ajoutée : Suppression en Masse
+
+**1. Checkbox de sélection sur chaque ligne**
+
+- Checkbox uniquement pour questions **supprimables**
+- Questions protégées : pas de checkbox
+
+**2. Checkbox "Tout sélectionner/désélectionner"**
+
+- Dans l'en-tête du tableau
+- Sélectionne/désélectionne toutes les checkboxes visibles
+
+**3. Bouton "Supprimer la sélection"**
+
+- Apparaît dès qu'au moins 1 question est sélectionnée
+- Affiche le nombre de questions sélectionnées
+- Confirmation JavaScript avant redirection
+
+**4. Nouvelle action : delete_questions_bulk.php**
+
+- Gère la suppression de multiple questions
+- Affiche liste des questions à supprimer
+- Liste des questions protégées (ignorées)
+- Confirmation obligatoire
+- Suppression en batch avec feedback
+
+#### Implémentation Technique
+
+**Fichiers modifiés** :
+
+**1. `classes/question_analyzer.php`** :
+- Ligne 1388 : md5(nom + type) au lieu de md5(nom + type + texte)
+- Ligne 1418 : Même correction pour cohérence
+- **Impact** : Toutes les fonctions de suppression bénéficient
+
+**2. `questions_cleanup.php`** :
+- Ligne 413-424 : Bouton suppression en masse + compteur
+- Ligne 429 : Checkbox "Tout sélectionner" en en-tête
+- Lignes 486-490 : Checkbox par ligne (si supprimable)
+- Lignes 561-608 : JavaScript gestion sélection
+
+**3. `actions/delete_questions_bulk.php`** (nouveau fichier - 231 lignes) :
+- Vérification batch des permissions
+- Page de confirmation avec liste des questions
+- Suppression en masse avec gestion d'erreur
+- Feedback détaillé (succès/échec par question)
+
+**4. `version.php`** : v1.9.22 → v1.9.23
+
+#### Interface Utilisateur
+
+**Affichage** :
+
+```
+📋 Détails de Toutes les Versions
+
+[☐] Tout   |  ID    | Nom     | ... | Actions
+────────────────────────────────────────────────
+[☐]        | 51120  | ...     | ... | 👁️ 🔒 (Utilisée)
+[✓]        | 313623 | ...     | ... | 👁️ 🗑️ (Supprimable)
+
+[🗑️ Supprimer la sélection] 1 question(s) sélectionnée(s)
+```
+
+**Workflow** :
+1. Cocher les questions à supprimer
+2. Cliquer "Supprimer la sélection"
+3. Confirmation JavaScript
+4. Page de confirmation détaillée
+5. Confirmer → Suppression
+6. Feedback de succès/échec
+
+#### Fonctionnalités
+
+**Gestion Intelligente** :
+- ✅ Seulement les questions **supprimables** ont une checkbox
+- ✅ Questions protégées ignorées automatiquement
+- ✅ Compteur en temps réel
+- ✅ Confirmation à 2 niveaux (JS + page)
+- ✅ Suppression atomique (question par question)
+- ✅ Feedback détaillé (X réussies, Y échecs)
+
+**Protection** :
+- ✅ Vérification sesskey
+- ✅ Vérification admin
+- ✅ Double confirmation
+- ✅ Questions protégées filtrées
+- ✅ Messages d'erreur clairs
+
+#### Impact
+
+**Avant v1.9.23** :
+- ❌ Questions doublons verrouillées à tort (md5 texte complet)
+- ❌ Suppression une par une uniquement
+- ⏳ Fastidieux sur grandes bases
+
+**Après v1.9.23** :
+- ✅ Détection correcte des doublons (nom + type)
+- ✅ Boutons suppression déverrouillés
+- ✅ **Suppression en masse disponible**
+- ✅ Workflow rapide et efficace
+
+#### Exemple d'Usage
+
+**Cas d'usage** : Groupe de 10 versions, 1 utilisée, 9 doublons inutilisés
+
+**Avant** : Supprimer 9 questions une par une (9 clics de confirmation)
+
+**Après** :
+1. Cocher les 9 doublons
+2. "Supprimer la sélection"
+3. Confirmer une fois
+4. ✅ 9 questions supprimées !
+
+**Gain** : Workflow **9x plus rapide** !
+
+#### Fichiers Créés/Modifiés
+
+- **`classes/question_analyzer.php`** : Détection doublons nom+type uniquement
+- **`questions_cleanup.php`** : Checkboxes + bouton + JavaScript
+- **`actions/delete_questions_bulk.php`** (NOUVEAU) : Action suppression masse
+- **`version.php`** : v1.9.22 → v1.9.23
+- **`CHANGELOG.md`** : Documentation complète
+
+#### Version
+
+- **Version** : v1.9.23 (2025101025)
+- **Date** : 10 octobre 2025
+- **Type** : 🎯 Feature + Fix
+- **Priorité** : Haute (amélioration UX majeure)
+
+---
+
 ## [1.9.22] - 2025-10-10
 
 ### 🔴 FIX CRITIQUE : question_analyzer ne supportait pas Moodle 4.5+

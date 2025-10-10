@@ -32,14 +32,49 @@ if (!is_siteadmin()) {
     print_error('accessdenied', 'admin');
 }
 
-$questionid = required_param('id', PARAM_INT);
+// 🆕 v1.9.23 : Support suppression en masse
+$questionid = optional_param('id', 0, PARAM_INT);
+$questionids_param = optional_param('ids', '', PARAM_TEXT);
 $confirm = optional_param('confirm', 0, PARAM_INT);
 $returnurl = new moodle_url('/local/question_diagnostic/questions_cleanup.php', ['loadstats' => 1, 'show' => 50]);
 
-// Vérifier si la question peut être supprimée
-$check = question_analyzer::can_delete_question($questionid);
+// Déterminer si c'est une suppression unique ou en masse
+$question_ids = [];
+$is_bulk = false;
 
-if (!$check->can_delete) {
+if (!empty($questionids_param)) {
+    // Suppression en masse
+    $is_bulk = true;
+    $question_ids = array_map('intval', explode(',', $questionids_param));
+    $question_ids = array_filter($question_ids, function($id) { return $id > 0; });
+} else if ($questionid > 0) {
+    // Suppression unique
+    $question_ids = [$questionid];
+} else {
+    print_error('invalidparameter', 'error');
+}
+
+// 🆕 v1.9.23 : Vérifier toutes les questions en batch
+$deletability_map = question_analyzer::can_delete_questions_batch($question_ids);
+
+// Filtrer les questions non supprimables
+$cannot_delete = [];
+$can_delete = [];
+
+foreach ($question_ids as $qid) {
+    if (isset($deletability_map[$qid])) {
+        if ($deletability_map[$qid]->can_delete) {
+            $can_delete[] = $qid;
+        } else {
+            $cannot_delete[$qid] = $deletability_map[$qid]->reason;
+        }
+    } else {
+        $cannot_delete[$qid] = 'Vérification impossible';
+    }
+}
+
+// Si TOUTES les questions sont non supprimables
+if (empty($can_delete)) {
     // INTERDICTION DE SUPPRIMER - Afficher la raison
     $PAGE->set_context(context_system::instance());
     $PAGE->set_url(new moodle_url('/local/question_diagnostic/actions/delete_question.php'));
@@ -51,7 +86,19 @@ if (!$check->can_delete) {
     // Message d'erreur principal
     echo html_writer::start_tag('div', ['class' => 'alert alert-danger', 'style' => 'margin: 20px 0; padding: 20px;']);
     echo html_writer::tag('h3', '❌ ' . get_string('cannot_delete_question', 'local_question_diagnostic'), ['style' => 'margin-top: 0;']);
-    echo html_writer::tag('p', '<strong>' . get_string('reason', 'local_question_diagnostic') . '</strong> : ' . $check->reason, ['style' => 'font-size: 16px;']);
+    
+    if ($is_bulk) {
+        echo html_writer::tag('p', 'Aucune des <strong>' . count($question_ids) . ' question(s) sélectionnée(s)</strong> ne peut être supprimée.', ['style' => 'font-size: 16px;']);
+        echo html_writer::tag('h4', 'Raisons :', ['style' => 'margin-top: 15px;']);
+        echo html_writer::start_tag('ul');
+        foreach ($cannot_delete as $qid => $reason) {
+            echo html_writer::tag('li', '<strong>Question ' . $qid . ' :</strong> ' . $reason);
+        }
+        echo html_writer::end_tag('ul');
+    } else {
+        $first_reason = reset($cannot_delete);
+        echo html_writer::tag('p', '<strong>' . get_string('reason', 'local_question_diagnostic') . '</strong> : ' . $first_reason, ['style' => 'font-size: 16px;']);
+    }
     echo html_writer::end_tag('div');
     
     // Détails spécifiques selon la raison
@@ -106,18 +153,27 @@ if (!$check->can_delete) {
 // Si on arrive ici : la suppression est AUTORISÉE
 // Demander confirmation
 
+// Avertir s'il y a des questions non supprimables dans la sélection
+if (!empty($cannot_delete) && !empty($can_delete)) {
+    // Certaines sont supprimables, d'autres non
+    debugging('Suppression partielle : ' . count($can_delete) . ' sur ' . count($question_ids) . ' questions peuvent être supprimées', DEBUG_DEVELOPER);
+}
+
 if (!$confirm) {
     // PAGE DE CONFIRMATION
     global $DB;
-    $question = $DB->get_record('question', ['id' => $questionid]);
-    $stats = question_analyzer::get_question_stats($question);
     
     $PAGE->set_context(context_system::instance());
     $PAGE->set_url(new moodle_url('/local/question_diagnostic/actions/delete_question.php'));
     $PAGE->set_title(get_string('confirm_delete_question', 'local_question_diagnostic'));
     
     echo $OUTPUT->header();
-    echo $OUTPUT->heading('⚠️ ' . get_string('confirm_delete_question', 'local_question_diagnostic'));
+    
+    if ($is_bulk) {
+        echo $OUTPUT->heading('⚠️ Confirmation de Suppression en Masse');
+    } else {
+        echo $OUTPUT->heading('⚠️ ' . get_string('confirm_delete_question', 'local_question_diagnostic'));
+    }
     
     // Informations sur la question à supprimer
     echo html_writer::start_tag('div', ['class' => 'alert alert-warning', 'style' => 'margin: 20px 0;']);

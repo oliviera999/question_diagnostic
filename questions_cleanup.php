@@ -409,9 +409,24 @@ if ($randomtest_used && confirm_sesskey()) {
     echo html_writer::tag('h3', '📋 Détails de Toutes les Versions');
     echo html_writer::start_tag('table', ['class' => 'qd-table', 'style' => 'width: 100%;']);
     
+    // 🆕 v1.9.23 : Bouton de suppression en masse (au-dessus du tableau)
+    echo html_writer::start_tag('div', ['id' => 'bulk-actions-container', 'style' => 'margin-bottom: 15px; display: none;']);
+    echo html_writer::tag('button', '🗑️ Supprimer la sélection', [
+        'id' => 'bulk-delete-btn',
+        'class' => 'btn btn-danger',
+        'onclick' => 'bulkDeleteQuestions()',
+        'style' => 'margin-right: 10px;'
+    ]);
+    echo html_writer::tag('span', '0 question(s) sélectionnée(s)', [
+        'id' => 'selection-count',
+        'style' => 'font-weight: bold; color: #666;'
+    ]);
+    echo html_writer::end_tag('div');
+    
     // En-tête
     echo html_writer::start_tag('thead');
     echo html_writer::start_tag('tr');
+    echo html_writer::tag('th', '<input type="checkbox" id="select-all-questions" title="Tout sélectionner/désélectionner">', ['style' => 'width: 40px;']);
     echo html_writer::tag('th', 'ID');
     echo html_writer::tag('th', 'Nom');
     echo html_writer::tag('th', 'Type');
@@ -465,7 +480,15 @@ if ($randomtest_used && confirm_sesskey()) {
             $row_style = 'background: #fff3cd;'; // Jaune pour les utilisées
         }
         
-        echo html_writer::start_tag('tr', ['style' => $row_style]);
+        echo html_writer::start_tag('tr', ['style' => $row_style, 'data-question-id' => $q->id]);
+        
+        // 🆕 v1.9.23 : Checkbox de sélection (uniquement pour questions supprimables)
+        echo html_writer::start_tag('td', ['style' => 'text-align: center;']);
+        if ($can_delete_check && $can_delete_check->can_delete) {
+            echo '<input type="checkbox" class="question-select-checkbox" value="' . $q->id . '" data-question-id="' . $q->id . '">';
+        }
+        echo html_writer::end_tag('td');
+        
         echo html_writer::tag('td', $q->id . ($q->id == $random_question->id ? ' 🎯' : ''));
         echo html_writer::tag('td', format_string($q->name));
         echo html_writer::tag('td', $q->qtype);
@@ -533,6 +556,56 @@ if ($randomtest_used && confirm_sesskey()) {
     
     echo html_writer::end_tag('tbody');
     echo html_writer::end_tag('table');
+    
+    // 🆕 v1.9.23 : JavaScript pour gestion de la sélection en masse
+    echo html_writer::start_tag('script');
+    echo "
+    // Gestion sélection de toutes les checkboxes
+    document.getElementById('select-all-questions').addEventListener('change', function() {
+        var checkboxes = document.querySelectorAll('.question-select-checkbox');
+        checkboxes.forEach(function(cb) {
+            cb.checked = this.checked;
+        }.bind(this));
+        updateSelectionCount();
+    });
+    
+    // Gestion sélection individuelle
+    document.querySelectorAll('.question-select-checkbox').forEach(function(cb) {
+        cb.addEventListener('change', updateSelectionCount);
+    });
+    
+    // Mettre à jour le compteur de sélection
+    function updateSelectionCount() {
+        var checked = document.querySelectorAll('.question-select-checkbox:checked');
+        var count = checked.length;
+        document.getElementById('selection-count').textContent = count + ' question(s) sélectionnée(s)';
+        document.getElementById('bulk-actions-container').style.display = count > 0 ? 'block' : 'none';
+    }
+    
+    // Suppression en masse
+    function bulkDeleteQuestions() {
+        var checked = document.querySelectorAll('.question-select-checkbox:checked');
+        var ids = Array.from(checked).map(function(cb) { return cb.value; });
+        
+        if (ids.length === 0) {
+            alert('Aucune question sélectionnée');
+            return;
+        }
+        
+        // Confirmation
+        var message = 'Êtes-vous sûr de vouloir supprimer ' + ids.length + ' question(s) ?\\n\\n';
+        message += '⚠️ ATTENTION : Cette action est IRRÉVERSIBLE !\\n\\n';
+        message += 'Questions à supprimer : ' + ids.join(', ');
+        
+        if (confirm(message)) {
+            // Rediriger vers l'action de suppression en masse
+            var url = '" . (new \moodle_url('/local/question_diagnostic/actions/delete_questions_bulk.php'))->out(false) . "';
+            url += '?ids=' + ids.join(',') + '&sesskey=" . sesskey() . "';
+            window.location.href = url;
+        }
+    }
+    ";
+    echo html_writer::end_tag('script');
     
     // Résumé détaillé
     echo html_writer::start_tag('div', ['class' => 'alert alert-info', 'style' => 'margin-top: 20px;']);
