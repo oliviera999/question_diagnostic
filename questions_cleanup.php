@@ -95,7 +95,9 @@ if ($randomtest && confirm_sesskey()) {
     echo html_writer::tag('h2', '🎲 Test de Détection de Doublons - Question Aléatoire');
     
     // Sélectionner une question aléatoire
-    $random_question = $DB->get_record_sql("SELECT * FROM {question} ORDER BY RAND() LIMIT 1");
+    // 🔧 v1.9.13 FIX : Utiliser sql_random() pour compatibilité multi-SGBD (PostgreSQL, MSSQL)
+    $sql_random = "SELECT * FROM {question} ORDER BY " . $DB->sql_random() . " LIMIT 1";
+    $random_question = $DB->get_record_sql($sql_random);
     
     if (!$random_question) {
         echo html_writer::start_tag('div', ['class' => 'alert alert-danger']);
@@ -228,13 +230,15 @@ if ($randomtest_used && confirm_sesskey()) {
     // Au lieu de chercher parmi des candidats, on identifie directement les groupes de doublons
     
     // Étape 1 : Trouver les signatures de questions qui ont des doublons ET sont utilisées
-    $sql = "SELECT CONCAT(q.name, '|', q.qtype) as signature,
+    // 🔧 v1.9.13 FIX : Utiliser sql_concat() et sql_random() pour compatibilité multi-SGBD
+    $signature_field = $DB->sql_concat('q.name', "'|'", 'q.qtype');
+    $sql = "SELECT {$signature_field} as signature,
                    MIN(q.id) as sample_id,
                    COUNT(DISTINCT q.id) as question_count
             FROM {question} q
             GROUP BY q.name, q.qtype
             HAVING COUNT(DISTINCT q.id) > 1
-            ORDER BY RAND()
+            ORDER BY " . $DB->sql_random() . "
             LIMIT 5";
     
     $duplicate_groups = $DB->get_records_sql($sql);
@@ -861,11 +865,22 @@ echo html_writer::end_tag('div');
 // Charger les questions avec gestion d'erreurs optimisée
 try {
     // 🚨 v1.6.0 : PROTECTION RENFORCÉE pour grandes bases (30 000+ questions)
-    // Paramètre pour augmenter la limite si besoin
-    $max_questions_display = optional_param('show', 10, PARAM_INT); // Par défaut : 10 questions (ultra rapide)
-    $max_questions_display = min($max_questions_display, 5000); // Limite absolue : 5000
-    
+    // 🎯 v1.9.13 AMÉLIORATION : Valeur par défaut adaptative selon taille BDD
     $total_questions = $globalstats->total_questions;
+    
+    // Calculer une valeur par défaut intelligente
+    if ($total_questions < 100) {
+        $default_show = $total_questions; // Tout afficher si petite base
+    } else if ($total_questions < 1000) {
+        $default_show = 100;
+    } else if ($total_questions < 5000) {
+        $default_show = 500;
+    } else {
+        $default_show = 100; // Grande base : rester raisonnable
+    }
+    
+    $max_questions_display = optional_param('show', $default_show, PARAM_INT);
+    $max_questions_display = min($max_questions_display, 5000); // Limite absolue : 5000
     
     // 🚫 DÉSACTIVER la détection de doublons par défaut (trop lourd)
     $include_duplicates = false;
@@ -899,6 +914,15 @@ try {
     echo html_writer::link($url_500, '500', ['class' => $max_questions_display == 500 ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-secondary']);
     echo ' ';
     echo html_writer::link($url_1000, '1000', ['class' => $max_questions_display == 1000 ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-secondary']);
+    
+    // 🎯 v1.9.13 AMÉLIORATION : Bouton "Tout" si base < 2000 questions
+    if ($total_questions < 2000 && $total_questions > 100) {
+        echo ' ';
+        $url_all = new moodle_url('/local/question_diagnostic/questions_cleanup.php', 
+                                  array_merge($base_params, ['show' => $total_questions]));
+        echo html_writer::link($url_all, 'Tout (' . $total_questions . ')', 
+                              ['class' => $max_questions_display >= $total_questions ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-secondary']);
+    }
     echo '</li>';
     echo '</ul>';
     echo '<p style="margin-top: 15px;"><em>Les statistiques globales ci-dessus concernent bien <strong>TOUTES les ' . number_format($total_questions, 0, ',', ' ') . ' questions</strong>.</em></p>';

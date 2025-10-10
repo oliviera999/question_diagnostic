@@ -9,8 +9,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'local_question_diagnostic';
-$plugin->version = 2025101014;  // YYYYMMDDXX format (v1.9.12 - FIX: Add empty questions message + debug)
+$plugin->version = 2025101015;  // YYYYMMDDXX format (v1.9.13 - FIX: Multi-DB compatibility + UX improvements)
 $plugin->requires = 2023100900; // Moodle 4.0+
 $plugin->maturity = MATURITY_STABLE;
-$plugin->release = 'v1.9.12';
+$plugin->release = 'v1.9.13';
 
