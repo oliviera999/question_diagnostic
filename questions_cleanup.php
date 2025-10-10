@@ -1087,9 +1087,38 @@ foreach ($questions_with_stats as $item) {
                 'target' => '_blank'
             ]
         );
-    }
-    
-    echo html_writer::end_tag('div');
+      }
+     
+     // 🚫 DÉSACTIVÉ TEMPORAIREMENT : Trop de requêtes SQL (cause timeout)
+     // TODO v1.9.1 : Implémenter vérification batch ou page détail séparée
+     /*
+     // 🆕 Bouton supprimer (UNIQUEMENT si la question peut être supprimée)
+     $can_delete_check = question_analyzer::can_delete_question($q->id);
+     if ($can_delete_check->can_delete) {
+         $delete_url = new moodle_url('/local/question_diagnostic/actions/delete_question.php', [
+             'id' => $q->id,
+             'sesskey' => sesskey()
+         ]);
+         echo html_writer::link(
+             $delete_url,
+             '🗑️ Supprimer',
+             [
+                 'class' => 'qd-btn qd-btn-delete',
+                 'title' => 'Supprimer ce doublon inutilisé',
+                 'style' => 'background: #d9534f; color: white; margin-left: 5px;'
+             ]
+         );
+     } else {
+         // Bouton désactivé avec tooltip expliquant pourquoi
+         echo html_writer::tag('span', '🔒 Protégée', [
+             'class' => 'qd-btn qd-btn-disabled',
+             'title' => 'Protection active : ' . $can_delete_check->reason,
+             'style' => 'background: #ccc; color: #666; cursor: not-allowed; margin-left: 5px;'
+         ]);
+     }
+     */
+     
+     echo html_writer::end_tag('div');
     echo html_writer::end_tag('td');
     
     echo html_writer::end_tag('tr');
