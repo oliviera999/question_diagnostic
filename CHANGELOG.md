@@ -5,6 +5,137 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.9.22] - 2025-10-10
+
+### 🔴 FIX CRITIQUE : question_analyzer ne supportait pas Moodle 4.5+
+
+#### Problème Identifié
+
+**Incohérence dans le tableau** :
+
+```
+Titre: Question 51120 UTILISÉE dans au moins un quiz ✅
+Tableau: Dans Quiz : 0  ❌
+Statut: ⚠️ Inutilisée  ❌
+```
+
+**Cause** : `question_analyzer.php` utilisait l'ancienne méthode de détection et ne supportait PAS Moodle 4.5+ avec `question_references`.
+
+**Résultat** :
+- La requête dans `questions_cleanup.php` trouvait correctement la question via `question_references` ✅
+- MAIS `question_analyzer::get_question_usage()` ne trouvait rien (ancienne méthode) ❌
+- Affichage incohérent !
+
+#### Solution Appliquée
+
+**Ajout de la 3ème branche Moodle 4.5+ dans question_analyzer.php**
+
+**Deux fonctions corrigées** :
+
+**1. `get_question_usage()` (ligne 247-263)**
+
+```php
+// AVANT - Seulement 2 branches
+if (isset($columns['questionbankentryid'])) {
+    // Moodle 4.1+
+} else if (isset($columns['questionid'])) {
+    // Moodle 3.x
+}
+// ❌ MANQUAIT: Moodle 4.5+
+
+// APRÈS - 3 branches
+if (isset($columns['questionbankentryid'])) {
+    // Moodle 4.1-4.4
+} else if (isset($columns['questionid'])) {
+    // Moodle 3.x
+} else {
+    // ✅ Moodle 4.5+ avec question_references
+    $sql = "... INNER JOIN {question_references} qr ...";
+}
+```
+
+**2. `get_questions_usage_by_ids()` (ligne 322-342)**
+
+Même correction : ajout de la branche `else` pour Moodle 4.5+.
+
+```php
+} else {
+    // Moodle 4.5+ : question_references
+    $quiz_usage = $DB->get_records_sql("
+        SELECT qv.questionid, qu.id as quiz_id, qu.name as quiz_name, qu.course
+        FROM {quiz_slots} qs
+        INNER JOIN {quiz} qu ON qu.id = qs.quizid
+        INNER JOIN {question_references} qr 
+            ON qr.itemid = qs.id 
+            AND qr.component = 'mod_quiz' 
+            AND qr.questionarea = 'slot'
+        INNER JOIN {question_bank_entries} qbe ON qbe.id = qr.questionbankentryid
+        INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+        WHERE qv.questionid $insql
+        ORDER BY qv.questionid, qu.id
+    ", $params);
+}
+```
+
+#### Fichiers Modifiés
+
+- **`classes/question_analyzer.php`** :
+  - Lignes 247-263 : Ajout branche Moodle 4.5+ dans `get_question_usage()`
+  - Lignes 322-342 : Ajout branche Moodle 4.5+ dans `get_questions_usage_by_ids()`
+
+- **`version.php`** : v1.9.21 → v1.9.22 (2025101024)
+- **`CHANGELOG.md`** : Documentation du fix
+
+#### Impact
+
+**Avant v1.9.22** :
+- ✅ Requête trouve la question via question_references
+- ❌ question_analyzer affiche "0 quiz" (utilise ancienne méthode)
+- ❌ **Incohérence totale** entre titre et tableau
+
+**Après v1.9.22** :
+- ✅ Requête trouve la question via question_references
+- ✅ question_analyzer trouve aussi les quiz via question_references
+- ✅ **Cohérence parfaite** entre titre et tableau
+
+#### Test
+
+Après purge du cache :
+
+**Résultat attendu** :
+```
+🎯 Groupe de Doublons Utilisés Trouvé !
+
+Question 51120 UTILISÉE dans au moins un quiz ✅
+
+ID      Dans Quiz    Statut
+51120   2 (ou plus)  ✅ Utilisée  ← COHÉRENT maintenant !
+312746  0            ⚠️ Inutilisée
+
+Versions utilisées : 1 (ou plus)  ← COHÉRENT !
+Total quiz : ≥ 1  ← COHÉRENT !
+```
+
+#### Portée de la Correction
+
+**Cette correction affecte TOUTES les fonctionnalités du plugin** :
+- ✅ Test Doublons Utilisés
+- ✅ Liste des questions (compteur quiz)
+- ✅ Statistiques globales
+- ✅ Export CSV
+- ✅ Tous les affichages de "Dans Quiz"
+
+**Raison** : `question_analyzer` est utilisé partout dans le plugin.
+
+#### Version
+
+- **Version** : v1.9.22 (2025101024)
+- **Date** : 10 octobre 2025
+- **Type** : 🔴 Fix Critique (question_analyzer Moodle 4.5+)
+- **Priorité** : MAXIMALE (corrige incohérence affichage)
+
+---
+
 ## [1.9.21] - 2025-10-10
 
 ### 🔴 FIX CRITIQUE : Moodle 4.5+ Nouvelle Architecture question_references

@@ -245,7 +245,7 @@ class question_analyzer {
             $quizzes = [];
             
             if (isset($columns['questionbankentryid'])) {
-                // Moodle 4.1+ : utilise questionbankentryid
+                // Moodle 4.1-4.4 : utilise questionbankentryid
                 $sql = "SELECT DISTINCT q.id, q.name, q.course
                         FROM {quiz} q
                         INNER JOIN {quiz_slots} qs ON qs.quizid = q.id
@@ -259,6 +259,18 @@ class question_analyzer {
                         FROM {quiz} q
                         INNER JOIN {quiz_slots} qs ON qs.quizid = q.id
                         WHERE qs.questionid = :questionid";
+                $quizzes = $DB->get_records_sql($sql, ['questionid' => $questionid]);
+            } else {
+                // 🔧 v1.9.22 FIX : Moodle 4.5+ utilise question_references
+                $sql = "SELECT DISTINCT q.id, q.name, q.course
+                        FROM {quiz} q
+                        INNER JOIN {quiz_slots} qs ON qs.quizid = q.id
+                        INNER JOIN {question_references} qr ON qr.itemid = qs.id 
+                            AND qr.component = 'mod_quiz' 
+                            AND qr.questionarea = 'slot'
+                        INNER JOIN {question_bank_entries} qbe ON qbe.id = qr.questionbankentryid
+                        INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+                        WHERE qv.questionid = :questionid";
                 $quizzes = $DB->get_records_sql($sql, ['questionid' => $questionid]);
             }
 
@@ -320,7 +332,7 @@ class question_analyzer {
                 $columns = $DB->get_columns('quiz_slots');
                 
                 if (isset($columns['questionbankentryid'])) {
-                    // Moodle 4.1+ : utilise questionbankentryid
+                    // Moodle 4.1-4.4 : utilise questionbankentryid
                     $quiz_usage = $DB->get_records_sql("
                         SELECT qv.questionid, qu.id as quiz_id, qu.name as quiz_name, qu.course
                         FROM {quiz_slots} qs
@@ -338,6 +350,20 @@ class question_analyzer {
                         INNER JOIN {quiz} qu ON qu.id = qs.quizid
                         WHERE qs.questionid $insql
                         ORDER BY qs.questionid, qu.id
+                    ", $params);
+                } else {
+                    // 🔧 v1.9.22 FIX : Moodle 4.5+ utilise question_references
+                    $quiz_usage = $DB->get_records_sql("
+                        SELECT qv.questionid, qu.id as quiz_id, qu.name as quiz_name, qu.course
+                        FROM {quiz_slots} qs
+                        INNER JOIN {quiz} qu ON qu.id = qs.quizid
+                        INNER JOIN {question_references} qr ON qr.itemid = qs.id 
+                            AND qr.component = 'mod_quiz' 
+                            AND qr.questionarea = 'slot'
+                        INNER JOIN {question_bank_entries} qbe ON qbe.id = qr.questionbankentryid
+                        INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+                        WHERE qv.questionid $insql
+                        ORDER BY qv.questionid, qu.id
                     ", $params);
                 }
             } catch (\Exception $e) {
