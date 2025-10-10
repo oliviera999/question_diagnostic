@@ -9,8 +9,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'local_question_diagnostic';
-$plugin->version = 2025101012;  // YYYYMMDDXX format (v1.9.10 - DEBUG: Add logging for usage detection)
+$plugin->version = 2025101013;  // YYYYMMDDXX format (v1.9.11 - FIX: Add id attributes to column checkboxes)
 $plugin->requires = 2023100900; // Moodle 4.0+
 $plugin->maturity = MATURITY_STABLE;
-$plugin->release = 'v1.9.10';
+$plugin->release = 'v1.9.11';
 

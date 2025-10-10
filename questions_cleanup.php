@@ -768,8 +768,9 @@ echo html_writer::start_tag('div', ['class' => 'qd-columns-grid']);
 foreach ($columns as $col_id => $col_name) {
     // Par défaut : afficher id, name, type, category, course, quizzes, duplicates, actions
     $checked = in_array($col_id, ['id', 'name', 'type', 'category', 'course', 'quizzes', 'duplicates', 'actions']);
-    echo html_writer::start_tag('label', ['class' => 'qd-column-toggle']);
+    echo html_writer::start_tag('label', ['class' => 'qd-column-toggle', 'for' => 'column_' . $col_id]);
     echo html_writer::checkbox('column_' . $col_id, 1, $checked, ' ' . $col_name, [
+        'id' => 'column_' . $col_id,  // 🔧 v1.9.11 FIX: Ajouter id explicite pour accessibilité
         'class' => 'column-toggle-checkbox',
         'data-column' => $col_id,
         'onchange' => 'toggleColumn(this)'

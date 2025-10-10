@@ -5,6 +5,91 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.9.11] - 2025-10-10
+
+### 🔧 FIX : Ajout attributs id pour checkboxes du sélecteur de colonnes
+
+#### Problème Identifié
+
+**Message Console du Navigateur** :
+```
+A form field element should have an id or name attribute
+A form field element has neither an id nor a name attribute. 
+This might prevent the browser from correctly autofilling the form.
+4 resources
+```
+
+**Cause** :
+- Les checkboxes du sélecteur de colonnes (ligne 772) n'avaient pas d'attribut `id` explicite
+- `html_writer::checkbox()` crée l'attribut `name` mais pas toujours l'attribut `id` selon la version de Moodle
+- Impact sur l'accessibilité et l'autofill du navigateur
+
+**Fichiers Concernés** : `questions_cleanup.php`
+
+#### Solution Appliquée
+
+**AVANT (v1.9.10)** :
+```php
+echo html_writer::checkbox('column_' . $col_id, 1, $checked, ' ' . $col_name, [
+    'class' => 'column-toggle-checkbox',
+    'data-column' => $col_id,
+    'onchange' => 'toggleColumn(this)'
+]);
+```
+
+**APRÈS (v1.9.11)** :
+```php
+echo html_writer::start_tag('label', ['class' => 'qd-column-toggle', 'for' => 'column_' . $col_id]);
+echo html_writer::checkbox('column_' . $col_id, 1, $checked, ' ' . $col_name, [
+    'id' => 'column_' . $col_id,  // ✅ Attribut id explicite ajouté
+    'class' => 'column-toggle-checkbox',
+    'data-column' => $col_id,
+    'onchange' => 'toggleColumn(this)'
+]);
+```
+
+**Améliorations** :
+1. ✅ Ajout de l'attribut `id` explicite à chaque checkbox : `column_id`, `column_name`, etc.
+2. ✅ Ajout de l'attribut `for` au label pour améliorer l'accessibilité
+3. ✅ Conformité aux standards HTML5 et accessibilité WCAG
+
+#### Fichiers Modifiés
+
+- **`questions_cleanup.php`** :
+  - Ligne 771 : Ajout attribut `for` au label
+  - Ligne 773 : Ajout attribut `id` explicite aux checkboxes
+  
+- **`version.php`** : v1.9.10 → v1.9.11 (2025101013)
+- **`CHANGELOG.md`** : Documentation
+
+#### Impact
+
+**Avant v1.9.11** :
+- ⚠️ Avertissements console du navigateur
+- ⚠️ Problèmes potentiels d'accessibilité
+- ⚠️ Autofill non optimal
+
+**Après v1.9.11** :
+- ✅ Plus d'avertissements console
+- ✅ Accessibilité améliorée (liaison label ↔ input)
+- ✅ Conformité aux standards HTML5
+
+#### Test
+
+Après purge du cache :
+1. Ouvrir la console du navigateur (F12)
+2. Accéder à la page "Analyser les questions"
+3. Vérifier : **Aucun avertissement** `"form field element should have an id"`
+
+#### Version
+
+- **Version** : v1.9.11 (2025101013)
+- **Date** : 10 octobre 2025
+- **Type** : 🔧 Fix Mineur (Accessibilité)
+- **Priorité** : Basse (n'affecte pas les fonctionnalités)
+
+---
+
 ## [1.9.9] - 2025-10-10
 
 ### 🐛 HOTFIX CRITIQUE : Test Doublons Utilisés - Vérification Incorrecte avec !empty()
