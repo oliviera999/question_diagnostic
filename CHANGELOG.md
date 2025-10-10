@@ -5,6 +5,175 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.8.1] - 2025-10-10
+
+### 🐛 HOTFIX CRITIQUE : Problème de Performance avec les Boutons de Suppression
+
+#### Problème Identifié
+
+**Symptôme** : Chargement infini de la page après ajout des boutons de suppression (v1.9.0)
+
+**Cause Racine** :
+- Les boutons de suppression appelaient `can_delete_question()` pour **CHAQUE question** dans la boucle d'affichage
+- Chaque appel déclenchait **2-3 requêtes SQL** :
+  - `get_question_usage()` → vérification utilisation dans quiz
+  - `find_exact_duplicates()` → recherche de doublons
+- Avec **50-100 questions affichées** → **100-300 requêtes SQL** → **TIMEOUT**
+- Les boutons ajoutés dans v1.8.0 ("📋 Charger Doublons Utilisés" et "🎲 Test Doublons Utilisés") étaient aussi affectés
+
+**Problème de Design** : N+1 query problem multiplié par la complexité des vérifications
+
+#### Solution Appliquée
+
+- ✅ **Désactivation temporaire** des boutons de suppression dans la vue liste
+- ✅ Code mis en commentaire (lignes 1092-1119 de `questions_cleanup.php`)
+- ✅ TODO ajouté pour v1.9.1 : Implémenter vérification batch ou page détail séparée
+
+#### Impact
+
+**Résolu** :
+- ✅ La page se charge rapidement à nouveau
+- ✅ Les boutons "📋 Charger Doublons Utilisés" et "🎲 Test Doublons Utilisés" fonctionnent correctement
+- ✅ Aucun timeout
+
+**Temporaire** :
+- ⚠️ Boutons de suppression temporairement indisponibles
+- ⚠️ Retour prévu dans v1.9.1 avec optimisation batch
+
+#### Alternative pour la Suppression
+
+**En attendant v1.9.1** :
+- Utiliser l'interface native de Moodle (Banque de questions)
+- Les fonctions `can_delete_question()` et `delete_question_safe()` restent disponibles dans le code pour usage futur
+
+#### Fichiers Modifiés
+
+- `questions_cleanup.php` : Boutons de suppression commentés (lignes 1092-1119)
+- `version.php` : v1.8.1 (2025101001)
+- `CHANGELOG.md` : Documentation du hotfix
+
+#### Version
+- Version : v1.8.1 (2025101001)
+- Date : 10 octobre 2025
+- Type : 🐛 Hotfix (Correction critique)
+
+---
+
+## [1.9.0] - À venir (en développement)
+
+### 🛡️ NOUVELLE FONCTIONNALITÉ MAJEURE : Suppression Sécurisée de Questions
+
+#### Vue d'ensemble
+
+Implémentation d'un système de **suppression sécurisée** pour les questions individuelles avec des **règles de protection strictes** pour éviter toute perte de contenu pédagogique important.
+
+#### 🔒 Règles de Protection
+
+Le plugin applique désormais **3 règles de protection strictes** :
+
+1. **✅ Questions Utilisées = PROTÉGÉES**
+   - Questions utilisées dans des quiz actifs
+   - Questions avec tentatives enregistrées
+   - → **SUPPRESSION INTERDITE**
+
+2. **✅ Questions Uniques = PROTÉGÉES**
+   - Questions sans doublon dans la base de données
+   - Contenu pédagogique unique
+   - → **SUPPRESSION INTERDITE**
+
+3. **⚠️ Questions en Doublon ET Inutilisées = SUPPRIMABLES**
+   - Questions ayant au moins un doublon
+   - Questions non utilisées dans des quiz
+   - Questions sans tentatives
+   - → **SUPPRESSION AUTORISÉE APRÈS CONFIRMATION**
+
+#### Fonctionnalités Ajoutées
+
+**1. Boutons de suppression intelligents**
+- **🗑️ Supprimer** (rouge) : Affiché uniquement si la suppression est autorisée
+- **🔒 Protégée** (gris) : Affiché si la question est protégée, avec tooltip expliquant la raison
+- Vérification en temps réel pour chaque question affichée
+
+**2. Page d'interdiction détaillée**
+- Affichée si tentative de suppression d'une question protégée
+- Détails de la protection :
+  - Liste des quiz utilisant la question
+  - Nombre de tentatives enregistrées
+  - Raison de la protection
+- Explication des règles de protection
+
+**3. Page de confirmation complète**
+- Informations détaillées sur la question à supprimer
+- Nombre de doublons qui seront conservés
+- Avertissement sur l'irréversibilité
+- Boutons "Confirmer" et "Annuler"
+
+**4. API de vérification et suppression**
+- `question_analyzer::can_delete_question($questionid)` : Vérification des règles
+- `question_analyzer::delete_question_safe($questionid)` : Suppression sécurisée
+- Utilisation de l'API Moodle officielle (`question_delete_question()`)
+
+#### Sécurité
+
+- **Vérification multi-niveaux** :
+  1. Authentification (require_login)
+  2. Administrateur uniquement (is_siteadmin)
+  3. Protection CSRF (sesskey)
+  4. Vérification usage (quiz + tentatives)
+  5. Vérification unicité (doublons)
+  6. Confirmation utilisateur obligatoire
+
+- **Suppression propre via API Moodle** :
+  - Suppression des entrées dans `question_bank_entries`
+  - Suppression des versions dans `question_versions`
+  - Suppression des fichiers associés
+  - Suppression des données spécifiques au type de question
+
+#### Cas d'Usage
+
+**Scénario typique** :
+```
+Question "Calcul d'intégrale" existe en 4 versions :
+- Version A (ID: 100) → Dans Quiz "Maths 101" ✅ PROTÉGÉE
+- Version B (ID: 101) → Dans Quiz "Examen" ✅ PROTÉGÉE
+- Version C (ID: 102) → Contexte inutile, inutilisée ✅ SUPPRIMABLE
+- Version D (ID: 103) → Contexte inutile, inutilisée ✅ SUPPRIMABLE
+
+Résultat : Versions C et D peuvent être supprimées sans risque
+```
+
+#### Fichiers Modifiés/Créés
+
+**Nouveaux fichiers** :
+- `actions/delete_question.php` : Action de suppression avec confirmation
+- `FEATURE_SAFE_QUESTION_DELETION.md` : Documentation complète
+
+**Fichiers modifiés** :
+- `classes/question_analyzer.php` : Ajout méthodes `can_delete_question()` et `delete_question_safe()`
+- `questions_cleanup.php` : Ajout boutons "Supprimer" / "Protégée"
+- `lang/fr/local_question_diagnostic.php` : Chaînes de langue FR (18 nouvelles)
+- `lang/en/local_question_diagnostic.php` : Chaînes de langue EN (18 nouvelles)
+
+#### Performance
+
+- Vérification en **O(n)** où n = nombre de questions avec même nom
+- 3 requêtes SQL par vérification (cache activé)
+- Suppression en **O(1)** via API Moodle
+
+#### Documentation
+
+- Guide complet dans `FEATURE_SAFE_QUESTION_DELETION.md`
+- Tests recommandés pour validation
+- FAQ pour utilisateurs finaux
+
+#### Compatibilité
+
+- Moodle 4.5+ (LTS)
+- PHP 7.4+
+- Compatible avec la nouvelle architecture Question Bank de Moodle 4.x
+
+---
+
 ## [1.8.0] - 2025-10-08
 
 ### 🆕 NOUVELLE FONCTIONNALITÉ : Chargement ciblé des doublons utilisés et test aléatoire
