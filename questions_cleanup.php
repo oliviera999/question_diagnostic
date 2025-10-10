@@ -532,7 +532,7 @@ if ($randomtest_used && confirm_sesskey()) {
         }
         
         // 🆕 v1.9.6 : Bouton Supprimer avec protection
-        $can_delete_check = isset($deletability_map[$q->id]) ? $deletability_map[$q->id] : null;
+        // ($can_delete_check déjà récupéré ligne 488)
         if ($can_delete_check && $can_delete_check->can_delete) {
             // Question supprimable
             $delete_url = new moodle_url('/local/question_diagnostic/actions/delete_question.php', [
