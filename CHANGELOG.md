@@ -5,6 +5,262 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.9.40] - 2025-10-11
+
+### 🤖 TODO BASSE : Tâche Planifiée + Monitoring (Option B suite)
+
+#### Contexte
+
+Suite à v1.9.39 (Pagination client + Logs audit), implémentation de 2 TODOs BASSE supplémentaires pour automatiser la maintenance et surveiller l'état du plugin.
+
+---
+
+### 🤖 TODO BASSE #6 : Tâche Planifiée Scan Automatique
+
+#### Problème
+
+**Avant** :
+- Scan liens cassés manuel uniquement
+- Administrateurs doivent penser à vérifier régulièrement
+- Problèmes découverts tardivement
+- Pas d'alertes proactives
+
+**Impact** :
+- Maintenance réactive (pas proactive)
+- Liens cassés peuvent persister longtemps
+- Expérience étudiants dégradée
+- Pas de monitoring automatique
+
+#### Solution
+
+**Tâche planifiée Moodle** (cron job automatique) :
+
+**1. Classe `scan_broken_links.php`** (task/) :
+- Hérite de `\core\task\scheduled_task`
+- Exécution automatique (défaut : dimanche 3h du matin)
+- Scan complet des liens cassés
+- Envoi email si problèmes détectés
+- Log audit automatique
+
+**Fonctionnalités** :
+- ✅ Purge cache avant scan (analyse fraîche)
+- ✅ Récupère statistiques liens cassés
+- ✅ Détecte nouveaux problèmes
+- ✅ Envoie email aux admins si liens cassés trouvés
+- ✅ Log l'événement (audit_logger)
+- ✅ Traces mtrace() pour cron.log
+
+**Email d'alerte** :
+- Sujet : "[Moodle] Question Diagnostic : X question(s) avec liens cassés"
+- Contenu HTML formaté :
+  - Statistiques détaillées
+  - Lien direct vers page de vérification
+  - Recommandations d'action
+- Envoyé à tous les admins site
+- Désactivable depuis Administration → Tâches planifiées
+
+**2. Configuration `db/tasks.php`** :
+```php
+'classname' => 'local_question_diagnostic\task\scan_broken_links',
+'hour' => '3',          // 3h du matin
+'dayofweek' => '0',     // Dimanche
+'blocking' => 0         // Non bloquant
+```
+
+**3. Chaînes de langue** :
+- FR : "Scan automatique des liens cassés"
+- EN : "Automated broken links scan"
+
+#### Bénéfices
+
+✅ **Maintenance proactive** :
+- Détection automatique hebdomadaire
+- Alertes immédiates si problème
+- Pas besoin de penser à vérifier
+
+✅ **Visibilité** :
+- Email aux admins avec détails
+- Lien direct vers page de correction
+- Historique dans logs cron
+
+✅ **Flexibilité** :
+- Fréquence configurable (Administration → Tâches planifiées)
+- Peut être déclenchée manuellement
+- Désactivable si nécessaire
+
+✅ **Intégration Moodle** :
+- Utilise système de tâches planifiées standard
+- Logs dans cron.log
+- Gestion centralisée
+
+#### Fichiers Créés
+
+- **`classes/task/scan_broken_links.php`** : Tâche planifiée (~170 lignes)
+- **`db/tasks.php`** : Définition tâche (~30 lignes)
+
+#### Fichiers Modifiés
+
+- **`lang/fr/local_question_diagnostic.php`** : Chaîne task_scan_broken_links
+- **`lang/en/local_question_diagnostic.php`** : Chaîne task_scan_broken_links
+
+#### Configuration
+
+**Modifier la fréquence** :
+1. Aller dans Administration → Serveur → Tâches planifiées
+2. Chercher "Scan automatique des liens cassés"
+3. Cliquer sur ⚙️ et modifier l'horaire
+
+**Exécuter manuellement** :
+```bash
+php admin/cli/scheduled_task.php --execute='\local_question_diagnostic\task\scan_broken_links'
+```
+
+---
+
+### 📊 TODO BASSE #5 : Interface Monitoring et Health Check
+
+#### Problème
+
+**Avant** :
+- Pas de vue d'ensemble de l'état du plugin
+- Pas de recommandations automatiques
+- Performance non monitorée en temps réel
+- Informations éparpillées dans différentes pages
+
+**Impact** :
+- Difficile d'évaluer rapidement la santé du système
+- Pas d'alertes sur problèmes potentiels
+- Debugging réactif (pas proactif)
+
+#### Solution
+
+**Page dédiée `monitoring.php`** : Dashboard de surveillance complet
+
+**1. État Général** (4 cartes) :
+
+**Carte Catégories** :
+- Total catégories
+- Vides, orphelines, protégées
+- Indicateur santé (vert/orange/rouge)
+
+**Carte Questions** :
+- Total questions (formaté)
+- Cachées, avec tentatives, utilisées
+- Indicateur santé selon proportion cachées
+
+**Carte Liens Cassés** :
+- Questions affectées
+- Total liens cassés
+- Pourcentage base affectée
+- Indicateur : Rouge si >0, vert sinon
+
+**Carte Activité Récente** :
+- Nombre d'actions cette semaine
+- Lien vers logs d'audit
+- Traçabilité
+
+**2. Recommandations Automatiques** :
+
+**Algorithme intelligent** :
+- ⚠️ Catégories orphelines > 0 → Alerte + lien correction
+- 🔴 Liens cassés > 0 → Alerte prioritaire + lien vérification
+- ℹ️ Catégories vides > 20 → Suggestion nettoyage
+- ℹ️ Grosse base (>10k questions) → Conseil pagination
+
+**Affichage** :
+- Alertes Bootstrap (danger/warning/info)
+- Message explicatif
+- Bouton d'action direct
+- Si aucun problème : "✅ Tout va bien !"
+
+**3. Informations Système** :
+
+Tableau récapitulatif :
+- Version plugin
+- Version Moodle
+- PHP version
+- Type et version BDD
+- Mémoire PHP (utilisée / limite)
+- Dernière/prochaine exécution tâche planifiée
+
+**4. Performance en Temps Réel** :
+
+**Tests automatiques à chaque chargement** :
+- Stats globales catégories (temps mesuré)
+- Stats globales questions (temps mesuré)
+- Chargement 10 questions (temps mesuré)
+- Temps total de la page
+
+**Indicateurs performance** :
+- ✅ Excellente : <100ms pour stats
+- ⚠️ Bonne : 100-500ms
+- ❌ Lente : >500ms
+
+**5. Actions Rapides** :
+- Bouton "Purger tous les caches"
+- Instructions Tests PHPUnit
+- Instructions Benchmarks performance
+
+**6. Auto-Refresh Optionnel** :
+- Bouton activer/désactiver
+- Refresh toutes les 30 secondes
+- Idéal pour monitoring continu
+
+#### Bénéfices
+
+✅ **Vue d'ensemble complète** :
+- Tout l'essentiel sur une page
+- État de santé visuel (couleurs)
+- Métriques clés
+
+✅ **Proactif** :
+- Recommandations automatiques
+- Détection problèmes avant impact
+- Guidance action corrective
+
+✅ **Performance** :
+- Tests en temps réel
+- Identification goulots d'étranglement
+- Validation optimisations
+
+✅ **Pratique** :
+- Auto-refresh pour monitoring continu
+- Actions rapides accessibles
+- Liens directs vers résolution
+
+#### Fichiers Créés
+
+- **`monitoring.php`** : Page monitoring complète (~250 lignes)
+  - État général (4 cartes)
+  - Recommandations auto
+  - Infos système
+  - Performance temps réel
+  - Actions rapides
+
+#### Fichiers Modifiés
+
+- **`index.php`** : Carte "Monitoring" dans dashboard (ligne 277-307)
+- **`version.php`** : Version 2025101042 (v1.9.40)
+
+---
+
+### 📊 TODO BASSE Progression (Option B)
+
+|| TODO | Statut | Temps |
+||------|--------|-------|
+|| #1 Pagination client | ✅ v1.9.39 | 6h |
+|| #3 Logs d'audit | ✅ v1.9.39 | 6h |
+|| #6 Tâche planifiée | ✅ v1.9.40 | 8h |
+|| #5 Interface monitoring | ✅ v1.9.40 | 8h |
+|| #2 Barres progression | ⏳ Restant | 8h |
+|| #4 Permissions granulaires | ⏳ Restant | 8h |
+
+**Progression** : 4/6 complétés (28h/44h) - 64%
+
+**Reste** : 16 heures (Barres progression + Permissions)
+
+---
+
 ## [1.9.39] - 2025-10-11
 
 ### 🎯 TODO BASSE PRIORITE : Pagination Client + Logs Audit (Option B)

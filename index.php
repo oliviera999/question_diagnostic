@@ -274,7 +274,40 @@ echo html_writer::end_tag('div'); // fin qd-tool-content
 echo html_writer::end_tag('div'); // fin qd-tool-card
 
 // ======================================================================
-// OPTION 5 : Page de test
+// 🆕 v1.9.40 : OPTION 5 : Monitoring et Health Check
+// ======================================================================
+
+echo html_writer::start_tag('div', ['class' => 'qd-tool-card']);
+
+echo html_writer::start_tag('div', ['class' => 'qd-tool-icon']);
+echo '📊';
+echo html_writer::end_tag('div');
+
+echo html_writer::start_tag('div', ['class' => 'qd-tool-content']);
+
+echo html_writer::tag('h4', 'Monitoring & Health Check', ['class' => 'qd-tool-title']);
+
+echo html_writer::tag('p', 
+    'Surveillance en temps réel de l\'état de santé du plugin et de votre banque de questions. Performance, recommandations, informations système.',
+    ['class' => 'qd-tool-description']
+);
+
+// Statistiques
+echo html_writer::start_tag('div', ['class' => 'qd-tool-stats']);
+echo html_writer::tag('span', '🏥 Health check temps réel', ['class' => 'qd-tool-stat-item qd-stat-success']);
+echo html_writer::tag('span', '⚡ Tests performance', ['class' => 'qd-tool-stat-item qd-stat-info']);
+echo html_writer::tag('span', '💡 Recommandations auto', ['class' => 'qd-tool-stat-item qd-stat-info']);
+echo html_writer::end_tag('div');
+
+$monitoring_url = new moodle_url('/local/question_diagnostic/monitoring.php');
+echo html_writer::link($monitoring_url, 'Ouvrir le monitoring →', ['class' => 'qd-tool-button']);
+
+echo html_writer::end_tag('div'); // fin qd-tool-content
+
+echo html_writer::end_tag('div'); // fin qd-tool-card
+
+// ======================================================================
+// OPTION 6 : Page de test
 // ======================================================================
 
 echo html_writer::start_tag('div', ['class' => 'qd-tool-card']);

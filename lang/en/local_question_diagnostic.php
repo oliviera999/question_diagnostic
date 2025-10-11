@@ -228,3 +228,6 @@ $string['confirm_delete'] = 'Yes, delete permanently';
 $string['question_deleted_success'] = 'Question successfully deleted';
 $string['question_protected'] = 'Protected question';
 
+// 🆕 v1.9.40 : Scheduled task
+$string['task_scan_broken_links'] = 'Automated broken links scan';
+

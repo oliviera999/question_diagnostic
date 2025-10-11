@@ -228,3 +228,6 @@ $string['confirm_delete'] = 'Oui, supprimer définitivement';
 $string['question_deleted_success'] = 'Question supprimée avec succès';
 $string['question_protected'] = 'Question protégée';
 
+// 🆕 v1.9.40 : Tâche planifiée
+$string['task_scan_broken_links'] = 'Scan automatique des liens cassés';
+
