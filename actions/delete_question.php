@@ -171,29 +171,49 @@ if (!$confirm) {
     
     if ($is_bulk) {
         echo $OUTPUT->heading('⚠️ Confirmation de Suppression en Masse');
+        
+        // Pour suppression en masse, afficher un résumé
+        echo html_writer::start_tag('div', ['class' => 'alert alert-warning', 'style' => 'margin: 20px 0;']);
+        echo html_writer::tag('h3', 'Questions à supprimer', ['style' => 'margin-top: 0;']);
+        echo html_writer::tag('p', 'Vous êtes sur le point de supprimer <strong>' . count($can_delete) . ' question(s)</strong>.');
+        
+        // Liste des IDs
+        $questions_to_delete = $DB->get_records_list('question', 'id', $can_delete, '', 'id, name, qtype');
+        echo html_writer::start_tag('ul', ['style' => 'max-height: 300px; overflow-y: auto;']);
+        foreach ($questions_to_delete as $q) {
+            echo html_writer::tag('li', '<strong>ID ' . $q->id . '</strong>: ' . format_string($q->name) . ' (' . $q->qtype . ')');
+        }
+        echo html_writer::end_tag('ul');
+        echo html_writer::end_tag('div');
+        
     } else {
         echo $OUTPUT->heading('⚠️ ' . get_string('confirm_delete_question', 'local_question_diagnostic'));
+        
+        // 🔧 FIX: Charger les données de la question pour l'affichage
+        $question = $DB->get_record('question', ['id' => $can_delete[0]], '*', MUST_EXIST);
+        $stats = question_analyzer::get_question_stats($question);
+        $check = $deletability_map[$can_delete[0]];
+        
+        // Informations sur la question à supprimer
+        echo html_writer::start_tag('div', ['class' => 'alert alert-warning', 'style' => 'margin: 20px 0;']);
+        echo html_writer::tag('h3', get_string('question_to_delete', 'local_question_diagnostic'), ['style' => 'margin-top: 0;']);
+        echo html_writer::tag('p', '<strong>ID :</strong> ' . $question->id);
+        echo html_writer::tag('p', '<strong>' . get_string('name') . ' :</strong> ' . format_string($question->name));
+        echo html_writer::tag('p', '<strong>' . get_string('type') . ' :</strong> ' . $question->qtype);
+        echo html_writer::tag('p', '<strong>' . get_string('category') . ' :</strong> ' . $stats->category_name);
+        if (!empty($stats->course_name)) {
+            echo html_writer::tag('p', '<strong>' . get_string('course') . ' :</strong> ' . $stats->course_name);
+        }
+        echo html_writer::tag('p', '<strong>' . get_string('created', 'moodle') . ' :</strong> ' . $stats->created_formatted);
+        echo html_writer::end_tag('div');
+        
+        // Informations sur les doublons
+        echo html_writer::start_tag('div', ['class' => 'alert alert-info']);
+        echo html_writer::tag('h4', '🔀 ' . get_string('duplicate_info', 'local_question_diagnostic'));
+        echo html_writer::tag('p', 'Cette question a <strong>' . $check->details['duplicate_count'] . ' doublon(s)</strong> dans la base de données.');
+        echo html_writer::tag('p', 'Les autres versions de cette question seront conservées.');
+        echo html_writer::end_tag('div');
     }
-    
-    // Informations sur la question à supprimer
-    echo html_writer::start_tag('div', ['class' => 'alert alert-warning', 'style' => 'margin: 20px 0;']);
-    echo html_writer::tag('h3', get_string('question_to_delete', 'local_question_diagnostic'), ['style' => 'margin-top: 0;']);
-    echo html_writer::tag('p', '<strong>ID :</strong> ' . $question->id);
-    echo html_writer::tag('p', '<strong>' . get_string('name') . ' :</strong> ' . format_string($question->name));
-    echo html_writer::tag('p', '<strong>' . get_string('type') . ' :</strong> ' . $question->qtype);
-    echo html_writer::tag('p', '<strong>' . get_string('category') . ' :</strong> ' . $stats->category_name);
-    if (!empty($stats->course_name)) {
-        echo html_writer::tag('p', '<strong>' . get_string('course') . ' :</strong> ' . $stats->course_name);
-    }
-    echo html_writer::tag('p', '<strong>' . get_string('created', 'moodle') . ' :</strong> ' . $stats->created_formatted);
-    echo html_writer::end_tag('div');
-    
-    // Informations sur les doublons
-    echo html_writer::start_tag('div', ['class' => 'alert alert-info']);
-    echo html_writer::tag('h4', '🔀 ' . get_string('duplicate_info', 'local_question_diagnostic'));
-    echo html_writer::tag('p', 'Cette question a <strong>' . $check->details['duplicate_count'] . ' doublon(s)</strong> dans la base de données.');
-    echo html_writer::tag('p', 'Les autres versions de cette question seront conservées.');
-    echo html_writer::end_tag('div');
     
     // AVERTISSEMENT IRRÉVERSIBLE
     echo html_writer::start_tag('div', ['class' => 'alert alert-danger', 'style' => 'border-left: 4px solid #d9534f;']);
@@ -211,12 +231,24 @@ if (!$confirm) {
         'action' => new moodle_url('/local/question_diagnostic/actions/delete_question.php'),
         'style' => 'display: inline;'
     ]);
-    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'id', 'value' => $questionid]);
+    
+    // 🔧 FIX: Adapter pour mode bulk ou unique
+    if ($is_bulk) {
+        echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'ids', 'value' => implode(',', $can_delete)]);
+    } else {
+        echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'id', 'value' => $can_delete[0]]);
+    }
+    
     echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'confirm', 'value' => '1']);
     echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]);
+    
+    $confirm_label = $is_bulk 
+        ? '🗑️ Confirmer la suppression (' . count($can_delete) . ')'
+        : '🗑️ ' . get_string('confirm_delete', 'local_question_diagnostic');
+    
     echo html_writer::empty_tag('input', [
         'type' => 'submit',
-        'value' => '🗑️ ' . get_string('confirm_delete', 'local_question_diagnostic'),
+        'value' => $confirm_label,
         'class' => 'btn btn-danger btn-lg'
     ]);
     echo html_writer::end_tag('form');
@@ -229,25 +261,68 @@ if (!$confirm) {
 }
 
 // EXÉCUTION DE LA SUPPRESSION (après confirmation)
-$result = question_analyzer::delete_question_safe($questionid);
-
-if ($result === true) {
-    // SUCCÈS
+// 🔧 FIX: Gérer à la fois la suppression unique et en masse
+if ($is_bulk || count($can_delete) > 1) {
+    // Suppression en masse
+    $success_count = 0;
+    $error_count = 0;
+    $errors = [];
+    
+    foreach ($can_delete as $qid) {
+        $result = question_analyzer::delete_question_safe($qid);
+        
+        if ($result === true) {
+            $success_count++;
+        } else {
+            $error_count++;
+            $errors[$qid] = $result;
+        }
+    }
+    
+    // Purger le cache
     question_analyzer::purge_all_caches();
-    redirect(
-        $returnurl,
-        '✅ ' . get_string('question_deleted_success', 'local_question_diagnostic'),
-        null,
-        \core\output\notification::NOTIFY_SUCCESS
-    );
+    
+    // Redirection avec message
+    if ($error_count == 0) {
+        // SUCCÈS TOTAL
+        redirect(
+            $returnurl,
+            '✅ ' . $success_count . ' question(s) supprimée(s) avec succès !',
+            null,
+            \core\output\notification::NOTIFY_SUCCESS
+        );
+    } else {
+        // SUCCÈS PARTIEL ou ERREUR
+        $message = '⚠️ Suppression partielle : ' . $success_count . ' réussie(s), ' . $error_count . ' échec(s)';
+        redirect(
+            $returnurl,
+            $message,
+            null,
+            \core\output\notification::NOTIFY_WARNING
+        );
+    }
 } else {
-    // ERREUR
-    redirect(
-        $returnurl,
-        '❌ ' . get_string('error') . ' : ' . $result,
-        null,
-        \core\output\notification::NOTIFY_ERROR
-    );
+    // Suppression unique
+    $result = question_analyzer::delete_question_safe($can_delete[0]);
+    
+    if ($result === true) {
+        // SUCCÈS
+        question_analyzer::purge_all_caches();
+        redirect(
+            $returnurl,
+            '✅ ' . get_string('question_deleted_success', 'local_question_diagnostic'),
+            null,
+            \core\output\notification::NOTIFY_SUCCESS
+        );
+    } else {
+        // ERREUR
+        redirect(
+            $returnurl,
+            '❌ ' . get_string('error') . ' : ' . $result,
+            null,
+            \core\output\notification::NOTIFY_ERROR
+        );
+    }
 }
 
 

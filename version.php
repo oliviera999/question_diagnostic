@@ -9,8 +9,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'local_question_diagnostic';
-$plugin->version = 2025101027;  // YYYYMMDDXX format (v1.9.25 - FIX: Checkboxes not showing in rows)
+$plugin->version = 2025101030;  // YYYYMMDDXX format (v1.9.28 - TODOs URGENT: Doublon unique + Help page + Export limits)
 $plugin->requires = 2023100900; // Moodle 4.0+
 $plugin->maturity = MATURITY_STABLE;
-$plugin->release = 'v1.9.25';
+$plugin->release = 'v1.9.28';
 

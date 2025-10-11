@@ -15,6 +15,10 @@ if (!is_siteadmin()) {
     print_error('accessdenied', 'admin');
 }
 
+// 🔧 SÉCURITÉ v1.9.28 : Limites strictes sur export CSV
+define('MAX_EXPORT_CATEGORIES', 5000);
+define('MAX_EXPORT_QUESTIONS', 5000);
+
 // ⚠️ FIX: Accepter les paramètres POST et GET (POST pour éviter Request-URI Too Long)
 $type = optional_param('type', 'csv', PARAM_ALPHA);
 $ids = optional_param('ids', '', PARAM_TEXT);
@@ -29,6 +33,13 @@ if ($type === 'csv') {
         $categories = array_filter($categories, function($item) use ($selectedIds) {
             return in_array($item->category->id, $selectedIds);
         });
+    }
+    
+    // 🔧 SÉCURITÉ v1.9.28 : Vérifier la limite
+    if (count($categories) > MAX_EXPORT_CATEGORIES) {
+        $returnurl = new moodle_url('/local/question_diagnostic/categories.php');
+        print_error('error', 'local_question_diagnostic', $returnurl,
+            'Trop de catégories à exporter. Maximum autorisé : ' . MAX_EXPORT_CATEGORIES . '. Trouvé : ' . count($categories) . '. Utilisez les filtres pour réduire la sélection.');
     }
     
     $csv = category_manager::export_to_csv($categories);
@@ -51,7 +62,16 @@ if ($type === 'csv') {
     exit;
 } else if ($type === 'questions_csv') {
     // Export des questions
-    $questions = question_analyzer::get_all_questions_with_stats();
+    // 🔧 SÉCURITÉ v1.9.28 : Limiter le nombre de questions exportées
+    $questions = question_analyzer::get_all_questions_with_stats(false, MAX_EXPORT_QUESTIONS);
+    
+    // Vérifier la limite
+    if (count($questions) >= MAX_EXPORT_QUESTIONS) {
+        $returnurl = new moodle_url('/local/question_diagnostic/questions_cleanup.php');
+        print_error('error', 'local_question_diagnostic', $returnurl,
+            'Trop de questions à exporter. Maximum autorisé : ' . MAX_EXPORT_QUESTIONS . '. Utilisez les filtres ou la pagination pour réduire la sélection.');
+    }
+    
     $csv = question_analyzer::export_to_csv($questions);
     
     // Envoyer le fichier CSV

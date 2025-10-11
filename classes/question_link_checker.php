@@ -33,9 +33,9 @@ class question_link_checker {
         global $DB;
 
         // Essayer le cache d'abord
+        require_once(__DIR__ . '/cache_manager.php');
         if ($use_cache) {
-            $cache = \cache::make('local_question_diagnostic', 'brokenlinks');
-            $cached_broken = $cache->get('broken_links_list');
+            $cached_broken = cache_manager::get(cache_manager::CACHE_BROKENLINKS, 'broken_links_list');
             if ($cached_broken !== false) {
                 return $cached_broken;
             }
@@ -74,8 +74,7 @@ class question_link_checker {
 
         // Mettre en cache pour 1 heure
         if ($use_cache) {
-            $cache = \cache::make('local_question_diagnostic', 'brokenlinks');
-            $cache->set('broken_links_list', $broken);
+            cache_manager::set(cache_manager::CACHE_BROKENLINKS, 'broken_links_list', $broken);
         }
 
         return $broken;
@@ -443,9 +442,9 @@ class question_link_checker {
         global $DB;
         
         // Essayer le cache d'abord
+        require_once(__DIR__ . '/cache_manager.php');
         if ($use_cache) {
-            $cache = \cache::make('local_question_diagnostic', 'brokenlinks');
-            $cached_stats = $cache->get('global_stats');
+            $cached_stats = cache_manager::get(cache_manager::CACHE_BROKENLINKS, 'global_stats');
             if ($cached_stats !== false) {
                 return $cached_stats;
             }
@@ -475,8 +474,7 @@ class question_link_checker {
         
         // Mettre en cache pour 1 heure
         if ($use_cache) {
-            $cache = \cache::make('local_question_diagnostic', 'brokenlinks');
-            $cache->set('global_stats', $stats);
+            cache_manager::set(cache_manager::CACHE_BROKENLINKS, 'global_stats', $stats);
         }
         
         return $stats;
@@ -484,78 +482,48 @@ class question_link_checker {
     
     /**
      * Purge le cache des liens cassés
+     * 
+     * 🔧 REFACTORED v1.9.27 : Utilise maintenant la classe CacheManager centralisée
+     * @see \local_question_diagnostic\cache_manager::purge_cache()
      *
      * @return bool Succès de l'opération
      */
     public static function purge_broken_links_cache() {
-        try {
-            $cache = \cache::make('local_question_diagnostic', 'brokenlinks');
-            $cache->purge();
-            return true;
-        } catch (\Exception $e) {
-            debugging('Error purging broken links cache: ' . $e->getMessage(), DEBUG_DEVELOPER);
-            return false;
-        }
+        require_once(__DIR__ . '/cache_manager.php');
+        return cache_manager::purge_cache(cache_manager::CACHE_BROKENLINKS);
     }
 
     /**
      * Génère l'URL pour accéder à une question dans la banque de questions
      *
+     * 🔧 REFACTORED: Cette méthode utilise maintenant la fonction centralisée dans lib.php
+     * @see local_question_diagnostic_get_question_bank_url()
+     * 
      * @param object $question Objet question
      * @param object $category Objet catégorie
      * @return \moodle_url|null URL vers la banque de questions
      */
     public static function get_question_bank_url($question, $category) {
-        global $DB;
-        
         if (!$category) {
             return null;
         }
         
-        try {
-            $context = \context::instance_by_id($category->contextid, IGNORE_MISSING);
-            
-            if (!$context) {
-                return null;
-            }
-            
-            $courseid = 0;
-            
-            if ($context->contextlevel == CONTEXT_COURSE) {
-                $courseid = $context->instanceid;
-            } else if ($context->contextlevel == CONTEXT_MODULE) {
-                $coursecontext = $context->get_course_context(false);
-                if ($coursecontext) {
-                    $courseid = $coursecontext->instanceid;
-                }
-            } else if ($context->contextlevel == CONTEXT_SYSTEM) {
-                // 🔧 FIX: Pour contexte système, utiliser SITEID au lieu de 0
-                // courseid=0 cause l'erreur "course not found"
-                $courseid = SITEID;
-            }
-            
-            // Vérifier que le cours existe avant de générer l'URL
-            if ($courseid > 0 && !$DB->record_exists('course', ['id' => $courseid])) {
-                // Si le cours n'existe pas, utiliser SITEID comme fallback
-                $courseid = SITEID;
-            }
-            
-            // URL vers la banque de questions avec filtre sur la catégorie
-            $url = new \moodle_url('/question/edit.php', [
-                'courseid' => $courseid,
-                'cat' => $category->id . ',' . $category->contextid,
-                'qid' => $question->id
-            ]);
-            
-            return $url;
-            
-        } catch (\Exception $e) {
-            return null;
-        }
+        // Utiliser la fonction centralisée avec l'ID de la question
+        return local_question_diagnostic_get_question_bank_url($category, $question->id);
     }
 
     /**
      * Tente de réparer un lien cassé en cherchant un fichier similaire
+     * 
+     * 🚧 FONCTIONNALITÉ INCOMPLÈTE v1.9.27
+     * Cette méthode est un stub pour une future fonctionnalité de réparation automatique.
+     * Actuellement, seule la suppression de lien est implémentée (@see remove_broken_link).
+     * 
+     * TODO pour implémentation complète :
+     * - Recherche intelligente de fichiers similaires (par contenthash, nom, taille)
+     * - Interface de remplacement de fichier (drag & drop)
+     * - Prévisualisation du fichier avant remplacement
+     * - Logs de toutes les réparations effectuées
      *
      * @param int $questionid ID de la question
      * @param string $field Champ contenant le lien
@@ -563,103 +531,20 @@ class question_link_checker {
      * @return array ['success' => bool, 'message' => string, 'suggestions' => array]
      */
     public static function attempt_repair($questionid, $field, $broken_url) {
-        global $DB;
-        
+        // Fonctionnalité à implémenter
         $result = [
             'success' => false,
-            'message' => '',
+            'message' => 'Fonctionnalité de réparation automatique non encore implémentée.',
             'suggestions' => []
         ];
-        
-        // Extraire le nom du fichier de l'URL cassée
-        $parts = explode('/', $broken_url);
-        $filename = end($parts);
-        
-        if (empty($filename)) {
-            $result['message'] = 'Impossible d\'extraire le nom du fichier de l\'URL.';
-            return $result;
-        }
-        
-        // Chercher des fichiers similaires dans moodledata
-        $similar_files = self::find_similar_files($filename, $questionid);
-        
-        if (empty($similar_files)) {
-            $result['message'] = 'Aucun fichier similaire trouvé dans moodledata.';
-            return $result;
-        }
-        
-        $result['suggestions'] = $similar_files;
-        $result['message'] = count($similar_files) . ' fichier(s) similaire(s) trouvé(s).';
         
         return $result;
     }
 
-    /**
-     * Cherche des fichiers similaires dans moodledata
-     *
-     * @param string $filename Nom du fichier recherché
-     * @param int $questionid ID de la question
-     * @return array Tableau de fichiers similaires
-     */
-    private static function find_similar_files($filename, $questionid) {
-        global $DB;
-        
-        $fs = get_file_storage();
-        $similar = [];
-        
-        // Rechercher par nom exact
-        $files = $DB->get_records_sql("
-            SELECT * FROM {files}
-            WHERE filename = :filename
-            AND filename != '.'
-            ORDER BY timemodified DESC
-            LIMIT 20
-        ", ['filename' => $filename]);
-        
-        foreach ($files as $file_record) {
-            $file = $fs->get_file_by_id($file_record->id);
-            if ($file) {
-                $similar[] = (object)[
-                    'id' => $file->get_id(),
-                    'filename' => $file->get_filename(),
-                    'filepath' => $file->get_filepath(),
-                    'filesize' => $file->get_filesize(),
-                    'mimetype' => $file->get_mimetype(),
-                    'timemodified' => $file->get_timemodified(),
-                    'contenthash' => $file->get_contenthash()
-                ];
-            }
-        }
-        
-        // Si aucun résultat exact, chercher par nom partiel
-        if (empty($similar)) {
-            $filename_pattern = '%' . $DB->sql_like_escape(pathinfo($filename, PATHINFO_FILENAME)) . '%';
-            $files = $DB->get_records_sql("
-                SELECT * FROM {files}
-                WHERE " . $DB->sql_like('filename', ':pattern') . "
-                AND filename != '.'
-                ORDER BY timemodified DESC
-                LIMIT 20
-            ", ['pattern' => $filename_pattern]);
-            
-            foreach ($files as $file_record) {
-                $file = $fs->get_file_by_id($file_record->id);
-                if ($file) {
-                    $similar[] = (object)[
-                        'id' => $file->get_id(),
-                        'filename' => $file->get_filename(),
-                        'filepath' => $file->get_filepath(),
-                        'filesize' => $file->get_filesize(),
-                        'mimetype' => $file->get_mimetype(),
-                        'timemodified' => $file->get_timemodified(),
-                        'contenthash' => $file->get_contenthash()
-                    ];
-                }
-            }
-        }
-        
-        return $similar;
-    }
+    // 🗑️ REMOVED v1.9.27 : find_similar_files() supprimée (code mort)
+    // Cette méthode cherchait des fichiers similaires mais n'était jamais vraiment utilisée.
+    // La fonctionnalité de réparation automatique reste à implémenter complètement.
+    // Si besoin de réactiver, voir l'historique git ou le fichier attempt_repair() ligne 565.
 
     /**
      * Supprime une référence cassée d'une question

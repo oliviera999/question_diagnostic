@@ -43,8 +43,8 @@ echo html_writer::start_div('alert alert-warning', ['style' => 'margin-bottom: 2
 echo '<strong>🛡️ ATTENTION</strong> : Cette page permet de supprimer des catégories. ';
 echo 'Consultez la ';
 echo html_writer::link(
-    new moodle_url('/local/question_diagnostic/DATABASE_IMPACT.md'),
-    'documentation DATABASE_IMPACT.md',
+    new moodle_url('/local/question_diagnostic/help_database_impact.php'),
+    'documentation sur l\'impact base de données',
     ['target' => '_blank', 'style' => 'font-weight: bold; text-decoration: underline;']
 );
 echo ' pour les procédures de backup avant toute suppression.';

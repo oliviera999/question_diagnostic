@@ -90,7 +90,41 @@ class category_manager {
                 $duplicate_ids = array_unique($duplicate_ids); // Éliminer les doublons dans le résultat
             }
             
-            // Étape 5 : Construire le résultat
+            // 🚀 OPTIMISATION : Pré-charger TOUS les contextes enrichis en batch (1 requête au lieu de N)
+            // Étape 5.1 : Récupérer tous les contextids uniques
+            $unique_contextids = array_unique(array_map(function($cat) { return $cat->contextid; }, $categories));
+            
+            // Étape 5.2 : Pré-charger tous les contextes enrichis d'un coup
+            $contexts_enriched_map = [];
+            foreach ($unique_contextids as $ctxid) {
+                try {
+                    $context_details = local_question_diagnostic_get_context_details($ctxid);
+                    $contexts_enriched_map[$ctxid] = $context_details;
+                } catch (\Exception $e) {
+                    // En cas d'erreur, stocker un contexte par défaut
+                    $contexts_enriched_map[$ctxid] = (object)[
+                        'context_name' => 'Erreur',
+                        'course_name' => null,
+                        'module_name' => null,
+                        'context_type' => null
+                    ];
+                }
+            }
+            
+            // 🚀 OPTIMISATION : Pré-calculer les vérifications de contextes COURSE pour protection
+            // Récupérer en batch tous les contextes de type COURSE
+            $course_context_ids = [];
+            if (!empty($unique_contextids)) {
+                list($insql, $params) = $DB->get_in_or_equal($unique_contextids);
+                $params[] = CONTEXT_COURSE;
+                $course_contexts = $DB->get_records_sql(
+                    "SELECT id FROM {context} WHERE id $insql AND contextlevel = ?",
+                    $params
+                );
+                $course_context_ids = array_keys($course_contexts);
+            }
+            
+            // Étape 5.3 : Construire le résultat avec données pré-chargées
             $result = [];
             foreach ($categories as $cat) {
                 // Stats des questions (via question_bank_entries)
@@ -114,7 +148,7 @@ class category_manager {
                 // Validité du contexte
                 $context_valid = !in_array($cat->id, $invalid_context_ids);
                 
-                // Vérifier si la catégorie est protégée
+                // Vérifier si la catégorie est protégée (utilise les données pré-calculées)
                 $is_protected = false;
                 $protection_reason = '';
                 
@@ -128,16 +162,12 @@ class category_manager {
                     $is_protected = true;
                     $protection_reason = 'A une description';
                 }
-                // Protection 3 : Racine de cours avec enfants
+                // Protection 3 : Racine de cours avec enfants (utilise données pré-calculées)
                 else if ($cat->parent == 0 && $subcategories > 0 && $context_valid) {
-                    try {
-                        $context = \context::instance_by_id($cat->contextid, IGNORE_MISSING);
-                        if ($context && $context->contextlevel == CONTEXT_COURSE) {
-                            $is_protected = true;
-                            $protection_reason = 'Racine de cours';
-                        }
-                    } catch (\Exception $e) {
-                        // Ignorer
+                    // 🚀 OPTIMISATION : Utiliser la liste pré-calculée au lieu de charger chaque contexte
+                    if (in_array($cat->contextid, $course_context_ids)) {
+                        $is_protected = true;
+                        $protection_reason = 'Racine de cours';
                     }
                 }
                 
@@ -157,21 +187,20 @@ class category_manager {
                     'protection_reason' => $protection_reason,
                 ];
                 
-                // Nom du contexte enrichi (avec cours et module)
-                try {
-                    if ($context_valid) {
-                        $context_details = local_question_diagnostic_get_context_details($cat->contextid);
-                        $stats->context_name = $context_details->context_name;
-                        $stats->course_name = $context_details->course_name;
-                        $stats->module_name = $context_details->module_name;
-                        $stats->context_type = $context_details->context_type;
-                    } else {
-                        $stats->context_name = 'Contexte supprimé (ID: ' . $cat->contextid . ')';
-                        $stats->course_name = null;
-                        $stats->module_name = null;
-                        $stats->context_type = null;
-                    }
-                } catch (\Exception $e) {
+                // 🚀 OPTIMISATION : Utiliser les contextes enrichis pré-chargés
+                if ($context_valid && isset($contexts_enriched_map[$cat->contextid])) {
+                    $context_details = $contexts_enriched_map[$cat->contextid];
+                    $stats->context_name = $context_details->context_name;
+                    $stats->course_name = $context_details->course_name;
+                    $stats->module_name = $context_details->module_name;
+                    $stats->context_type = $context_details->context_type;
+                } else if (!$context_valid) {
+                    $stats->context_name = 'Contexte supprimé (ID: ' . $cat->contextid . ')';
+                    $stats->course_name = null;
+                    $stats->module_name = null;
+                    $stats->context_type = null;
+                } else {
+                    // Fallback si pas dans la map (ne devrait pas arriver)
                     $stats->context_name = 'Erreur';
                     $stats->course_name = null;
                     $stats->module_name = null;
@@ -365,32 +394,9 @@ class category_manager {
         return $duplicates;
     }
     
-    /**
-     * ANCIENNE VERSION (gardée pour compatibilité) - À NE PLUS UTILISER
-     * Trouve les catégories en doublon en chargeant tout en mémoire
-     * 
-     * @return array Tableau des doublons [cat1, cat2]
-     * @deprecated Utiliser find_duplicates($limit) à la place
-     */
-    private static function find_duplicates_old() {
-        global $DB;
-
-        $categories = $DB->get_records('question_categories');
-        $map = [];
-        $duplicates = [];
-
-        foreach ($categories as $cat) {
-            $key = strtolower(trim($cat->name)) . '_' . $cat->contextid . '_' . $cat->parent;
-            
-            if (isset($map[$key])) {
-                $duplicates[] = [$map[$key], $cat];
-            } else {
-                $map[$key] = $cat;
-            }
-        }
-
-        return $duplicates;
-    }
+    // 🗑️ REMOVED v1.9.27 : find_duplicates_old() supprimée
+    // Cette méthode était marquée deprecated et n'était jamais utilisée.
+    // Utiliser find_duplicates($limit) à la place (version optimisée avec SQL)
 
     /**
      * Supprime une catégorie vide
@@ -773,55 +779,14 @@ class category_manager {
     /**
      * Génère l'URL pour accéder à une catégorie dans la banque de questions
      *
+     * 🔧 REFACTORED: Cette méthode utilise maintenant la fonction centralisée dans lib.php
+     * @see local_question_diagnostic_get_question_bank_url()
+     * 
      * @param object $category Objet catégorie
      * @return \moodle_url URL vers la banque de questions
      */
     public static function get_question_bank_url($category) {
-        global $DB;
-        
-        try {
-            // Déterminer le courseid à partir du contexte
-            $context = \context::instance_by_id($category->contextid, IGNORE_MISSING);
-            
-            if (!$context) {
-                // Si le contexte n'existe pas, retourner null
-                return null;
-            }
-            
-            $courseid = 0; // Par défaut, système
-            
-            // Si c'est un contexte de cours, récupérer l'ID du cours
-            if ($context->contextlevel == CONTEXT_COURSE) {
-                $courseid = $context->instanceid;
-            } else if ($context->contextlevel == CONTEXT_MODULE) {
-                // Si c'est un module, remonter au cours parent
-                $coursecontext = $context->get_course_context(false);
-                if ($coursecontext) {
-                    $courseid = $coursecontext->instanceid;
-                }
-            } else if ($context->contextlevel == CONTEXT_SYSTEM) {
-                // 🔧 FIX: Pour contexte système, utiliser SITEID au lieu de 0
-                // courseid=0 cause l'erreur "course not found"
-                $courseid = SITEID;
-            }
-            
-            // Vérifier que le cours existe avant de générer l'URL
-            if ($courseid > 0 && !$DB->record_exists('course', ['id' => $courseid])) {
-                // Si le cours n'existe pas, utiliser SITEID comme fallback
-                $courseid = SITEID;
-            }
-            
-            // Construire l'URL : /question/edit.php?courseid=X&cat=categoryid,contextid
-            $url = new \moodle_url('/question/edit.php', [
-                'courseid' => $courseid,
-                'cat' => $category->id . ',' . $category->contextid
-            ]);
-            
-            return $url;
-            
-        } catch (\Exception $e) {
-            return null;
-        }
+        return local_question_diagnostic_get_question_bank_url($category);
     }
 }
 

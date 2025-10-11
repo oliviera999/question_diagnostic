@@ -15,6 +15,9 @@ if (!is_siteadmin()) {
     print_error('accessdenied', 'admin');
 }
 
+// 🔧 SÉCURITÉ v1.9.27 : Limite stricte sur les opérations en masse
+define('MAX_BULK_DELETE_CATEGORIES', 100);
+
 // ⚠️ FIX: Accepter les paramètres POST et GET (POST pour éviter Request-URI Too Long)
 $categoryid = optional_param('id', 0, PARAM_INT);
 $categoryids = optional_param('ids', '', PARAM_TEXT);
@@ -25,6 +28,12 @@ $returnurl = new moodle_url('/local/question_diagnostic/' . ($return === 'index'
 // Suppression multiple
 if ($categoryids) {
     $ids = array_filter(array_map('intval', explode(',', $categoryids)));
+    
+    // 🔧 SÉCURITÉ v1.9.27 : Vérifier la limite
+    if (count($ids) > MAX_BULK_DELETE_CATEGORIES) {
+        print_error('error', 'local_question_diagnostic', $returnurl, 
+            'Trop de catégories sélectionnées. Maximum autorisé : ' . MAX_BULK_DELETE_CATEGORIES);
+    }
     
     if ($confirm) {
         $result = category_manager::delete_categories_bulk($ids);

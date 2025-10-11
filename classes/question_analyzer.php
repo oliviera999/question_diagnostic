@@ -514,8 +514,8 @@ class question_analyzer {
         global $DB;
 
         // Essayer le cache d'abord
-        $cache = \cache::make('local_question_diagnostic', 'questionusage');
-        $cached_usage = $cache->get('usage_map');
+        require_once(__DIR__ . '/cache_manager.php');
+        $cached_usage = cache_manager::get(cache_manager::CACHE_QUESTIONUSAGE, 'usage_map');
         if ($cached_usage !== false) {
             return $cached_usage;
         }
@@ -600,7 +600,7 @@ class question_analyzer {
             }
 
             // Mettre en cache pour 30 minutes
-            $cache->set('usage_map', $usage_map);
+            cache_manager::set(cache_manager::CACHE_QUESTIONUSAGE, 'usage_map', $usage_map);
 
         } catch (\Exception $e) {
             debugging('Error in get_all_questions_usage: ' . $e->getMessage(), DEBUG_DEVELOPER);
@@ -614,6 +614,9 @@ class question_analyzer {
      * Récupère les questions qui ont des doublons avec au moins 1 version utilisée
      * 🆕 v1.8.0 : Pour le chargement ciblé des doublons problématiques
      * 🆕 v1.9.4 : OPTIMIZED with batch verification to avoid N+1 queries
+     * 🔧 v1.9.24 : REFONTE COMPLÈTE - Utilise la même logique robuste que "Test Doublons Utilisés"
+     *              Ne se base plus sur !empty() qui donnait des faux positifs
+     *              Utilise désormais la détection directe depuis quiz_slots
      * 
      * @param int $limit Limite de questions à retourner
      * @return array Tableau des questions (objets simples)
@@ -622,65 +625,120 @@ class question_analyzer {
         global $DB;
         
         try {
-            // 🆕 v1.9.4 : Approche simplifiée comme dans le test aléatoire
-            // Étape 1 : Identifier directement les groupes de doublons (limité à 20 groupes max)
-            $sql = "SELECT CONCAT(q.name, '|', q.qtype) as signature,
-                           MIN(q.id) as sample_id,
-                           COUNT(DISTINCT q.id) as question_count
-                    FROM {question} q
-                    GROUP BY q.name, q.qtype
-                    HAVING COUNT(DISTINCT q.id) > 1
-                    LIMIT 20";
+            // 🔧 v1.9.24 REFONTE COMPLÈTE : Même logique que "Test Doublons Utilisés" (questions_cleanup.php lignes 242-362)
+            // LOGIQUE CORRECTE :
+            // 1. Trouver toutes les questions UTILISÉES (dans les quiz)
+            // 2. Pour chaque question utilisée, chercher SES doublons
+            // 3. Si doublons trouvés → Ajouter tout le groupe au résultat
             
-            $duplicate_groups = $DB->get_records_sql($sql);
+            // Étape 1 : Récupérer TOUTES les questions utilisées (UNIQUEMENT dans les quiz)
+            $used_question_ids = [];
+            $debug_info = ['columns' => [], 'sql' => '', 'count' => 0, 'error' => ''];
             
-            if (empty($duplicate_groups)) {
+            try {
+                // Vérifier quelle colonne existe dans quiz_slots
+                $columns = $DB->get_columns('quiz_slots');
+                $debug_info['columns'] = array_keys($columns);
+                
+                if (isset($columns['questionbankentryid'])) {
+                    // Moodle 4.1+ : utilise questionbankentryid
+                    $debug_info['mode'] = 'Moodle 4.1+ (questionbankentryid)';
+                    $sql_used = "SELECT DISTINCT qv.questionid
+                                 FROM {quiz_slots} qs
+                                 INNER JOIN {question_bank_entries} qbe ON qbe.id = qs.questionbankentryid
+                                 INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id";
+                    $debug_info['sql'] = $sql_used;
+                    $used_question_ids = $DB->get_fieldset_sql($sql_used);
+                } else if (isset($columns['questionid'])) {
+                    // Moodle 3.x/4.0 : utilise questionid directement
+                    $debug_info['mode'] = 'Moodle 3.x/4.0 (questionid)';
+                    $sql_used = "SELECT DISTINCT qs.questionid
+                                 FROM {quiz_slots} qs";
+                    $debug_info['sql'] = $sql_used;
+                    $used_question_ids = $DB->get_fieldset_sql($sql_used);
+                } else {
+                    // 🔧 v1.9.24 : Moodle 4.5+ - Nouvelle architecture avec question_references
+                    $debug_info['mode'] = 'Moodle 4.5+ (question_references)';
+                    
+                    // Dans Moodle 4.5+, quiz_slots ne contient plus de lien direct vers les questions
+                    // Il faut passer par question_references
+                    $sql_used = "SELECT DISTINCT qv.questionid
+                                 FROM {quiz_slots} qs
+                                 INNER JOIN {question_references} qr ON qr.itemid = qs.id 
+                                     AND qr.component = 'mod_quiz' 
+                                     AND qr.questionarea = 'slot'
+                                 INNER JOIN {question_bank_entries} qbe ON qbe.id = qr.questionbankentryid
+                                 INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id 
+                                     AND qv.version = (
+                                         SELECT MAX(v.version)
+                                         FROM {question_versions} v
+                                         WHERE v.questionbankentryid = qbe.id
+                                     )";
+                    $debug_info['sql'] = $sql_used;
+                    $used_question_ids = $DB->get_fieldset_sql($sql_used);
+                }
+                
+                $debug_info['count'] = count($used_question_ids);
+            } catch (\Exception $e) {
+                $debug_info['error'] = $e->getMessage();
+                debugging('Erreur récupération questions utilisées (get_used_duplicates_questions): ' . $e->getMessage(), DEBUG_DEVELOPER);
+                return []; // Si erreur de détection, retourner vide plutôt que des faux positifs
+            }
+            
+            debugging('CHARGER DOUBLONS UTILISÉS v1.9.24 - Questions utilisées détectées: ' . count($used_question_ids), DEBUG_DEVELOPER);
+            
+            if (empty($used_question_ids)) {
+                // Aucune question utilisée dans la base
+                debugging('CHARGER DOUBLONS UTILISÉS v1.9.24 - Aucune question utilisée trouvée', DEBUG_DEVELOPER);
                 return [];
             }
             
-            // Étape 2 : Pour chaque groupe, vérifier si au moins 1 version est utilisée
+            // Étape 2 : Pour chaque question utilisée, chercher ses doublons
             $result_questions = [];
+            $processed_signatures = []; // Pour éviter les doublons dans le résultat
+            $groups_found = 0;
             
-            foreach ($duplicate_groups as $group) {
-                // Récupérer la question exemple
-                $sample = $DB->get_record('question', ['id' => $group->sample_id]);
-                if (!$sample) {
+            foreach ($used_question_ids as $qid) {
+                // Si on a atteint la limite, arrêter
+                if (count($result_questions) >= $limit) {
+                    break;
+                }
+                
+                $question = $DB->get_record('question', ['id' => $qid]);
+                if (!$question) {
                     continue;
                 }
                 
-                // Récupérer toutes les questions de ce groupe (même nom + même type)
-                $questions_in_group = $DB->get_records('question', [
-                    'name' => $sample->name,
-                    'qtype' => $sample->qtype
+                // Créer une signature unique pour éviter de traiter le même groupe plusieurs fois
+                $signature = strtolower(trim($question->name)) . '|' . $question->qtype;
+                if (in_array($signature, $processed_signatures)) {
+                    continue; // Déjà traité ce groupe
+                }
+                
+                // Chercher les doublons de CETTE question (même nom + même type, ID différent)
+                $all_versions = $DB->get_records('question', [
+                    'name' => $question->name,
+                    'qtype' => $question->qtype
                 ]);
                 
-                if (count($questions_in_group) <= 1) {
-                    continue; // Pas vraiment un groupe
-                }
-                
-                // Vérifier l'usage en BATCH (1 seule requête pour tout le groupe)
-                $group_ids = array_keys($questions_in_group);
-                $usage_map = self::get_questions_usage_by_ids($group_ids);
-                
-                // Vérifier si au moins une version est utilisée
-                $has_used = false;
-                foreach ($group_ids as $qid) {
-                    if (isset($usage_map[$qid]) && !empty($usage_map[$qid])) {
-                        $has_used = true;
-                        break;
-                    }
-                }
-                
-                // Si au moins une est utilisée, ajouter toutes les versions du groupe
-                if ($has_used) {
-                    foreach ($questions_in_group as $q) {
+                // Si au moins 2 versions (= 1 original + 1 doublon minimum) → C'est un groupe de doublons utilisés !
+                if (count($all_versions) > 1) {
+                    $processed_signatures[] = $signature;
+                    $groups_found++;
+                    
+                    // Ajouter TOUTES les versions du groupe au résultat
+                    foreach ($all_versions as $q) {
                         $result_questions[] = $q;
+                        
+                        // Vérifier la limite après chaque ajout
                         if (count($result_questions) >= $limit) {
                             break 2; // Sortir des deux boucles
                         }
                     }
                 }
             }
+            
+            debugging('CHARGER DOUBLONS UTILISÉS v1.9.24 - Résultat: ' . count($result_questions) . ' questions dans ' . $groups_found . ' groupes de doublons', DEBUG_DEVELOPER);
             
             return $result_questions;
             
@@ -691,29 +749,66 @@ class question_analyzer {
     }
     
     /**
-     * Trouve les doublons EXACTS d'une question (même nom, type et texte)
-     * 🆕 v1.7.0 : Pour le test aléatoire
+     * Vérifie si deux questions sont des doublons selon la définition standard
+     * 
+     * 🆕 v1.9.28 : DÉFINITION UNIQUE DE "DOUBLON"
+     * Cette méthode définit LA définition officielle utilisée partout dans le plugin.
+     * 
+     * CRITÈRES :
+     * - Même nom (name)
+     * - Même type (qtype)
+     * 
+     * Note : Le texte (questiontext) n'est PAS utilisé car peut avoir variations mineures
+     * (espaces, formatage HTML) sans changer la nature de la question.
+     * 
+     * @param object $q1 Question 1
+     * @param object $q2 Question 2
+     * @return bool True si doublons, false sinon
+     */
+    public static function are_duplicates($q1, $q2) {
+        // Même ID = même question, pas un doublon
+        if ($q1->id === $q2->id) {
+            return false;
+        }
+        
+        // Critère 1 : Même nom (sensible à la casse)
+        if ($q1->name !== $q2->name) {
+            return false;
+        }
+        
+        // Critère 2 : Même type
+        if ($q1->qtype !== $q2->qtype) {
+            return false;
+        }
+        
+        // Si les deux critères sont remplis → C'est un doublon
+        return true;
+    }
+    
+    /**
+     * Trouve les doublons d'une question selon la définition standard
+     * 
+     * 🔧 REFACTORED v1.9.28 : Utilise la définition unique via are_duplicates()
+     * Remplace find_exact_duplicates() qui utilisait nom + type + texte
      * 
      * @param object $question Objet question
-     * @return array Tableau des questions en doublon strict
+     * @return array Tableau des questions en doublon
      */
     public static function find_exact_duplicates($question) {
         global $DB;
         
         try {
-            // Recherche stricte : même nom ET même type ET même texte
+            // Utiliser la définition standard : nom + type uniquement
             $sql = "SELECT q.*
                     FROM {question} q
                     WHERE q.name = :name
                     AND q.qtype = :qtype
-                    AND q.questiontext = :questiontext
                     AND q.id != :questionid
                     ORDER BY q.id";
             
             $duplicates = $DB->get_records_sql($sql, [
                 'name' => $question->name,
                 'qtype' => $question->qtype,
-                'questiontext' => $question->questiontext,
                 'questionid' => $question->id
             ]);
             
@@ -728,69 +823,27 @@ class question_analyzer {
     /**
      * Trouve les doublons d'une question basés sur plusieurs critères
      *
+     * 🔧 REFACTORED v1.9.28 : Utilise maintenant la définition standard (nom + type)
+     * Le paramètre $threshold est conservé pour compatibilité mais ignoré.
+     * 
      * @param object $question Objet question
-     * @param float $threshold Seuil de similarité (0-1)
+     * @param float $threshold Seuil de similarité (DEPRECATED, ignoré)
      * @return array Tableau des questions en doublon
      */
     public static function find_question_duplicates($question, $threshold = 0.85) {
-        global $DB;
-
-        $duplicates = [];
-
-        try {
-            // Étape 1 : Recherche exacte par nom
-            $exact_name_matches = $DB->get_records('question', [
-                'name' => $question->name,
-                'qtype' => $question->qtype
-            ]);
-
-            foreach ($exact_name_matches as $match) {
-                if ($match->id != $question->id) {
-                    $similarity = self::calculate_question_similarity($question, $match);
-                    if ($similarity >= $threshold) {
-                        $match->similarity_score = $similarity;
-                        $duplicates[] = $match;
-                    }
-                }
-            }
-
-            // Étape 2 : Recherche par nom similaire (si pas trop de résultats)
-            if (count($duplicates) < 10) {
-                $name_pattern = '%' . $DB->sql_like_escape(substr($question->name, 0, 20)) . '%';
-                $similar_name_matches = $DB->get_records_sql("
-                    SELECT * FROM {question}
-                    WHERE " . $DB->sql_like('name', ':pattern') . "
-                    AND qtype = :qtype
-                    AND id != :qid
-                    LIMIT 50
-                ", [
-                    'pattern' => $name_pattern,
-                    'qtype' => $question->qtype,
-                    'qid' => $question->id
-                ]);
-
-                foreach ($similar_name_matches as $match) {
-                    // Éviter les doublons dans le résultat
-                    if (!in_array($match->id, array_column($duplicates, 'id'))) {
-                        $similarity = self::calculate_question_similarity($question, $match);
-                        if ($similarity >= $threshold) {
-                            $match->similarity_score = $similarity;
-                            $duplicates[] = $match;
-                        }
-                    }
-                }
-            }
-
-        } catch (\Exception $e) {
-            // En cas d'erreur, retourner un tableau vide
-        }
-
-        return $duplicates;
+        // 🔧 v1.9.28 : Utiliser la définition standard au lieu de la similarité
+        // Pour la cohérence dans tout le plugin
+        return self::find_exact_duplicates($question);
     }
 
     /**
      * Calcule le score de similarité entre deux questions
      *
+     * 🗑️ DEPRECATED v1.9.28 : Méthode complexe remplacée par définition simple
+     * Conservée pour compatibilité mais non utilisée.
+     * Utiliser are_duplicates() pour la définition standard.
+     * 
+     * @deprecated Utiliser are_duplicates() à la place
      * @param object $q1 Question 1
      * @param object $q2 Question 2
      * @return float Score de similarité (0-1)
@@ -878,9 +931,9 @@ class question_analyzer {
         global $DB;
 
         // Essayer de récupérer depuis le cache
+        require_once(__DIR__ . '/cache_manager.php');
         if ($use_cache) {
-            $cache = \cache::make('local_question_diagnostic', 'duplicates');
-            $cached_map = $cache->get('duplicates_map');
+            $cached_map = cache_manager::get(cache_manager::CACHE_DUPLICATES, 'duplicates_map');
             if ($cached_map !== false) {
                 return $cached_map;
             }
@@ -951,8 +1004,7 @@ class question_analyzer {
 
             // Mettre en cache pour 1 heure
             if ($use_cache && !empty($duplicates_map)) {
-                $cache = \cache::make('local_question_diagnostic', 'duplicates');
-                $cache->set('duplicates_map', $duplicates_map);
+                cache_manager::set(cache_manager::CACHE_DUPLICATES, 'duplicates_map', $duplicates_map);
             }
 
         } catch (\Exception $e) {
@@ -998,8 +1050,7 @@ class question_analyzer {
         
         // Mettre en cache
         if ($use_cache && !empty($duplicates_map)) {
-            $cache = \cache::make('local_question_diagnostic', 'duplicates');
-            $cache->set('duplicates_map', $duplicates_map);
+            cache_manager::set(cache_manager::CACHE_DUPLICATES, 'duplicates_map', $duplicates_map);
         }
         
         return $duplicates_map;
@@ -1092,10 +1143,10 @@ class question_analyzer {
         global $DB;
 
         // Essayer le cache d'abord
+        require_once(__DIR__ . '/cache_manager.php');
         if ($use_cache) {
-            $cache = \cache::make('local_question_diagnostic', 'globalstats');
             $cache_key = 'stats_' . ($include_duplicates ? 'full' : 'light');
-            $cached_stats = $cache->get($cache_key);
+            $cached_stats = cache_manager::get(cache_manager::CACHE_GLOBALSTATS, $cache_key);
             if ($cached_stats !== false) {
                 return $cached_stats;
             }
@@ -1211,9 +1262,8 @@ class question_analyzer {
             
             // Mettre en cache
             if ($use_cache) {
-                $cache = \cache::make('local_question_diagnostic', 'globalstats');
                 $cache_key = 'stats_' . ($include_duplicates ? 'full' : 'light');
-                $cache->set($cache_key, $stats);
+                cache_manager::set(cache_manager::CACHE_GLOBALSTATS, $cache_key, $stats);
             }
             
         } catch (\Exception $e) {
@@ -1236,6 +1286,9 @@ class question_analyzer {
     /**
      * Génère l'URL pour accéder à une question dans la banque de questions
      *
+     * 🔧 REFACTORED: Cette méthode utilise maintenant la fonction centralisée dans lib.php
+     * @see local_question_diagnostic_get_question_bank_url()
+     * 
      * @param object $question Objet question
      * @param object $category Objet catégorie (optionnel)
      * @return \moodle_url|null URL vers la banque de questions
@@ -1259,45 +1312,8 @@ class question_analyzer {
                 return null;
             }
             
-            $context = \context::instance_by_id($category->contextid, IGNORE_MISSING);
-            
-            if (!$context) {
-                return null;
-            }
-            
-            $courseid = 0;
-            
-            if ($context->contextlevel == CONTEXT_COURSE) {
-                $courseid = $context->instanceid;
-            } else if ($context->contextlevel == CONTEXT_MODULE) {
-                $coursecontext = $context->get_course_context(false);
-                if ($coursecontext) {
-                    $courseid = $coursecontext->instanceid;
-                }
-            } else if ($context->contextlevel == CONTEXT_SYSTEM) {
-                // 🔧 FIX: Pour contexte système, utiliser SITEID au lieu de 0
-                // courseid=0 cause l'erreur "course not found"
-                $courseid = SITEID;
-            }
-            
-            // ⚠️ v1.6.7 : Vérifier et corriger le courseid AVANT de générer l'URL
-            // Si courseid = 0 ou cours n'existe pas, utiliser SITEID comme fallback
-            if ($courseid <= 0 || !$DB->record_exists('course', ['id' => $courseid])) {
-                $courseid = SITEID;
-            }
-            
-            // Dernière vérification : si SITEID n'existe pas non plus (rare), retourner null
-            if (!$DB->record_exists('course', ['id' => $courseid])) {
-                return null;
-            }
-            
-            $url = new \moodle_url('/question/edit.php', [
-                'courseid' => $courseid,
-                'cat' => $category->id . ',' . $category->contextid,
-                'qid' => $question->id
-            ]);
-            
-            return $url;
+            // Utiliser la fonction centralisée avec l'ID de la question
+            return local_question_diagnostic_get_question_bank_url($category, $question->id);
             
         } catch (\Exception $e) {
             return null;
@@ -1324,25 +1340,18 @@ class question_analyzer {
 
     /**
      * Purge tous les caches du plugin
+     * 
+     * 🔧 REFACTORED v1.9.27 : Utilise maintenant la classe CacheManager centralisée
+     * @see \local_question_diagnostic\cache_manager::purge_all_caches()
      *
      * @return bool Succès de l'opération
      */
     public static function purge_all_caches() {
-        try {
-            $cache_duplicates = \cache::make('local_question_diagnostic', 'duplicates');
-            $cache_duplicates->purge();
-            
-            $cache_stats = \cache::make('local_question_diagnostic', 'globalstats');
-            $cache_stats->purge();
-            
-            $cache_usage = \cache::make('local_question_diagnostic', 'questionusage');
-            $cache_usage->purge();
-            
-            return true;
-        } catch (\Exception $e) {
-            debugging('Error purging caches: ' . $e->getMessage(), DEBUG_DEVELOPER);
-            return false;
-        }
+        require_once(__DIR__ . '/cache_manager.php');
+        $results = cache_manager::purge_all_caches();
+        
+        // Retourner true si au moins un cache a été purgé
+        return !empty(array_filter($results));
     }
 
     /**
@@ -1455,64 +1464,25 @@ class question_analyzer {
     
     /**
      * Vérifie si une question peut être supprimée en toute sécurité
-     * 🚨 DEPRECATED : Utiliser can_delete_questions_batch() pour de meilleures performances
      * 
-     * Règles de protection :
-     * 1. Question utilisée dans un quiz → NON SUPPRIMABLE
-     * 2. Question avec tentatives → NON SUPPRIMABLE
-     * 3. Question unique (pas de doublon) → NON SUPPRIMABLE
-     * 4. Question en doublon ET inutilisée → SUPPRIMABLE
-     *
+     * 🗑️ REMOVED v1.9.27 : Méthode dépréciée supprimée
+     * 
+     * Cette méthode était marquée DEPRECATED et causait des problèmes de performance (N+1 queries).
+     * Utiliser à la place : can_delete_questions_batch() qui est optimisée pour traiter
+     * plusieurs questions en une seule fois.
+     * 
+     * @deprecated Utiliser can_delete_questions_batch() pour de meilleures performances
      * @param int $questionid ID de la question
      * @return object Objet avec can_delete (bool), reason (string), details (array)
      */
     public static function can_delete_question($questionid) {
-        global $DB;
-        
-        $result = new \stdClass();
-        $result->can_delete = false;
-        $result->reason = '';
-        $result->details = [];
-        
-        try {
-            // Récupérer la question
-            $question = $DB->get_record('question', ['id' => $questionid]);
-            if (!$question) {
-                $result->reason = 'Question introuvable';
-                return $result;
-            }
-            
-            // Vérification 1 : La question est-elle utilisée ?
-            $usage = self::get_question_usage($questionid);
-            
-            if ($usage['is_used']) {
-                $result->reason = 'Question utilisée';
-                $result->details['quiz_count'] = $usage['quiz_count'];
-                $result->details['attempt_count'] = $usage['attempt_count'];
-                $result->details['quiz_list'] = $usage['quiz_list'];
-                return $result;
-            }
-            
-            // Vérification 2 : La question a-t-elle des doublons ?
-            $duplicates = self::find_exact_duplicates($question);
-            
-            if (count($duplicates) == 0) {
-                $result->reason = 'Question unique (pas de doublon)';
-                $result->details['is_unique'] = true;
-                return $result;
-            }
-            
-            // Si on arrive ici : question inutilisée ET en doublon → SUPPRIMABLE
-            $result->can_delete = true;
-            $result->reason = 'Question supprimable (doublon inutilisé)';
-            $result->details['duplicate_count'] = count($duplicates);
-            $result->details['duplicate_ids'] = array_map(function($q) { return $q->id; }, $duplicates);
-            
-        } catch (\Exception $e) {
-            $result->reason = 'Erreur lors de la vérification : ' . $e->getMessage();
-        }
-        
-        return $result;
+        // 🔧 REFACTORED v1.9.27 : Appeler la version batch pour une seule question
+        $results = self::can_delete_questions_batch([$questionid]);
+        return isset($results[$questionid]) ? $results[$questionid] : (object)[
+            'can_delete' => false,
+            'reason' => 'Erreur de vérification',
+            'details' => []
+        ];
     }
     
     /**

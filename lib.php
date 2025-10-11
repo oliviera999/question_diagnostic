@@ -168,6 +168,144 @@ function local_question_diagnostic_get_context_details($contextid, $include_id =
 }
 
 /**
+ * Get used question IDs from quiz_slots
+ * 
+ * 🔧 FONCTION UTILITAIRE CENTRALE : Détection des questions utilisées pour Moodle 4.5
+ * Cette fonction centralise la logique de détection qui était dupliquée dans :
+ * - questions_cleanup.php (lignes 242-299)
+ * - question_analyzer.php get_question_usage() (lignes 243-275)
+ * - question_analyzer.php get_questions_usage_by_ids() (lignes 328-368)
+ * - question_analyzer.php get_all_questions_usage() (lignes 528-549)
+ * - question_analyzer.php get_global_stats() (lignes 1202-1218)
+ * - question_analyzer.php get_used_duplicates_questions() (lignes 639-679)
+ * 
+ * ⚠️ MOODLE 4.5 : La table quiz_slots a changé !
+ * - Moodle 3.x/4.0 : quiz_slots.questionid existe
+ * - Moodle 4.1-4.4 : quiz_slots.questionbankentryid existe
+ * - Moodle 4.5+ : Ni l'un ni l'autre ! Utilise question_references
+ * 
+ * @return array IDs des questions utilisées dans des quiz
+ * @throws dml_exception Si erreur de base de données
+ */
+function local_question_diagnostic_get_used_question_ids() {
+    global $DB;
+    
+    try {
+        // Vérifier quelle colonne existe dans quiz_slots
+        $columns = $DB->get_columns('quiz_slots');
+        
+        if (isset($columns['questionbankentryid'])) {
+            // Moodle 4.1-4.4 : utilise questionbankentryid
+            $sql = "SELECT DISTINCT qv.questionid
+                    FROM {quiz_slots} qs
+                    INNER JOIN {question_bank_entries} qbe ON qbe.id = qs.questionbankentryid
+                    INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id";
+            return $DB->get_fieldset_sql($sql);
+            
+        } else if (isset($columns['questionid'])) {
+            // Moodle 3.x/4.0 : utilise questionid directement
+            $sql = "SELECT DISTINCT qs.questionid
+                    FROM {quiz_slots} qs";
+            return $DB->get_fieldset_sql($sql);
+            
+        } else {
+            // Moodle 4.5+ : Nouvelle architecture avec question_references
+            // Dans Moodle 4.5+, quiz_slots ne contient plus de lien direct vers les questions
+            // Il faut passer par question_references
+            $sql = "SELECT DISTINCT qv.questionid
+                    FROM {quiz_slots} qs
+                    INNER JOIN {question_references} qr ON qr.itemid = qs.id 
+                        AND qr.component = 'mod_quiz' 
+                        AND qr.questionarea = 'slot'
+                    INNER JOIN {question_bank_entries} qbe ON qbe.id = qr.questionbankentryid
+                    INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id 
+                        AND qv.version = (
+                            SELECT MAX(v.version)
+                            FROM {question_versions} v
+                            WHERE v.questionbankentryid = qbe.id
+                        )";
+            return $DB->get_fieldset_sql($sql);
+        }
+    } catch (Exception $e) {
+        debugging('Erreur dans local_question_diagnostic_get_used_question_ids: ' . $e->getMessage(), DEBUG_DEVELOPER);
+        return [];
+    }
+}
+
+/**
+ * Generate URL to access a category or question in the question bank
+ * 
+ * 🔧 FONCTION UTILITAIRE CENTRALE : Génération d'URL vers la banque de questions
+ * Cette fonction centralise la logique qui était dupliquée dans :
+ * - category_manager.php::get_question_bank_url() (ligne 779)
+ * - question_analyzer.php::get_question_bank_url() (ligne 1301)
+ * - question_link_checker.php::get_question_bank_url() (ligne 508)
+ * 
+ * @param object $category Category object with id and contextid
+ * @param int|null $questionid Optional question ID to link to
+ * @return moodle_url|null URL to question bank, or null if context invalid
+ */
+function local_question_diagnostic_get_question_bank_url($category, $questionid = null) {
+    global $DB;
+    
+    try {
+        // Déterminer le courseid à partir du contexte
+        $context = context::instance_by_id($category->contextid, IGNORE_MISSING);
+        
+        if (!$context) {
+            // Si le contexte n'existe pas, retourner null
+            return null;
+        }
+        
+        $courseid = 0; // Par défaut, système
+        
+        // Si c'est un contexte de cours, récupérer l'ID du cours
+        if ($context->contextlevel == CONTEXT_COURSE) {
+            $courseid = $context->instanceid;
+        } else if ($context->contextlevel == CONTEXT_MODULE) {
+            // Si c'est un module, remonter au cours parent
+            $coursecontext = $context->get_course_context(false);
+            if ($coursecontext) {
+                $courseid = $coursecontext->instanceid;
+            }
+        } else if ($context->contextlevel == CONTEXT_SYSTEM) {
+            // 🔧 FIX: Pour contexte système, utiliser SITEID au lieu de 0
+            // courseid=0 cause l'erreur "course not found"
+            $courseid = SITEID;
+        }
+        
+        // Vérifier que le cours existe avant de générer l'URL
+        if ($courseid > 0 && !$DB->record_exists('course', ['id' => $courseid])) {
+            // Si le cours n'existe pas, utiliser SITEID comme fallback
+            $courseid = SITEID;
+        }
+        
+        // Dernière vérification : si SITEID n'existe pas non plus (rare), retourner null
+        if (!$DB->record_exists('course', ['id' => $courseid])) {
+            return null;
+        }
+        
+        // Construire l'URL : /question/edit.php?courseid=X&cat=categoryid,contextid
+        $params = [
+            'courseid' => $courseid,
+            'cat' => $category->id . ',' . $category->contextid
+        ];
+        
+        // Si un ID de question est fourni, l'ajouter
+        if ($questionid !== null) {
+            $params['qid'] = $questionid;
+        }
+        
+        $url = new moodle_url('/question/edit.php', $params);
+        
+        return $url;
+        
+    } catch (Exception $e) {
+        return null;
+    }
+}
+
+/**
  * Serve the plugin files
  *
  * @param stdClass $course

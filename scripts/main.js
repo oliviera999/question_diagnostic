@@ -10,9 +10,8 @@
         selectedCategories: new Set(),
         allCategories: [],
         filteredCategories: [],
-        currentSort: { column: null, direction: 'asc' },
-        currentPage: 1,
-        itemsPerPage: 50
+        currentSort: { column: null, direction: 'asc' }
+        // 🗑️ REMOVED v1.9.27 : currentPage et itemsPerPage étaient inutilisés (pagination jamais implémentée)
     };
 
     // Initialisation au chargement du DOM
@@ -164,11 +163,16 @@
                 const questionCount = parseInt(row.getAttribute('data-questions') || '0');
                 const subcatCount = parseInt(row.getAttribute('data-subcategories') || '0');
                 
+                // 🔧 FIX BUG CRITIQUE : Vérifier isProtected pour le filtre "deletable"
                 // ⚠️ SÉCURITÉ CRITIQUE : Ne JAMAIS afficher comme supprimable si :
-                // - La catégorie est protégée
+                // - La catégorie est protégée (🆕 FIX)
                 // - La catégorie contient des questions (même 1 seule)
                 // - La catégorie contient des sous-catégories
                 if (status === 'deletable') {
+                    // Une catégorie est supprimable UNIQUEMENT si :
+                    // - PAS protégée ET
+                    // - Aucune question ET
+                    // - Aucune sous-catégorie
                     if (isProtected || questionCount > 0 || subcatCount > 0) {
                         visible = false;
                     }
@@ -178,7 +182,8 @@
                     visible = false;
                 } else if (status === 'orphan' && !isOrphan) {
                     visible = false;
-                } else if (status === 'ok' && (isEmpty || isOrphan || isDuplicate)) {
+                } else if (status === 'ok' && (isEmpty || isOrphan || isDuplicate || isProtected)) {
+                    // 🔧 FIX: Aussi exclure les catégories protégées du statut "ok"
                     visible = false;
                 }
             }
