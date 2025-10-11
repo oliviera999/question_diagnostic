@@ -85,6 +85,14 @@ echo html_writer::link(
         'title' => 'Forcer une nouvelle analyse des liens (purge le cache)'
     ]
 );
+
+// 🆕 v1.9.35 : Lien vers le centre d'aide
+echo html_writer::link(
+    new moodle_url('/local/question_diagnostic/help.php'),
+    '📚 Aide',
+    ['class' => 'btn btn-outline-info']
+);
+
 echo html_writer::end_tag('div');
 
 // ======================================================================

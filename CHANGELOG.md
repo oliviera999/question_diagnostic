@@ -5,6 +5,146 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.9.35] - 2025-10-11
+
+### 📄 QUICK WIN #1 : Centre d'Aide HTML
+
+#### Contexte
+
+Suite au déploiement de v1.9.34 (Quick Wins #3 et #5), implémentation du Quick Win #1 pour remplacer les liens vers fichiers .md par des pages HTML intégrées à Moodle.
+
+#### Problème
+
+**Avant** :
+- Lien vers `DATABASE_IMPACT.md` dans index.php et categories.php
+- Liens vers autres fichiers .md éparpillés
+- **Problème** : Les fichiers .md ne sont pas servis comme pages HTML par le serveur web
+- **Impact** : Erreur 404 ou affichage markdown brut
+
+**Expérience utilisateur** :
+- Clic sur un lien de documentation → Erreur ou fichier brut
+- Pas de navigation centralisée vers la documentation
+- Documentation GitHub inaccessible sans compte
+
+#### Solution Appliquée
+
+**Création d'un Centre d'Aide HTML complet** :
+
+**1. Page principale `help.php`** :
+- Dashboard avec 6 cartes d'aide :
+  - 📋 Fonctionnalités
+  - 📊 Impact Base de Données
+  - ⚡ Optimisations Gros Sites
+  - 📦 Installation & Déploiement
+  - 🎯 Compatibilité Moodle
+  - 🛠️ Guide Développeur
+
+- Navigation par grille responsive
+- Liens vers pages HTML internes
+- Liens vers documentation GitHub (external)
+- Statistiques : 79 fichiers organisés en 9 catégories
+
+**2. Page spécialisée `help_features.php`** :
+- Vue d'ensemble des 3 fonctionnalités principales :
+  - Gestion des catégories (protections, filtres, actions)
+  - Analyse des questions (doublons, suppression, pagination)
+  - Vérification liens cassés (scan, détection, réparation)
+
+- Détails des protections actives (v1.9.29+)
+- Règles de suppression des questions
+- Types de problèmes de liens détectés
+- Nouveautés v1.9.30+ (performance, robustesse, qualité)
+- Liens directs vers chaque outil
+
+**3. Intégration dans toutes les pages** :
+- `index.php` : Bouton proéminent "📚 Centre d'Aide" (ligne 113-119)
+- `categories.php` : Bouton "📚 Centre d'Aide" dans barre d'actions (ligne 165-169)
+- `questions_cleanup.php` : Bouton "📚 Aide" dans toolbar (ligne 90-95)
+- `broken_links.php` : Bouton "📚 Aide" dans toolbar (ligne 89-94)
+
+**4. Page existante améliorée** :
+- `help_database_impact.php` : Déjà créée en v1.9.28 (toujours utilisée)
+
+#### Bénéfices
+
+✅ **UX améliorée** :
+- Clic sur "Aide" → Page HTML Moodle native
+- Navigation fluide entre les guides
+- Interface cohérente avec Moodle
+- Responsive et accessible
+
+✅ **Accessibilité** :
+- Plus besoin de compte GitHub pour lire la doc
+- Aide contextuelle sur chaque page
+- Centre d'aide centralisé et organisé
+
+✅ **Documentation plus visible** :
+- Boutons proéminents sur toutes les pages
+- 6 catégories d'aide facilement accessibles
+- Liens vers 79 fichiers de documentation
+
+✅ **Professionnalisme** :
+- Interface soignée avec cartes colorées
+- Navigation intuitive
+- Respect des standards Moodle UI
+
+#### Fichiers Créés
+
+- **`help.php`** : Centre d'aide principal avec 6 cartes (~200 lignes)
+  - Dashboard aide avec grille responsive
+  - Liens vers aide spécialisée
+  - Liens vers documentation GitHub
+  - Statistiques documentation
+
+- **`help_features.php`** : Vue d'ensemble fonctionnalités (~150 lignes)
+  - 3 fonctionnalités détaillées
+  - Protections actives
+  - Règles de suppression
+  - Nouveautés v1.9.30+
+
+#### Fichiers Modifiés
+
+- **`index.php`** : Bouton "Centre d'Aide" après dashboard (ligne 113-119)
+- **`categories.php`** : Bouton "Centre d'Aide" dans toolbar (ligne 165-169)
+- **`questions_cleanup.php`** : Bouton "Aide" dans toolbar (ligne 90-95)
+- **`broken_links.php`** : Bouton "Aide" dans toolbar (ligne 89-94)
+- **`version.php`** : Version 2025101037 (v1.9.35)
+
+#### Avant/Après
+
+**Avant** :
+```
+Utilisateur : "Comment ça marche ?"
+→ Cherche dans les fichiers .md
+→ Erreur 404 ou fichier brut
+→ Frustration 😞
+```
+
+**Après** :
+```
+Utilisateur : "Comment ça marche ?"
+→ Clic sur "📚 Aide" sur n'importe quelle page
+→ Centre d'aide HTML avec 6 catégories
+→ Navigation fluide vers les guides
+→ Satisfaction ✅
+```
+
+#### Quick Wins Progression
+
+| # | Quick Win | Statut |
+|---|-----------|--------|
+| 3 | Documentation développeur | ✅ v1.9.34 |
+| 5 | Compatibilité clarifiée | ✅ v1.9.34 |
+| 1 | Page d'aide HTML | ✅ v1.9.35 |
+| 2 | Action "move" dans UI | ⏳ Prochaine |
+| 4 | Tests performance | ⏳ Dernière |
+
+**Progression** : 3/5 complétés (60%) - 6h/14h
+
+**Prochain Quick Win** : Action "move" dans UI (4h)
+
+---
+
 ## [1.9.34] - 2025-10-11
 
 ### 🎯 QUICK WINS : Documentation Développeur + Compatibilité Clarifiée

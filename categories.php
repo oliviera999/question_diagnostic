@@ -161,6 +161,13 @@ $exporturl = new moodle_url('/local/question_diagnostic/actions/export.php', [
 ]);
 echo html_writer::link($exporturl, '📥 ' . get_string('export', 'local_question_diagnostic'), ['class' => 'btn btn-success']);
 
+// 🆕 v1.9.35 : Lien vers le centre d'aide
+echo html_writer::link(
+    new moodle_url('/local/question_diagnostic/help.php'),
+    '📚 Centre d\'Aide',
+    ['class' => 'btn btn-info']
+);
+
 echo html_writer::end_tag('div');
 
 // ======================================================================

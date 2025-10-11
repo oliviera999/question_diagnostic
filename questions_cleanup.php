@@ -87,6 +87,13 @@ echo html_writer::link(
     ]
 );
 
+// 🆕 v1.9.35 : Lien vers le centre d'aide
+echo html_writer::link(
+    new moodle_url('/local/question_diagnostic/help.php'),
+    '📚 Aide',
+    ['class' => 'btn btn-outline-info']
+);
+
 echo html_writer::end_tag('div');
 
 // 🆕 v1.7.0 : MODE TEST ALÉATOIRE - Afficher le résultat si demandé

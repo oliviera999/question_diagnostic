@@ -107,6 +107,18 @@ echo html_writer::end_tag('div');
 echo html_writer::end_tag('div'); // fin dashboard
 
 // ======================================================================
+// 🆕 v1.9.35 : LIEN VERS LE CENTRE D'AIDE
+// ======================================================================
+
+echo html_writer::start_div('', ['style' => 'margin: 30px 0; text-align: center;']);
+echo html_writer::link(
+    new moodle_url('/local/question_diagnostic/help.php'),
+    '📚 Consulter le Centre d\'Aide et la Documentation',
+    ['class' => 'btn btn-lg btn-info', 'style' => 'font-size: 16px; padding: 12px 24px;']
+);
+echo html_writer::end_div();
+
+// ======================================================================
 // MENU DES OUTILS
 // ======================================================================
 
