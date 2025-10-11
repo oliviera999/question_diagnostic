@@ -127,6 +127,19 @@ Historique des versions, notes de release, migrations.
 
 ---
 
+### 📊 [reports/](reports/) - Rapports et Bilans
+
+Rapports finaux des phases de développement et bilans complets.
+
+**Fichiers clés** :
+- `RAPPORT_FINAL_GROS_SITES_ET_QUICK_WINS_v1.9.37.md` : ⭐ Rapport principal complet
+- `BILAN_FINAL_COMPLET_v1.9.33.md` : Bilan Phase 1 (optimisations)
+- `PROGRESSION_VISUELLE_v1.9.33.md` : Vue visuelle progression
+
+**Total** : 3 fichiers
+
+---
+
 ### 📁 [archives/](archives/) - Archives de Sessions
 
 Archives des résumés de sessions de travail et rapports intermédiaires.
@@ -188,12 +201,13 @@ Archives des résumés de sessions de travail et rapports intermédiaires.
 | Bugfixes | 11 |
 | Features | 8 |
 | Guides | 10 |
-| Installation | 5 |
-| Technical | 8 |
+| Installation | 6 |
+| Technical | 13 |
 | Performance | 7 |
 | Releases | 7 |
+| Reports | 3 |
 | Archives | 9 |
-| **TOTAL** | **79 fichiers** |
+| **TOTAL** | **88 fichiers** |
 
 ---
 
