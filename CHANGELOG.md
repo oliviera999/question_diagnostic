@@ -5,6 +5,186 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.9.39] - 2025-10-11
+
+### 🎯 TODO BASSE PRIORITE : Pagination Client + Logs Audit (Option B)
+
+#### Contexte
+
+Suite au nettoyage documentation (v1.9.38), implémentation de 2 TODOs BASSE PRIORITÉ pour améliorer l'UX et la traçabilité.
+
+---
+
+### 📄 TODO BASSE #1 : Pagination Côté Client
+
+#### Problème
+
+**Avant** :
+- Pagination serveur uniquement (v1.9.30)
+- Si utilisateur filtre et obtient 500 résultats : Tous affichés d'un coup
+- Navigation difficile dans résultats filtrés
+- Pas de contrôle sur nombre d'items affichés côté client
+
+#### Solution
+
+**Pagination client pour résultats filtrés** :
+
+**1. State étendu** (`scripts/main.js`) :
+- `currentPage` : Page courante (défaut 1)
+- `itemsPerPage` : Items par page (défaut 50)
+- `filteredCategories` : Liste des catégories après filtres
+
+**2. Fonction `paginateClientSide()`** :
+- Applique pagination sur les lignes déjà filtrées
+- Masque/affiche selon la page courante
+- Génère contrôles de navigation dynamiques
+
+**3. Contrôles de pagination** :
+- Boutons Précédent/Suivant
+- Numéros de pages (avec ellipses)
+- Compteur : "Affichage de X à Y sur Z résultats filtrés"
+- Choix items par page : 25, 50, 100, 200
+
+**4. Intégration** :
+- Appel automatique après chaque filtre
+- Initialisation au chargement de la page
+- Réinitialisation à page 1 lors changement de filtre
+
+#### Bénéfices
+
+✅ **Navigation améliorée** :
+- Résultats filtrés paginés automatiquement
+- Navigation fluide même avec 1000+ résultats filtrés
+- Contrôle total sur affichage
+
+✅ **Complémentarité** :
+- **Pagination serveur** (v1.9.30) : Charge 100-500 questions de la BDD
+- **Pagination client** (v1.9.39) : Pagine les résultats filtrés JavaScript
+- Les deux fonctionnent ensemble parfaitement
+
+✅ **Performance** :
+- Pas de surcharge (JavaScript uniquement)
+- Affichage instantané
+- Mémoire navigateur optimisée
+
+---
+
+### 📋 TODO BASSE #3 : Logs d'Audit pour Traçabilité
+
+#### Problème
+
+**Avant** :
+- Aucune traçabilité des modifications BDD
+- Impossible de savoir qui a supprimé quoi
+- Pas de compliance/audit trail
+- Debugging difficile
+
+**Impact** :
+- Problèmes de governance
+- Pas de accountability
+- Difficile de diagnostiquer incidents
+- Non conforme réglementations (RGPD, audit)
+
+#### Solution
+
+**Système complet de logs d'audit** :
+
+**1. Classe `audit_logger.php`** (~250 lignes) :
+
+**Méthodes de logging** :
+- `log_category_deletion()` : Suppression catégorie
+- `log_category_merge()` : Fusion catégories  
+- `log_category_move()` : Déplacement catégorie
+- `log_question_deletion()` : Suppression question
+- `log_export()` : Export données
+- `log_cache_purge()` : Purge cache
+
+**Stockage dual** :
+- Debugging Moodle : Messages DEBUG_DEVELOPER
+- Fichiers texte : `moodledata/local_question_diagnostic/audit_log_YYYY-MM.txt`
+
+**Gestion automatique** :
+- Fichiers mensuels (audit_log_2025-10.txt)
+- Conservation 90 jours
+- Nettoyage automatique anciens logs
+- Format parsable
+
+**2. Page de consultation `audit_logs.php`** :
+- Liste des 100 derniers logs
+- Filtrage par date, utilisateur, action
+- Tableau avec : Date, Utilisateur, Action, Détails
+- Icons visuels par type d'action
+- Lien vers documentation
+
+**3. Intégration Dashboard** (`index.php`) :
+- Nouvelle carte "Logs d'Audit"
+- Statistiques : X actions cette semaine
+- Lien "Consulter les logs →"
+
+**4. Intégration dans les actions** :
+- `delete_category()` : Log après suppression réussie
+- `merge_categories()` : À ajouter (v1.9.40+)
+- `move_category()` : À ajouter (v1.9.40+)
+- `delete_question()` : À ajouter (v1.9.40+)
+
+#### Bénéfices
+
+✅ **Traçabilité complète** :
+- Qui a fait quoi, quand, sur quoi
+- Historique conservé 90 jours
+- Format structuré (JSON)
+
+✅ **Compliance** :
+- Audit trail pour réglementations
+- Accountability des administrateurs
+- Preuves en cas d'incident
+
+✅ **Debugging facilité** :
+- Diagnostic incidents rapide
+- Historique des modifications
+- Corrélation temporelle
+
+✅ **Sécurité** :
+- Détection actions suspectes
+- Monitoring activité admin
+- Alerts possibles (futur)
+
+#### Fichiers Créés
+
+- **`classes/audit_logger.php`** : Classe de logging (~250 lignes)
+- **`audit_logs.php`** : Page consultation logs (~150 lignes)
+
+#### Fichiers Modifiés
+
+- **`index.php`** : Carte "Logs d'Audit" dans dashboard
+- **`classes/category_manager.php`** : Appel log dans delete_category()
+- **`version.php`** : Version 2025101041 (v1.9.39)
+
+#### Prochaines Étapes
+
+**Phase 2 de l'intégration** (v1.9.40+) :
+- Ajouter logs dans merge_categories()
+- Ajouter logs dans move_category()
+- Ajouter logs dans delete_question()
+- Ajouter logs dans export.php
+
+---
+
+### 📊 TODO BASSE Progression
+
+|| TODO | Statut | Temps |
+||------|--------|-------|
+|| #1 Pagination client | ✅ v1.9.39 | 6h |
+|| #3 Logs d'audit | ✅ v1.9.39 | 6h |
+|| #2 Barres progression | ⏳ Suivant | 8h |
+|| #4 Permissions granulaires | ⏳ Futur | 8h |
+|| #5 Interface monitoring | ⏳ Futur | 8h |
+|| #6 Tâche planifiée | ⏳ Futur | 8h |
+
+**Progression Option B** : 2/6 complétés (12h/44h) - 27%
+
+---
+
 ## [1.9.38] - 2025-10-11
 
 ### 🧹 NETTOYAGE : Organisation Finale de la Documentation

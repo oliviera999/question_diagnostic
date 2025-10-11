@@ -8,9 +8,11 @@ require_once(__DIR__ . '/../../config.php');
 require_once(__DIR__ . '/lib.php');
 require_once(__DIR__ . '/classes/category_manager.php');
 require_once(__DIR__ . '/classes/question_link_checker.php');
+require_once(__DIR__ . '/classes/audit_logger.php');
 
 use local_question_diagnostic\category_manager;
 use local_question_diagnostic\question_link_checker;
+use local_question_diagnostic\audit_logger;
 
 // Charger les bibliothèques Moodle nécessaires.
 require_login();
@@ -238,7 +240,41 @@ echo html_writer::end_tag('div'); // fin qd-tool-content
 echo html_writer::end_tag('div'); // fin qd-tool-card
 
 // ======================================================================
-// OPTION 4 : Page de test
+// 🆕 v1.9.39 : OPTION 4 : Logs d'Audit
+// ======================================================================
+
+echo html_writer::start_tag('div', ['class' => 'qd-tool-card']);
+
+echo html_writer::start_tag('div', ['class' => 'qd-tool-icon']);
+echo '📋';
+echo html_writer::end_tag('div');
+
+echo html_writer::start_tag('div', ['class' => 'qd-tool-content']);
+
+echo html_writer::tag('h4', 'Logs d\'Audit', ['class' => 'qd-tool-title']);
+
+echo html_writer::tag('p', 
+    'Consultez l\'historique complet de toutes les modifications effectuées sur la base de données (suppressions, fusions, déplacements). Traçabilité et compliance garanties.',
+    ['class' => 'qd-tool-description']
+);
+
+// Statistiques
+$recent_logs = audit_logger::get_recent_logs(10, 7);
+echo html_writer::start_tag('div', ['class' => 'qd-tool-stats']);
+echo html_writer::tag('span', '📊 ' . count($recent_logs) . ' actions cette semaine', ['class' => 'qd-tool-stat-item']);
+echo html_writer::tag('span', '🛡️ Traçabilité complète', ['class' => 'qd-tool-stat-item qd-stat-success']);
+echo html_writer::tag('span', '⏱️ 90 jours de conservation', ['class' => 'qd-tool-stat-item qd-stat-info']);
+echo html_writer::end_tag('div');
+
+$audit_url = new moodle_url('/local/question_diagnostic/audit_logs.php');
+echo html_writer::link($audit_url, 'Consulter les logs →', ['class' => 'qd-tool-button']);
+
+echo html_writer::end_tag('div'); // fin qd-tool-content
+
+echo html_writer::end_tag('div'); // fin qd-tool-card
+
+// ======================================================================
+// OPTION 5 : Page de test
 // ======================================================================
 
 echo html_writer::start_tag('div', ['class' => 'qd-tool-card']);

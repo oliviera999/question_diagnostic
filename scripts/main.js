@@ -10,8 +10,10 @@
         selectedCategories: new Set(),
         allCategories: [],
         filteredCategories: [],
-        currentSort: { column: null, direction: 'asc' }
-        // 🗑️ REMOVED v1.9.27 : currentPage et itemsPerPage étaient inutilisés (pagination jamais implémentée)
+        currentSort: { column: null, direction: 'asc' },
+        // 🆕 v1.9.39 : Pagination côté client pour résultats filtrés
+        currentPage: 1,
+        itemsPerPage: 50  // Par défaut, 50 items par page côté client
     };
 
     // Initialisation au chargement du DOM
@@ -21,6 +23,9 @@
         initializeBulkActions();
         initializeModals();
         initializeSorting();
+        
+        // 🆕 v1.9.39 : Initialiser la pagination client au chargement
+        initializeClientPagination();
     });
 
     /**
@@ -140,6 +145,9 @@
         const status = document.getElementById('filter-status')?.value || 'all';
         const context = document.getElementById('filter-context')?.value || 'all';
 
+        // 🆕 v1.9.39 : Réinitialiser les catégories filtrées
+        state.filteredCategories = [];
+
         const rows = document.querySelectorAll('.qd-table tbody tr');
 
         rows.forEach(row => {
@@ -196,9 +204,27 @@
             }
 
             row.style.display = visible ? '' : 'none';
+            
+            // 🆕 v1.9.39 : Stocker les catégories filtrées pour pagination client
+            if (visible) {
+                const categoryId = parseInt(row.dataset.id);
+                if (!state.filteredCategories.find(c => c.id === categoryId)) {
+                    state.filteredCategories.push({id: categoryId, row: row});
+                }
+            }
         });
 
+        // 🆕 v1.9.39 : Mettre à jour la liste des catégories filtrées
+        const visibleRows = Array.from(rows).filter(row => row.style.display !== 'none');
+        state.filteredCategories = visibleRows.map(row => ({
+            id: parseInt(row.dataset.id),
+            row: row
+        }));
+
         updateFilterStats();
+        
+        // 🆕 v1.9.39 : Appliquer la pagination client sur les résultats filtrés
+        paginateClientSide();
     }
 
     /**
@@ -485,6 +511,164 @@
     }
 
     // Exposer certaines fonctions globalement pour les boutons inline
+    /**
+     * 🆕 v1.9.39 : Initialise la pagination client au premier chargement
+     */
+    function initializeClientPagination() {
+        const rows = document.querySelectorAll('tbody tr');
+        
+        // Initialiser state.filteredCategories avec toutes les lignes
+        state.filteredCategories = Array.from(rows).map(row => ({
+            id: parseInt(row.dataset.id),
+            row: row
+        }));
+        
+        // Appliquer la pagination initiale
+        paginateClientSide();
+    }
+
+    /**
+     * 🆕 v1.9.39 : Pagination côté client pour résultats filtrés
+     * Applique la pagination sur les lignes du tableau déjà filtrées
+     */
+    function paginateClientSide() {
+        const rows = document.querySelectorAll('tbody tr');
+        const totalRows = state.filteredCategories.length;
+        const totalPages = Math.ceil(totalRows / state.itemsPerPage);
+        
+        // Normaliser la page courante
+        state.currentPage = Math.max(1, Math.min(state.currentPage, totalPages || 1));
+        
+        const startIndex = (state.currentPage - 1) * state.itemsPerPage;
+        const endIndex = startIndex + state.itemsPerPage;
+        
+        // Afficher/masquer les lignes selon la page
+        let visibleIndex = 0;
+        rows.forEach(function(row) {
+            // Vérifier si la ligne est déjà visible (non filtrée)
+            if (row.style.display !== 'none') {
+                // C'est une ligne filtrée visible
+                if (visibleIndex >= startIndex && visibleIndex < endIndex) {
+                    // Dans la plage de la page courante
+                    row.setAttribute('data-page-visible', 'true');
+                } else {
+                    // Hors de la plage : masquer pour pagination
+                    row.style.display = 'none';
+                    row.setAttribute('data-page-visible', 'false');
+                }
+                visibleIndex++;
+            }
+        });
+        
+        // Mettre à jour les contrôles de pagination
+        renderClientPaginationControls(totalRows, totalPages);
+    }
+    
+    /**
+     * 🆕 v1.9.39 : Affiche les contrôles de pagination client
+     */
+    function renderClientPaginationControls(totalItems, totalPages) {
+        let container = document.getElementById('client-pagination-controls');
+        
+        // Créer le container s'il n'existe pas
+        if (!container) {
+            const tableWrapper = document.querySelector('.qd-table-wrapper');
+            if (!tableWrapper) return;
+            
+            container = document.createElement('div');
+            container.id = 'client-pagination-controls';
+            container.style.cssText = 'margin: 20px 0; text-align: center; padding: 15px; background: #f8f9fa; border-radius: 5px;';
+            tableWrapper.parentNode.insertBefore(container, tableWrapper.nextSibling);
+        }
+        
+        // Ne rien afficher si tout tient sur une page
+        if (totalPages <= 1) {
+            container.innerHTML = '';
+            container.style.display = 'none';
+            return;
+        }
+        
+        container.style.display = 'block';
+        
+        // Info texte
+        const start = (state.currentPage - 1) * state.itemsPerPage + 1;
+        const end = Math.min(state.currentPage * state.itemsPerPage, totalItems);
+        
+        let html = '<div style="margin-bottom: 10px; color: #666; font-size: 14px;">';
+        html += '📄 Affichage de ' + start + ' à ' + end + ' sur ' + totalItems + ' résultats filtrés';
+        html += '</div>';
+        
+        html += '<div style="display: flex; justify-content: center; gap: 5px; flex-wrap: wrap;">';
+        
+        // Bouton Précédent
+        if (state.currentPage > 1) {
+            html += '<button onclick="QDTool.goToPage(' + (state.currentPage - 1) + ')" class="btn btn-sm btn-secondary">‹ Précédent</button>';
+        }
+        
+        // Numéros de pages (max 5 autour de la page courante)
+        const range = 2;
+        const startPage = Math.max(1, state.currentPage - range);
+        const endPage = Math.min(totalPages, state.currentPage + range);
+        
+        if (startPage > 1) {
+            html += '<button onclick="QDTool.goToPage(1)" class="btn btn-sm btn-secondary">1</button>';
+            if (startPage > 2) {
+                html += '<span style="padding: 0 10px; line-height: 30px;">...</span>';
+            }
+        }
+        
+        for (let i = startPage; i <= endPage; i++) {
+            if (i === state.currentPage) {
+                html += '<button class="btn btn-sm btn-primary" style="font-weight: bold;">' + i + '</button>';
+            } else {
+                html += '<button onclick="QDTool.goToPage(' + i + ')" class="btn btn-sm btn-secondary">' + i + '</button>';
+            }
+        }
+        
+        if (endPage < totalPages) {
+            if (endPage < totalPages - 1) {
+                html += '<span style="padding: 0 10px; line-height: 30px;">...</span>';
+            }
+            html += '<button onclick="QDTool.goToPage(' + totalPages + ')" class="btn btn-sm btn-secondary">' + totalPages + '</button>';
+        }
+        
+        // Bouton Suivant
+        if (state.currentPage < totalPages) {
+            html += '<button onclick="QDTool.goToPage(' + (state.currentPage + 1) + ')" class="btn btn-sm btn-secondary">Suivant ›</button>';
+        }
+        
+        html += '</div>';
+        
+        // Choix du nombre d'items par page
+        html += '<div style="margin-top: 10px; font-size: 13px;">';
+        html += 'Items par page : ';
+        [25, 50, 100, 200].forEach(function(size) {
+            const btnClass = size === state.itemsPerPage ? 'btn-primary' : 'btn-outline-secondary';
+            html += '<button onclick="QDTool.setItemsPerPage(' + size + ')" class="btn btn-sm ' + btnClass + '" style="margin: 0 2px;">' + size + '</button>';
+        });
+        html += '</div>';
+        
+        container.innerHTML = html;
+    }
+    
+    /**
+     * 🆕 v1.9.39 : Navigation vers une page spécifique
+     */
+    function goToPage(pageNumber) {
+        state.currentPage = pageNumber;
+        paginateClientSide();
+    }
+    
+    /**
+     * 🆕 v1.9.39 : Changer le nombre d'items par page
+     */
+    function setItemsPerPage(size) {
+        state.itemsPerPage = size;
+        state.currentPage = 1; // Retour à la page 1
+        paginateClientSide();
+    }
+
+    // Export des fonctions publiques
     window.QDTool = {
         deleteCategory: function(id) {
             if (confirm('Êtes-vous sûr de vouloir supprimer cette catégorie ?')) {
@@ -494,7 +678,11 @@
         
         showMergeModal: showMergeModal,
         
-        showMessage: showMessage
+        showMessage: showMessage,
+        
+        // 🆕 v1.9.39 : Fonctions de pagination client
+        goToPage: goToPage,
+        setItemsPerPage: setItemsPerPage
     };
 })();
 

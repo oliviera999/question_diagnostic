@@ -11,6 +11,7 @@ namespace local_question_diagnostic;
 defined('MOODLE_INTERNAL') || die();
 
 require_once($CFG->dirroot . '/question/editlib.php');
+require_once(__DIR__ . '/audit_logger.php');
 
 /**
  * Gestionnaire de catégories de questions
@@ -449,6 +450,9 @@ class category_manager {
                 debugging("Échec suppression catégorie $categoryid via delete_records", DEBUG_DEVELOPER);
                 return "❌ Échec de la suppression dans la base de données (ID: $categoryid)";
             }
+            
+            // 🆕 v1.9.39 : Log d'audit pour traçabilité
+            audit_logger::log_category_deletion($categoryid, $category->name, 0);
             
             return true;
             
