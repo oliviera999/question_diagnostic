@@ -1,8 +1,26 @@
 # 🔧 Moodle Question Bank Diagnostic Tool
 
-Outil complet de gestion et diagnostic de la banque de questions pour Moodle 3.9+
+Outil complet de gestion et diagnostic de la banque de questions pour Moodle 4.0+
 
-**Version actuelle :** 1.1.0 | **Statut :** Stable ✅
+**Version actuelle :** v1.9.30 | **Statut :** Production-Ready ✅
+
+---
+
+## 📚 Documentation
+
+**📖 [INDEX COMPLET DE LA DOCUMENTATION](docs/README.md)** ← *Commencez ici pour naviguer dans toute la documentation*
+
+La documentation complète (79 fichiers) est maintenant organisée dans le dossier **[`docs/`](docs/)** par catégorie :
+- **[Audits](docs/audits/)** : Analyses complètes du plugin
+- **[Guides](docs/guides/)** : Guides d'utilisation et configuration
+- **[Installation](docs/installation/)** : Installation et déploiement
+- **[Performance](docs/performance/)** : Optimisations pour gros sites (v1.9.30)
+- **[Bugfixes](docs/bugfixes/)** : Corrections de bugs
+- **[Features](docs/features/)** : Documentation des fonctionnalités
+- **[Technical](docs/technical/)** : Documentation technique (BDD, compatibilité)
+- **[Releases](docs/releases/)** : Notes de version
+
+---
 
 ## 🌟 Nouveautés v1.1.0
 

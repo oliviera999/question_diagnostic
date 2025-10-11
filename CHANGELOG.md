@@ -5,6 +5,129 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.9.31] - 2025-10-11
+
+### 📚 ORGANISATION : Documentation Structurée dans /docs
+
+#### Contexte
+
+Suite à l'audit complet du projet (TODO MOYENNE PRIORITÉ #9), organisation de la documentation extensive du plugin (82 fichiers .md) dans une structure claire et navigable.
+
+#### Problème
+
+**Avant** :
+- 82 fichiers .md à la racine du projet
+- Navigation difficile dans la documentation
+- Pas d'organisation logique
+- Difficile de trouver l'information recherchée
+
+**Impact** :
+- Perte de temps pour les nouveaux contributeurs
+- Documentation difficile à maintenir
+- Mauvaise expérience utilisateur
+
+#### Solution Appliquée
+
+**Création d'une structure `/docs` organisée par catégorie** :
+
+```
+docs/
+├── audits/           # 14 fichiers - Audits et analyses
+├── bugfixes/         # 11 fichiers - Corrections de bugs
+├── features/         #  8 fichiers - Documentation fonctionnalités
+├── guides/           # 10 fichiers - Guides utilisateur/développeur
+├── installation/     #  5 fichiers - Installation et déploiement
+├── technical/        #  8 fichiers - Documentation technique
+├── performance/      #  7 fichiers - Optimisations et résolutions
+├── releases/         #  7 fichiers - Notes de version
+├── archives/         #  9 fichiers - Sessions de travail
+├── PROJECT_OVERVIEW.md
+└── README.md         # Index complet de navigation
+```
+
+**Fichiers restants à la racine** :
+- `README.md` : Guide principal (mis à jour avec lien vers /docs)
+- `CHANGELOG.md` : Historique des versions
+- `LICENSE` : Licence GPL v3
+
+#### Nouveautés
+
+**1. Index de Documentation ([`docs/README.md`](docs/README.md))** :
+- **Navigation par catégorie** : Accès direct aux 9 catégories
+- **Navigation par cas d'usage** : "Je veux installer", "Je veux optimiser", etc.
+- **Statistiques** : 79 fichiers organisés
+- **Liens vers documents clés** : Guides essentiels mis en avant
+- **Historique des versions** : Dernières mises à jour (v1.9.30, v1.9.29, etc.)
+
+**2. README.md Mis à Jour** :
+- Lien proéminent vers [`docs/README.md`](docs/README.md)
+- Version actuelle : v1.9.30
+- Statut : Production-Ready ✅
+- Liste des catégories de documentation disponibles
+
+**3. Organisation Intelligente** :
+- Scripts PowerShell pour organisation automatique
+- Catégorisation basée sur le contenu et le nom
+- 79 fichiers déplacés automatiquement
+- Structure extensible pour futures additions
+
+#### Bénéfices
+
+✅ **Navigation facilitée** :
+- Trouver un document en quelques clics
+- Structure logique et intuitive
+- Index complet avec recherche par usage
+
+✅ **Maintenabilité améliorée** :
+- Nouvelle documentation facile à catégoriser
+- Structure claire pour contributeurs
+- Évite l'accumulation à la racine
+
+✅ **Expérience utilisateur** :
+- Documentation accessible et bien organisée
+- Guides contextuels selon le besoin
+- Parcours de lecture guidés
+
+✅ **Professionnalisme** :
+- Structure standard pour projets Moodle
+- Documentation de qualité professionnelle
+- Facilite l'adoption du plugin
+
+#### Statistiques
+
+| Avant | Après |
+|-------|-------|
+| 82 fichiers à la racine | 2 fichiers à la racine (+LICENSE) |
+| Aucune organisation | 9 catégories thématiques |
+| Navigation difficile | Index complet de navigation |
+| Pas d'index | [`docs/README.md`](docs/README.md) avec 79 fichiers indexés |
+
+#### Fichiers Impactés
+
+- **Créés** :
+  - `docs/README.md` : Index complet de la documentation
+  - Structure `/docs` avec 9 sous-dossiers
+
+- **Modifiés** :
+  - `README.md` : Ajout section documentation avec lien vers /docs
+  - `version.php` : Version 2025101033 (v1.9.31)
+
+- **Déplacés** : 79 fichiers .md de la racine vers `/docs`
+
+#### Migration pour Utilisateurs
+
+**Aucune action requise** :
+- Les liens relatifs dans les fichiers .md sont préservés
+- GitHub affiche automatiquement les README.md dans chaque dossier
+- L'accès aux fichiers reste identique
+
+**Pour accéder à la documentation** :
+1. Consulter [`docs/README.md`](docs/README.md) pour l'index complet
+2. Naviguer par catégorie ou par cas d'usage
+3. Utiliser la recherche GitHub si besoin
+
+---
+
 ## [1.9.30] - 2025-10-11
 
 ### ⚡ PERFORMANCE : Pagination Serveur pour Gros Sites (>20k questions)
