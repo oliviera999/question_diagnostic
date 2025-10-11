@@ -26,14 +26,16 @@ class question_analyzer {
      *
      * @param bool $include_duplicates Inclure la détection de doublons (peut être lent)
      * @param int $limit Limite du nombre de questions (0 = toutes)
+     * @param int $offset Offset pour la pagination serveur (🆕 v1.9.30)
      * @return array Tableau des questions avec métadonnées
      */
-    public static function get_all_questions_with_stats($include_duplicates = true, $limit = 0) {
+    public static function get_all_questions_with_stats($include_duplicates = true, $limit = 0, $offset = 0) {
         global $DB;
 
-        // Récupérer les questions avec limite - Utiliser l'API Moodle pour compatibilité multi-SGBD
+        // 🆕 v1.9.30 : Support de l'offset pour pagination serveur
+        // Récupérer les questions avec limite et offset - Utiliser l'API Moodle pour compatibilité multi-SGBD
         if ($limit > 0) {
-            $questions = $DB->get_records('question', null, 'id DESC', '*', 0, $limit);
+            $questions = $DB->get_records('question', null, 'id DESC', '*', $offset, $limit);
         } else {
             $questions = $DB->get_records('question', null, 'id DESC');
         }
@@ -618,10 +620,13 @@ class question_analyzer {
      *              Ne se base plus sur !empty() qui donnait des faux positifs
      *              Utilise désormais la détection directe depuis quiz_slots
      * 
-     * @param int $limit Limite de questions à retourner
+     * 🆕 v1.9.30 : Support pagination serveur (limit + offset)
+     * 
+     * @param int $limit Limite de questions à retourner par page
+     * @param int $offset Offset pour la pagination serveur
      * @return array Tableau des questions (objets simples)
      */
-    public static function get_used_duplicates_questions($limit = 100) {
+    public static function get_used_duplicates_questions($limit = 100, $offset = 0) {
         global $DB;
         
         try {
@@ -694,16 +699,12 @@ class question_analyzer {
             }
             
             // Étape 2 : Pour chaque question utilisée, chercher ses doublons
-            $result_questions = [];
+            // 🆕 v1.9.30 : Charger TOUTES les questions d'abord, puis paginer
+            $all_result_questions = [];
             $processed_signatures = []; // Pour éviter les doublons dans le résultat
             $groups_found = 0;
             
             foreach ($used_question_ids as $qid) {
-                // Si on a atteint la limite, arrêter
-                if (count($result_questions) >= $limit) {
-                    break;
-                }
-                
                 $question = $DB->get_record('question', ['id' => $qid]);
                 if (!$question) {
                     continue;
@@ -728,19 +729,18 @@ class question_analyzer {
                     
                     // Ajouter TOUTES les versions du groupe au résultat
                     foreach ($all_versions as $q) {
-                        $result_questions[] = $q;
-                        
-                        // Vérifier la limite après chaque ajout
-                        if (count($result_questions) >= $limit) {
-                            break 2; // Sortir des deux boucles
-                        }
+                        $all_result_questions[] = $q;
                     }
                 }
             }
             
-            debugging('CHARGER DOUBLONS UTILISÉS v1.9.24 - Résultat: ' . count($result_questions) . ' questions dans ' . $groups_found . ' groupes de doublons', DEBUG_DEVELOPER);
+            // 🆕 v1.9.30 : Appliquer la pagination sur le résultat complet
+            $total_count = count($all_result_questions);
+            $paginated_result = array_slice($all_result_questions, $offset, $limit);
             
-            return $result_questions;
+            debugging('CHARGER DOUBLONS UTILISÉS v1.9.30 - Total: ' . $total_count . ' questions dans ' . $groups_found . ' groupes | Page: ' . count($paginated_result) . ' questions (offset=' . $offset . ', limit=' . $limit . ')', DEBUG_DEVELOPER);
+            
+            return $paginated_result;
             
         } catch (\Exception $e) {
             debugging('Error in get_used_duplicates_questions: ' . $e->getMessage(), DEBUG_DEVELOPER);

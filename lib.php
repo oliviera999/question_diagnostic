@@ -306,6 +306,114 @@ function local_question_diagnostic_get_question_bank_url($category, $questionid 
 }
 
 /**
+ * Generate pagination controls HTML
+ * 
+ * 🆕 v1.9.30 : Pagination serveur pour gros sites
+ * 
+ * @param int $total_items Total number of items
+ * @param int $current_page Current page number (1-based)
+ * @param int $per_page Items per page
+ * @param moodle_url $base_url Base URL for pagination links
+ * @param array $extra_params Additional URL parameters to preserve
+ * @return string HTML for pagination controls
+ */
+function local_question_diagnostic_render_pagination($total_items, $current_page, $per_page, $base_url, $extra_params = []) {
+    if ($total_items <= $per_page) {
+        return ''; // No pagination needed
+    }
+    
+    $total_pages = ceil($total_items / $per_page);
+    $current_page = max(1, min($current_page, $total_pages));
+    
+    $html = html_writer::start_div('qd-pagination', ['style' => 'margin: 20px 0; text-align: center;']);
+    
+    // Info texte
+    $start = ($current_page - 1) * $per_page + 1;
+    $end = min($current_page * $per_page, $total_items);
+    $html .= html_writer::tag('div', 
+        sprintf('Affichage de %d à %d sur %d éléments', $start, $end, $total_items),
+        ['style' => 'margin-bottom: 10px; color: #666; font-size: 14px;']
+    );
+    
+    $html .= html_writer::start_div('qd-pagination-buttons', ['style' => 'display: flex; justify-content: center; gap: 5px; flex-wrap: wrap;']);
+    
+    // Bouton Première page
+    if ($current_page > 1) {
+        $url = clone $base_url;
+        $url->params(array_merge($extra_params, ['page' => 1]));
+        $html .= html_writer::link($url, '« Premier', ['class' => 'btn btn-sm btn-secondary']);
+    }
+    
+    // Bouton Précédent
+    if ($current_page > 1) {
+        $url = clone $base_url;
+        $url->params(array_merge($extra_params, ['page' => $current_page - 1]));
+        $html .= html_writer::link($url, '‹ Précédent', ['class' => 'btn btn-sm btn-secondary']);
+    }
+    
+    // Numéros de pages (avec ellipses si beaucoup de pages)
+    $range = 2; // Montrer 2 pages avant et après
+    $start_page = max(1, $current_page - $range);
+    $end_page = min($total_pages, $current_page + $range);
+    
+    // Ellipse au début si nécessaire
+    if ($start_page > 1) {
+        $url = clone $base_url;
+        $url->params(array_merge($extra_params, ['page' => 1]));
+        $html .= html_writer::link($url, '1', ['class' => 'btn btn-sm btn-secondary']);
+        
+        if ($start_page > 2) {
+            $html .= html_writer::tag('span', '...', ['style' => 'padding: 0 10px; line-height: 30px;']);
+        }
+    }
+    
+    // Pages du milieu
+    for ($i = $start_page; $i <= $end_page; $i++) {
+        $url = clone $base_url;
+        $url->params(array_merge($extra_params, ['page' => $i]));
+        
+        if ($i == $current_page) {
+            $html .= html_writer::tag('span', $i, [
+                'class' => 'btn btn-sm btn-primary',
+                'style' => 'font-weight: bold;'
+            ]);
+        } else {
+            $html .= html_writer::link($url, $i, ['class' => 'btn btn-sm btn-secondary']);
+        }
+    }
+    
+    // Ellipse à la fin si nécessaire
+    if ($end_page < $total_pages) {
+        if ($end_page < $total_pages - 1) {
+            $html .= html_writer::tag('span', '...', ['style' => 'padding: 0 10px; line-height: 30px;']);
+        }
+        
+        $url = clone $base_url;
+        $url->params(array_merge($extra_params, ['page' => $total_pages]));
+        $html .= html_writer::link($url, $total_pages, ['class' => 'btn btn-sm btn-secondary']);
+    }
+    
+    // Bouton Suivant
+    if ($current_page < $total_pages) {
+        $url = clone $base_url;
+        $url->params(array_merge($extra_params, ['page' => $current_page + 1]));
+        $html .= html_writer::link($url, 'Suivant ›', ['class' => 'btn btn-sm btn-secondary']);
+    }
+    
+    // Bouton Dernière page
+    if ($current_page < $total_pages) {
+        $url = clone $base_url;
+        $url->params(array_merge($extra_params, ['page' => $total_pages]));
+        $html .= html_writer::link($url, 'Dernier »', ['class' => 'btn btn-sm btn-secondary']);
+    }
+    
+    $html .= html_writer::end_div(); // qd-pagination-buttons
+    $html .= html_writer::end_div(); // qd-pagination
+    
+    return $html;
+}
+
+/**
  * Serve the plugin files
  *
  * @param stdClass $course

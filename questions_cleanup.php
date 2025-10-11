@@ -562,6 +562,9 @@ if ($randomtest_used && confirm_sesskey()) {
     echo html_writer::end_tag('tbody');
     echo html_writer::end_tag('table');
     
+    // 🆕 v1.9.30 : Pagination serveur - Afficher les contrôles APRÈS le tableau
+    echo local_question_diagnostic_render_pagination($total_questions, $page, $per_page, $page_url, $extra_params);
+    
     // 🆕 v1.9.23 : JavaScript pour gestion de la sélection en masse
     echo html_writer::start_tag('script');
     echo "
@@ -1002,74 +1005,66 @@ echo html_writer::end_tag('div');
 
 // Charger les questions avec gestion d'erreurs optimisée
 try {
-    // 🚨 v1.6.0 : PROTECTION RENFORCÉE pour grandes bases (30 000+ questions)
-    // 🎯 v1.9.13 AMÉLIORATION : Valeur par défaut adaptative selon taille BDD
+    // 🚨 v1.9.30 : PAGINATION SERVEUR pour gros sites
     $total_questions = $globalstats->total_questions;
     
-    // Calculer une valeur par défaut intelligente
-    if ($total_questions < 100) {
-        $default_show = $total_questions; // Tout afficher si petite base
-    } else if ($total_questions < 1000) {
-        $default_show = 100;
-    } else if ($total_questions < 5000) {
-        $default_show = 500;
-    } else {
-        $default_show = 100; // Grande base : rester raisonnable
-    }
+    // Paramètres de pagination
+    $page = optional_param('page', 1, PARAM_INT);
+    $per_page = optional_param('per_page', 100, PARAM_INT);
     
-    $max_questions_display = optional_param('show', $default_show, PARAM_INT);
-    $max_questions_display = min($max_questions_display, 5000); // Limite absolue : 5000
+    // Validation et limites de sécurité
+    $page = max(1, $page);
+    $per_page = max(10, min($per_page, 500)); // Entre 10 et 500 par page
+    
+    // Calcul de l'offset pour la requête SQL
+    $offset = ($page - 1) * $per_page;
     
     // 🚫 DÉSACTIVER la détection de doublons par défaut (trop lourd)
     $include_duplicates = false;
     
-    // Message d'information pour les grandes bases
+    // 🆕 v1.9.30 : Pagination serveur - Info et contrôles par page
     echo html_writer::start_tag('div', ['class' => 'alert alert-info', 'style' => 'margin-bottom: 20px; border-left: 4px solid #0f6cbf;']);
     echo html_writer::tag('strong', '📊 Votre base de données : ');
     echo "<strong>" . number_format($total_questions, 0, ',', ' ') . " questions au total</strong>. ";
     echo '<br><br>';
-    echo '🎯 <strong>Affichage actuel</strong> : Les <strong>' . min($max_questions_display, $total_questions) . ' premières questions</strong> sont affichées ci-dessous.';
+    
+    $total_pages = ceil($total_questions / $per_page);
+    echo '🎯 <strong>Navigation</strong> : Page <strong>' . $page . '</strong> sur <strong>' . $total_pages . '</strong> (' . $per_page . ' questions par page).';
     echo '<br><br>';
     echo '💡 <strong>Options</strong> :';
     echo '<ul style="margin-top: 10px;">';
     echo '<li>Utilisez les <strong>filtres</strong> pour affiner les résultats</li>';
-    echo '<li>Changez le nombre de questions affichées : ';
+    echo '<li>Changez le nombre de questions par page : ';
     
-    // Construire les URLs selon le mode de chargement
+    // Construire les URLs pour changer le nombre par page
     $base_params = $load_used_duplicates ? ['loadusedduplicates' => 1] : ['loadstats' => 1];
-    $url_10 = new moodle_url('/local/question_diagnostic/questions_cleanup.php', array_merge($base_params, ['show' => 10]));
-    $url_50 = new moodle_url('/local/question_diagnostic/questions_cleanup.php', array_merge($base_params, ['show' => 50]));
-    $url_100 = new moodle_url('/local/question_diagnostic/questions_cleanup.php', array_merge($base_params, ['show' => 100]));
-    $url_500 = new moodle_url('/local/question_diagnostic/questions_cleanup.php', array_merge($base_params, ['show' => 500]));
-    $url_1000 = new moodle_url('/local/question_diagnostic/questions_cleanup.php', array_merge($base_params, ['show' => 1000]));
+    $url_50 = new moodle_url('/local/question_diagnostic/questions_cleanup.php', array_merge($base_params, ['per_page' => 50, 'page' => 1]));
+    $url_100 = new moodle_url('/local/question_diagnostic/questions_cleanup.php', array_merge($base_params, ['per_page' => 100, 'page' => 1]));
+    $url_200 = new moodle_url('/local/question_diagnostic/questions_cleanup.php', array_merge($base_params, ['per_page' => 200, 'page' => 1]));
+    $url_500 = new moodle_url('/local/question_diagnostic/questions_cleanup.php', array_merge($base_params, ['per_page' => 500, 'page' => 1]));
     
-    echo html_writer::link($url_10, '10', ['class' => $max_questions_display == 10 ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-secondary']);
+    echo html_writer::link($url_50, '50', ['class' => $per_page == 50 ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-secondary']);
     echo ' ';
-    echo html_writer::link($url_50, '50', ['class' => $max_questions_display == 50 ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-secondary']);
+    echo html_writer::link($url_100, '100', ['class' => $per_page == 100 ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-secondary']);
     echo ' ';
-    echo html_writer::link($url_100, '100', ['class' => $max_questions_display == 100 ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-secondary']);
+    echo html_writer::link($url_200, '200', ['class' => $per_page == 200 ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-secondary']);
     echo ' ';
-    echo html_writer::link($url_500, '500', ['class' => $max_questions_display == 500 ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-secondary']);
-    echo ' ';
-    echo html_writer::link($url_1000, '1000', ['class' => $max_questions_display == 1000 ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-secondary']);
+    echo html_writer::link($url_500, '500', ['class' => $per_page == 500 ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-secondary']);
     
-    // 🎯 v1.9.13 AMÉLIORATION : Bouton "Tout" si base < 2000 questions
-    if ($total_questions < 2000 && $total_questions > 100) {
-        echo ' ';
-        $url_all = new moodle_url('/local/question_diagnostic/questions_cleanup.php', 
-                                  array_merge($base_params, ['show' => $total_questions]));
-        echo html_writer::link($url_all, 'Tout (' . $total_questions . ')', 
-                              ['class' => $max_questions_display >= $total_questions ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-secondary']);
-    }
     echo '</li>';
     echo '</ul>';
     echo '<p style="margin-top: 15px;"><em>Les statistiques globales ci-dessus concernent bien <strong>TOUTES les ' . number_format($total_questions, 0, ',', ' ') . ' questions</strong>.</em></p>';
     echo html_writer::end_tag('div');
     
+    // 🆕 v1.9.30 : Pagination serveur - Afficher les contrôles de pagination AVANT le tableau
+    $page_url = new moodle_url('/local/question_diagnostic/questions_cleanup.php');
+    $extra_params = $load_used_duplicates ? ['loadusedduplicates' => 1, 'per_page' => $per_page] : ['loadstats' => 1, 'per_page' => $per_page];
+    echo local_question_diagnostic_render_pagination($total_questions, $page, $per_page, $page_url, $extra_params);
+    
     // 🆕 v1.8.0 : Mode de chargement ciblé pour doublons utilisés
     if ($load_used_duplicates) {
-        // Charger uniquement les doublons avec au moins 1 version utilisée
-        $questions = question_analyzer::get_used_duplicates_questions($max_questions_display);
+        // Charger uniquement les doublons avec au moins 1 version utilisée (avec pagination)
+        $questions = question_analyzer::get_used_duplicates_questions($per_page, $offset);
         
         // Enrichir avec les stats
         $questions_with_stats = [];
@@ -1081,19 +1076,18 @@ try {
         // Message d'information spécifique
         echo html_writer::start_tag('div', ['class' => 'alert alert-success', 'style' => 'margin: 20px 0; border-left: 4px solid #28a745;']);
         echo html_writer::tag('h3', '📋 Mode Doublons Utilisés Activé', ['style' => 'margin-top: 0; color: #28a745;']);
-        echo html_writer::tag('p', '<strong>' . count($questions_with_stats) . ' questions</strong> en doublon avec au moins 1 version utilisée ont été chargées.');
+        echo html_writer::tag('p', '<strong>' . count($questions_with_stats) . ' questions</strong> en doublon avec au moins 1 version utilisée sur cette page.');
         echo html_writer::tag('p', '✅ Ce mode affiche uniquement les groupes de doublons qui sont actuellement utilisés dans des quiz ou ont des tentatives.');
         echo html_writer::tag('p', '<strong>💡 Conseil</strong> : Utilisez les filtres "Usage = Inutilisées" pour identifier rapidement les versions à supprimer.');
         echo html_writer::end_tag('div');
         
     } else {
-        // Mode normal : charger toutes les questions
-        $limit = min($max_questions_display, $total_questions);
-        $questions_with_stats = question_analyzer::get_all_questions_with_stats($include_duplicates, $limit);
+        // Mode normal : charger les questions avec pagination
+        $questions_with_stats = question_analyzer::get_all_questions_with_stats($include_duplicates, $per_page, $offset);
     }
     
-    // 🔍 v1.9.12 DEBUG : Afficher le nombre de questions chargées
-    debugging('Questions chargées : ' . count($questions_with_stats) . ' sur ' . $limit . ' demandées (Total BDD : ' . $total_questions . ')', DEBUG_DEVELOPER);
+    // 🔍 v1.9.30 DEBUG : Afficher le nombre de questions chargées
+    debugging('Questions chargées : ' . count($questions_with_stats) . ' (page ' . $page . ', ' . $per_page . ' par page, offset ' . $offset . ') sur total BDD : ' . $total_questions, DEBUG_DEVELOPER);
     
 } catch (Exception $e) {
     echo html_writer::start_tag('script');

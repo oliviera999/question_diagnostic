@@ -487,36 +487,95 @@ class category_manager {
      * @param int $destid ID de la catégorie destination
      * @return bool|string true si succès, message d'erreur sinon
      */
+    /**
+     * Fusionne deux catégories en déplaçant questions et sous-catégories
+     * 
+     * 🆕 v1.9.30 : TRANSACTION SQL avec rollback automatique si erreur
+     * 
+     * @param int $sourceid ID de la catégorie source (sera supprimée)
+     * @param int $destid ID de la catégorie destination (recevra le contenu)
+     * @return bool|string true si succès, message d'erreur sinon
+     */
     public static function merge_categories($sourceid, $destid) {
         global $DB;
 
+        // 🛡️ v1.9.30 : Validation préalable (avant transaction)
+        if ($sourceid == $destid) {
+            return "Impossible de fusionner une catégorie avec elle-même.";
+        }
+
         try {
+            // Vérifier que les catégories existent
             $source = $DB->get_record('question_categories', ['id' => $sourceid], '*', MUST_EXIST);
             $dest = $DB->get_record('question_categories', ['id' => $destid], '*', MUST_EXIST);
             
-            // Déplacer toutes les questions de source vers dest - Compatible Moodle 4.x
-            $sql = "UPDATE {question_bank_entries} SET questioncategoryid = :destid WHERE questioncategoryid = :sourceid";
-            $DB->execute($sql, ['destid' => $destid, 'sourceid' => $sourceid]);
-            
-            // Déplacer les sous-catégories
-            $subcats = $DB->get_records('question_categories', ['parent' => $sourceid]);
-            foreach ($subcats as $subcat) {
-                $subcat->parent = $destid;
-                $DB->update_record('question_categories', $subcat);
+            // Vérifier qu'elles sont dans le même contexte
+            if ($source->contextid != $dest->contextid) {
+                return "Les catégories doivent être dans le même contexte pour être fusionnées.";
             }
             
-            // Supprimer la catégorie source
-            $DB->delete_records('question_categories', ['id' => $sourceid]);
+            // 🛡️ v1.9.30 : Vérifier que la source n'est pas protégée
+            $source_stats = self::get_category_stats($source);
+            if ($source_stats->is_protected) {
+                return "❌ PROTÉGÉE : La catégorie source est protégée et ne peut pas être fusionnée. Raison : " . $source_stats->protection_reason;
+            }
             
-            return true;
+            // 🆕 v1.9.30 : DÉBUT DE LA TRANSACTION SQL
+            // Si une erreur survient, TOUT sera annulé automatiquement
+            $transaction = $DB->start_delegated_transaction();
+            
+            try {
+                // Étape 1 : Déplacer toutes les questions de source vers dest
+                // Compatible Moodle 4.x (question_bank_entries)
+                $sql = "UPDATE {question_bank_entries} SET questioncategoryid = :destid WHERE questioncategoryid = :sourceid";
+                $moved_questions = $DB->execute($sql, ['destid' => $destid, 'sourceid' => $sourceid]);
+                
+                debugging('Fusion catégories v1.9.30 : ' . ($moved_questions ? 'Questions déplacées' : 'Aucune question') . ' de cat ' . $sourceid . ' vers ' . $destid, DEBUG_DEVELOPER);
+                
+                // Étape 2 : Déplacer les sous-catégories
+                $subcats = $DB->get_records('question_categories', ['parent' => $sourceid]);
+                $moved_subcats = 0;
+                
+                foreach ($subcats as $subcat) {
+                    $subcat->parent = $destid;
+                    $DB->update_record('question_categories', $subcat);
+                    $moved_subcats++;
+                }
+                
+                debugging('Fusion catégories v1.9.30 : ' . $moved_subcats . ' sous-catégorie(s) déplacée(s)', DEBUG_DEVELOPER);
+                
+                // Étape 3 : Supprimer la catégorie source (maintenant vide)
+                $DB->delete_records('question_categories', ['id' => $sourceid]);
+                
+                debugging('Fusion catégories v1.9.30 : Catégorie source ' . $sourceid . ' supprimée', DEBUG_DEVELOPER);
+                
+                // ✅ TOUT S'EST BIEN PASSÉ : VALIDER LA TRANSACTION
+                $transaction->allow_commit();
+                
+                // 🧹 v1.9.30 : Purger les caches après fusion réussie
+                cache_manager::purge_all_caches();
+                
+                return true;
+                
+            } catch (\Exception $inner_e) {
+                // 🔄 ERREUR DANS LA TRANSACTION : ROLLBACK AUTOMATIQUE
+                // Toutes les modifications seront annulées
+                debugging('Erreur dans transaction merge_categories : ' . $inner_e->getMessage(), DEBUG_DEVELOPER);
+                throw $inner_e; // Re-lancer pour le catch externe
+            }
             
         } catch (\Exception $e) {
-            return "Erreur lors de la fusion : " . $e->getMessage();
+            // Le rollback a déjà été effectué automatiquement par Moodle
+            $error_msg = "Erreur lors de la fusion : " . $e->getMessage();
+            debugging($error_msg, DEBUG_DEVELOPER);
+            return $error_msg;
         }
     }
 
     /**
      * Déplace une catégorie vers un nouveau parent
+     * 
+     * 🆕 v1.9.30 : TRANSACTION SQL avec rollback automatique si erreur
      *
      * @param int $categoryid ID de la catégorie à déplacer
      * @param int $newparentid ID du nouveau parent (0 pour racine)
@@ -524,6 +583,11 @@ class category_manager {
      */
     public static function move_category($categoryid, $newparentid) {
         global $DB;
+
+        // 🛡️ v1.9.30 : Validation préalable (avant transaction)
+        if ($categoryid == $newparentid) {
+            return "Une catégorie ne peut pas être son propre parent.";
+        }
 
         try {
             $category = $DB->get_record('question_categories', ['id' => $categoryid], '*', MUST_EXIST);
@@ -543,13 +607,39 @@ class category_manager {
                 }
             }
             
-            $category->parent = $newparentid;
-            $DB->update_record('question_categories', $category);
+            // 🛡️ v1.9.30 : Vérifier que la catégorie n'est pas protégée
+            $category_stats = self::get_category_stats($category);
+            if ($category_stats->is_protected) {
+                return "❌ PROTÉGÉE : Cette catégorie est protégée et ne peut pas être déplacée. Raison : " . $category_stats->protection_reason;
+            }
             
-            return true;
+            // 🆕 v1.9.30 : TRANSACTION SQL (même si une seule opération, pour cohérence)
+            $transaction = $DB->start_delegated_transaction();
+            
+            try {
+                $category->parent = $newparentid;
+                $DB->update_record('question_categories', $category);
+                
+                debugging('Déplacement catégorie v1.9.30 : Cat ' . $categoryid . ' déplacée vers parent ' . $newparentid, DEBUG_DEVELOPER);
+                
+                // ✅ Valider la transaction
+                $transaction->allow_commit();
+                
+                // 🧹 Purger les caches
+                cache_manager::purge_all_caches();
+                
+                return true;
+                
+            } catch (\Exception $inner_e) {
+                // 🔄 ROLLBACK AUTOMATIQUE
+                debugging('Erreur dans transaction move_category : ' . $inner_e->getMessage(), DEBUG_DEVELOPER);
+                throw $inner_e;
+            }
             
         } catch (\Exception $e) {
-            return "Erreur lors du déplacement : " . $e->getMessage();
+            $error_msg = "Erreur lors du déplacement : " . $e->getMessage();
+            debugging($error_msg, DEBUG_DEVELOPER);
+            return $error_msg;
         }
     }
 

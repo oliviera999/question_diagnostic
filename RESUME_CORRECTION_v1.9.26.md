@@ -216,3 +216,4 @@ CHARGER DOUBLONS UTILISÉS v1.9.26 - Résultat: 85 questions dans 12 groupes de 
 
 La logique de détection des doublons utilisés est désormais **cohérente, fiable et bien documentée** à travers tout le plugin.
 
+
