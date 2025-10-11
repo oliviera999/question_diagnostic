@@ -490,6 +490,18 @@ foreach ($categories_with_stats as $item) {
         'data-name' => format_string($cat->name)
     ]);
     
+    // 🆕 v1.9.36 : Bouton déplacer (si non protégée)
+    if (!$stats->is_protected) {
+        echo html_writer::tag('a', '📦 Déplacer', [
+            'href' => '#',
+            'class' => 'qd-btn qd-btn-move move-btn',
+            'data-id' => $cat->id,
+            'data-name' => format_string($cat->name),
+            'data-contextid' => $cat->contextid,
+            'style' => 'background: #5bc0de; color: white;'
+        ]);
+    }
+    
     echo html_writer::end_tag('div');
     echo html_writer::end_tag('td');
     
@@ -517,6 +529,101 @@ echo html_writer::tag('div', '', ['class' => 'qd-modal-footer']);
 
 echo html_writer::end_tag('div');
 echo html_writer::end_tag('div');
+
+// ======================================================================
+// 🆕 v1.9.36 : MODAL DE DÉPLACEMENT
+// ======================================================================
+
+echo html_writer::start_tag('div', ['class' => 'qd-modal', 'id' => 'move-modal']);
+echo html_writer::start_tag('div', ['class' => 'qd-modal-content']);
+
+echo html_writer::start_tag('div', ['class' => 'qd-modal-header']);
+echo html_writer::tag('h3', '📦 Déplacer une catégorie', ['class' => 'qd-modal-title']);
+echo html_writer::tag('button', '&times;', ['class' => 'qd-modal-close', 'onclick' => 'closeMoveModal()']);
+echo html_writer::end_tag('div');
+
+echo html_writer::tag('div', '', ['class' => 'qd-modal-body', 'id' => 'move-modal-body']);
+echo html_writer::tag('div', '', ['class' => 'qd-modal-footer', 'id' => 'move-modal-footer']);
+
+echo html_writer::end_tag('div');
+echo html_writer::end_tag('div');
+
+// ======================================================================
+// 🆕 v1.9.36 : JAVASCRIPT MODAL DÉPLACEMENT
+// ======================================================================
+
+echo html_writer::start_tag('script');
+?>
+// Modal de déplacement
+function openMoveModal(categoryId, categoryName, contextId) {
+    const modal = document.getElementById('move-modal');
+    const body = document.getElementById('move-modal-body');
+    const footer = document.getElementById('move-modal-footer');
+    
+    // Récupérer toutes les catégories du même contexte (pour liste des parents possibles)
+    const allCategories = <?php echo json_encode($categories_with_stats); ?>;
+    const sameContext = allCategories.filter(c => c.category.contextid == contextId && c.category.id != categoryId);
+    
+    // Construire le contenu
+    let html = '<p><strong>Catégorie à déplacer :</strong> ' + categoryName + ' (ID: ' + categoryId + ')</p>';
+    html += '<p><strong>Choisir le nouveau parent :</strong></p>';
+    html += '<form id="move-form" method="post" action="<?php echo new moodle_url('/local/question_diagnostic/actions/move.php'); ?>">';
+    html += '<input type="hidden" name="id" value="' + categoryId + '">';
+    html += '<input type="hidden" name="sesskey" value="<?php echo sesskey(); ?>">';
+    html += '<select name="parent" class="form-control" style="width: 100%; padding: 8px; margin: 10px 0;">';
+    html += '<option value="0">→ Racine (aucun parent)</option>';
+    
+    sameContext.forEach(function(item) {
+        if (!item.stats.is_protected || item.category.parent == 0) {
+            html += '<option value="' + item.category.id + '">';
+            html += item.category.name + ' (ID: ' + item.category.id + ')';
+            if (item.category.parent == 0) {
+                html += ' - RACINE';
+            }
+            html += '</option>';
+        }
+    });
+    
+    html += '</select>';
+    html += '<p style="margin-top: 15px; color: #666; font-size: 14px;"><em>💡 Seules les catégories du même contexte sont affichées.</em></p>';
+    html += '</form>';
+    
+    body.innerHTML = html;
+    
+    // Boutons footer
+    footer.innerHTML = '<button type="button" class="btn btn-secondary" onclick="closeMoveModal()">Annuler</button> ' +
+                       '<button type="submit" form="move-form" class="btn btn-primary">Déplacer</button>';
+    
+    modal.style.display = 'block';
+}
+
+function closeMoveModal() {
+    document.getElementById('move-modal').style.display = 'none';
+}
+
+// Gestionnaires d'événements pour les boutons "Déplacer"
+document.addEventListener('DOMContentLoaded', function() {
+    const moveButtons = document.querySelectorAll('.move-btn');
+    moveButtons.forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+            e.preventDefault();
+            const id = parseInt(this.dataset.id);
+            const name = this.dataset.name;
+            const contextId = parseInt(this.dataset.contextid);
+            openMoveModal(id, name, contextId);
+        });
+    });
+    
+    // Fermer le modal si clic en dehors
+    window.addEventListener('click', function(event) {
+        const modal = document.getElementById('move-modal');
+        if (event.target === modal) {
+            closeMoveModal();
+        }
+    });
+});
+<?php
+echo html_writer::end_tag('script');
 
 // ======================================================================
 // Pied de page Moodle standard

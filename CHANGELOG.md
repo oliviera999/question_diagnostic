@@ -5,6 +5,173 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.9.36] - 2025-10-11
+
+### 📦 QUICK WIN #2 : Action "Move" dans l'Interface
+
+#### Contexte
+
+Suite au déploiement de v1.9.35 (Quick Win #1 - Centre d'aide HTML), implémentation du Quick Win #2 pour rendre l'action "Déplacer" accessible depuis l'interface.
+
+#### Problème
+
+**Avant** :
+- Fichier `actions/move.php` existant depuis longtemps
+- Logique fonctionnelle et testée (avec transactions SQL v1.9.30)
+- **MAIS** : Jamais appelé nulle part dans l'interface ! 🤦
+- **Impact** : Fonctionnalité développée mais totalement inaccessible aux utilisateurs
+
+**Utilisateur voulant déplacer une catégorie** :
+- Cherche un bouton "Déplacer" → Introuvable
+- Se demande si la fonctionnalité existe → Frustration
+- Doit éditer manuellement en BDD → Dangereux ❌
+
+#### Solution Appliquée
+
+**Intégration complète de l'action "Déplacer" dans categories.php** :
+
+**1. Bouton "📦 Déplacer" dans le tableau** (lignes 493-503) :
+- Ajouté pour chaque catégorie non protégée
+- Style visuel distinct (bleu clair #5bc0de)
+- Attributs data pour modal : id, name, contextid
+- Masqué pour catégories protégées (cohérence UI)
+
+**2. Modal de déplacement** (lignes 537-549) :
+- HTML modal avec header, body, footer
+- Bouton fermeture (×)
+- Zone de contenu dynamique
+- Boutons Annuler/Déplacer
+
+**3. JavaScript interactif** (lignes 555-626) :
+
+**Fonction `openMoveModal()`** :
+- Récupère les catégories du même contexte (contrainte Moodle)
+- Génère une liste déroulante `<select>` des parents possibles :
+  - Option "Racine (aucun parent)" (parent = 0)
+  - Toutes les catégories du même contexte
+  - Indication visuelle pour catégories racine
+- Crée formulaire POST vers `actions/move.php`
+- Inclut sesskey pour sécurité
+
+**Fonction `closeMoveModal()`** :
+- Ferme le modal
+
+**Event handlers** :
+- Clic sur bouton "Déplacer" → Ouvre modal
+- Clic hors modal → Ferme modal
+- Submit formulaire → Redirection vers move.php
+
+**4. Validation côté serveur** (déjà dans move.php) :
+- Vérification même contexte (ligne 600 move.php)
+- Détection de boucles (via is_ancestor)
+- Protection catégories protégées
+- Transaction SQL avec rollback (v1.9.30)
+
+#### Bénéfices
+
+✅ **Fonctionnalité enfin accessible** :
+- Bouton visible sur chaque ligne du tableau
+- Interface intuitive (modal avec select)
+- Pas besoin de connaître les IDs
+
+✅ **UX améliorée** :
+- Sélection visuelle du nouveau parent (dropdown)
+- Filtrage automatique (même contexte uniquement)
+- Feedback immédiat (confirmation, erreur, succès)
+
+✅ **Sécurité conservée** :
+- Sesskey vérifié
+- Validation côté serveur (move.php inchangé)
+- Transactions SQL (rollback automatique v1.9.30)
+- Catégories protégées non déplaçables
+
+✅ **Cohérence UI** :
+- Style cohérent avec boutons "Supprimer" et "Fusionner"
+- Modal cohérent avec modal de fusion existant
+- Respect standards Moodle
+
+#### Cas d'Usage
+
+**Scénario 1** : Réorganiser l'arborescence
+
+```
+Utilisateur : "Je veux déplacer 'Examens 2024' sous 'Archives'"
+
+1. Aller sur Gestion des catégories
+2. Trouver la ligne "Examens 2024"
+3. Cliquer sur "📦 Déplacer"
+4. Modal s'ouvre
+5. Sélectionner "Archives" dans la liste
+6. Cliquer "Déplacer"
+7. ✅ Catégorie déplacée avec confirmation
+```
+
+**Scénario 2** : Déplacer vers la racine
+
+```
+Utilisateur : "Je veux que 'Temp' devienne une catégorie racine"
+
+1. Cliquer sur "📦 Déplacer" sur la ligne "Temp"
+2. Sélectionner "→ Racine (aucun parent)" dans la liste
+3. Cliquer "Déplacer"
+4. ✅ Catégorie devient racine (parent = 0)
+```
+
+#### Avant/Après
+
+**Avant** :
+```
+Fichier move.php : ✅ Existe et fonctionne
+Interface : ❌ Bouton introuvable
+Utilisateur : 😞 Frustré
+Fonctionnalité : 0% accessible
+```
+
+**Après** :
+```
+Fichier move.php : ✅ Existe et fonctionne
+Interface : ✅ Bouton "📦 Déplacer" sur chaque ligne
+Utilisateur : 😊 Satisfait
+Fonctionnalité : 100% accessible
+```
+
+#### Fichiers Modifiés
+
+- **`categories.php`** :
+  - Ligne 493-503 : Bouton "📦 Déplacer" dans colonne Actions
+  - Ligne 537-549 : Modal HTML de déplacement
+  - Ligne 555-626 : JavaScript pour modal interactif
+
+- **`version.php`** : Version 2025101038 (v1.9.36)
+
+#### Fichiers NON Modifiés (Réutilisés)
+
+- **`actions/move.php`** : Déjà fonctionnel avec :
+  - Validation sécurité (sesskey, admin)
+  - Vérification même contexte
+  - Détection boucles
+  - Transactions SQL (v1.9.30)
+  - Page de confirmation
+  - Gestion erreurs
+
+**Aucune modification nécessaire** : Le code existant est parfait !
+
+#### Quick Wins Progression
+
+|| # | Quick Win | Statut |
+||---|-----------|--------|
+|| 3 | Documentation développeur | ✅ v1.9.34 |
+|| 5 | Compatibilité clarifiée | ✅ v1.9.34 |
+|| 1 | Page d'aide HTML | ✅ v1.9.35 |
+|| 2 | Action "move" dans UI | ✅ v1.9.36 |
+|| 4 | Tests performance | ⏳ Dernière |
+
+**Progression** : 4/5 complétés (80%) - 10h/14h
+
+**Dernier Quick Win** : Tests de performance et benchmarks (4h)
+
+---
+
 ## [1.9.35] - 2025-10-11
 
 ### 📄 QUICK WIN #1 : Centre d'Aide HTML

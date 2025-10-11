@@ -9,8 +9,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'local_question_diagnostic';
-$plugin->version = 2025101037;  // YYYYMMDDXX format (v1.9.35 - Quick Win #1 : Centre d'aide HTML)
+$plugin->version = 2025101038;  // YYYYMMDDXX format (v1.9.36 - Quick Win #2 : Action move dans interface)
 $plugin->requires = 2022041900; // Moodle 4.0+ (architecture question_bank_entries requise)
 $plugin->maturity = MATURITY_STABLE;
-$plugin->release = 'v1.9.35';
+$plugin->release = 'v1.9.36';
 
