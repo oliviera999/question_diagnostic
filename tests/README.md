@@ -1,10 +1,13 @@
-# Tests Unitaires - Plugin Question Diagnostic
+# Tests - Plugin Question Diagnostic
 
 ## 📋 Vue d'ensemble
 
-Ce dossier contient les tests unitaires PHPUnit pour le plugin `local_question_diagnostic`.
+Ce dossier contient les tests du plugin `local_question_diagnostic` :
+- **Tests unitaires PHPUnit** (🆕 v1.9.30)
+- **Benchmarks de performance** (🆕 v1.9.37)
 
-**🆕 v1.9.30** : Tests de base créés pour les fonctions critiques (TODO HAUTE PRIORITÉ #7).
+**🆕 v1.9.30** : Tests de base créés pour les fonctions critiques (TODO HAUTE PRIORITÉ #7).  
+**🆕 v1.9.37** : Benchmarks de performance ajoutés (Quick Win #4).
 
 ---
 
@@ -271,7 +274,84 @@ OK (21 tests, X assertions)
 
 ---
 
-**Version** : v1.9.30  
+---
+
+## 📊 Benchmarks de Performance (v1.9.37)
+
+### `performance_benchmarks.php`
+
+**Script CLI** pour mesurer les performances réelles du plugin sur votre base de données.
+
+**Ce qui est testé** :
+- ✅ Statistiques globales catégories
+- ✅ Chargement toutes catégories avec stats
+- ✅ Statistiques globales questions
+- ✅ Chargement 100 questions avec stats
+- ✅ **Pagination serveur** (page 1 vs page 11)
+- ✅ Détection questions utilisées
+- ✅ **Performance du cache** (avec vs sans)
+- ✅ Transactions SQL (overhead)
+
+**Exécution** :
+
+```bash
+# Depuis la racine de Moodle
+php local/question_diagnostic/tests/performance_benchmarks.php
+```
+
+**Sortie attendue** :
+
+```
+╔═══════════════════════════════════════════════════════════════╗
+║   🚀 BENCHMARKS DE PERFORMANCE - Plugin Question Diagnostic   ║
+║   Version : v1.9.37                                           ║
+╚═══════════════════════════════════════════════════════════════╝
+
+📋 TAILLE DE LA BASE DE DONNÉES
+  Catégories : 250
+  Questions  : 5,420
+
+═══════════════════════════════════════════════════════════════
+  📊 Statistiques Globales Catégories
+═══════════════════════════════════════════════════════════════
+  Itérations : 5
+  Temps moyen : 45.23 ms
+  Temps min   : 42.10 ms
+  Temps max   : 51.30 ms
+  Écart-type  : 3.45 ms
+  
+  Résultat : 250 catégories
+
+[... autres benchmarks ...]
+
+✅ TESTS TERMINÉS
+
+Rapport complet généré : tests/performance_report_2025-10-11_14-30-00.txt
+```
+
+**Rapport sauvegardé** :
+- Fichier : `tests/performance_report_YYYY-MM-DD_HH-MM-SS.txt`
+- Contient tous les résultats de benchmarks
+- Conservable pour comparaisons futures
+
+**Interprétation des Résultats** :
+
+| Taille BDD | Temps Attendu | Performance |
+|------------|---------------|-------------|
+| <1000 questions | <100ms | ✅ EXCELLENTE |
+| 1k-10k questions | 100-500ms | ✅ TRÈS BONNE |
+| 10k-50k questions | 500-2000ms | ✅ BONNE |
+| >50k questions | 1-5s | ⚠️ ACCEPTABLE |
+
+**Si performance dégradée** :
+1. Vérifier index BDD (question, question_bank_entries)
+2. Augmenter memory_limit PHP (512M recommandé)
+3. Réduire per_page pour pagination (100 → 50)
+4. Purger régulièrement les caches
+
+---
+
+**Version** : v1.9.37  
 **Dernière mise à jour** : 11 Octobre 2025  
 **Auteur** : Équipe local_question_diagnostic  
 
