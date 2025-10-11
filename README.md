@@ -2,7 +2,13 @@
 
 Outil complet de gestion et diagnostic de la banque de questions pour Moodle 4.0+
 
-**Version actuelle :** v1.9.30 | **Statut :** Production-Ready ✅
+**Version actuelle :** v1.9.34 | **Statut :** Production-Ready ✅
+
+### 📌 Compatibilité Moodle
+
+- **✅ Supporté** : Moodle 4.0, 4.1 LTS, 4.3, 4.4, **4.5** (recommandé)
+- **❌ Non supporté** : Moodle 3.x (architecture incompatible)
+- **📖 Détails** : [docs/technical/MOODLE_COMPATIBILITY_POLICY.md](docs/technical/MOODLE_COMPATIBILITY_POLICY.md)
 
 ---
 

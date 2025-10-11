@@ -9,8 +9,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'local_question_diagnostic';
-$plugin->version = 2025101035;  // YYYYMMDDXX format (v1.9.33 - Factorisation actions avec classe abstraite base_action)
-$plugin->requires = 2023100900; // Moodle 4.0+
+$plugin->version = 2025101036;  // YYYYMMDDXX format (v1.9.34 - Quick Wins : Doc dev + Compatibilité clarifiée)
+$plugin->requires = 2022041900; // Moodle 4.0+ (architecture question_bank_entries requise)
 $plugin->maturity = MATURITY_STABLE;
-$plugin->release = 'v1.9.33';
+$plugin->release = 'v1.9.34';
 

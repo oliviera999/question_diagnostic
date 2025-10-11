@@ -263,8 +263,9 @@ if ($randomtest_used && confirm_sesskey()) {
             $debug_info['sql'] = $sql_used;
             $used_question_ids = $DB->get_fieldset_sql($sql_used);
         } else if (isset($columns['questionid'])) {
-            // Moodle 3.x/4.0 : utilise questionid directement
-            $debug_info['mode'] = 'Moodle 3.x/4.0 (questionid)';
+            // Moodle 4.0 uniquement : utilise questionid directement
+            // ⚠️ Note : Moodle 3.x NON supporté (architecture incompatible)
+            $debug_info['mode'] = 'Moodle 4.0 (questionid)';
             $sql_used = "SELECT DISTINCT qs.questionid
                          FROM {quiz_slots} qs";
             $debug_info['sql'] = $sql_used;

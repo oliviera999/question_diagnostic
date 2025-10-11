@@ -203,7 +203,8 @@ function local_question_diagnostic_get_used_question_ids() {
             return $DB->get_fieldset_sql($sql);
             
         } else if (isset($columns['questionid'])) {
-            // Moodle 3.x/4.0 : utilise questionid directement
+            // Moodle 4.0 uniquement : utilise questionid directement
+            // ⚠️ Note : Moodle 3.x NON supporté par ce plugin (architecture incompatible)
             $sql = "SELECT DISTINCT qs.questionid
                     FROM {quiz_slots} qs";
             return $DB->get_fieldset_sql($sql);

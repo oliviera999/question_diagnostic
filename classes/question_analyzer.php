@@ -255,8 +255,9 @@ class question_analyzer {
                         INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
                         WHERE qv.questionid = :questionid";
                 $quizzes = $DB->get_records_sql($sql, ['questionid' => $questionid]);
-            } else if (isset($columns['questionid'])) {
-                // Moodle 3.x/4.0 : utilise questionid directement
+                } else if (isset($columns['questionid'])) {
+                // Moodle 4.0 uniquement : utilise questionid directement
+                // ⚠️ Note : Moodle 3.x NON supporté (architecture incompatible)
                 $sql = "SELECT DISTINCT q.id, q.name, q.course
                         FROM {quiz} q
                         INNER JOIN {quiz_slots} qs ON qs.quizid = q.id
@@ -345,7 +346,8 @@ class question_analyzer {
                         ORDER BY qv.questionid, qu.id
                     ", $params);
                 } else if (isset($columns['questionid'])) {
-                    // Moodle 3.x/4.0 : utilise questionid directement
+                    // Moodle 4.0 uniquement : utilise questionid directement
+                    // ⚠️ Note : Moodle 3.x NON supporté (architecture incompatible)
                     $quiz_usage = $DB->get_records_sql("
                         SELECT qs.questionid, qu.id as quiz_id, qu.name as quiz_name, qu.course
                         FROM {quiz_slots} qs
@@ -541,7 +543,8 @@ class question_analyzer {
                     ORDER BY qv.questionid, qu.id
                 ");
             } else if (isset($columns['questionid'])) {
-                // Moodle 3.x/4.0 : utilise questionid directement
+                // Moodle 4.0 uniquement : utilise questionid directement
+                // ⚠️ Note : Moodle 3.x NON supporté (architecture incompatible)
                 $quiz_usage = $DB->get_records_sql("
                     SELECT qs.questionid, qu.id as quiz_id, qu.name as quiz_name, qu.course
                     FROM {quiz_slots} qs
@@ -655,8 +658,9 @@ class question_analyzer {
                     $debug_info['sql'] = $sql_used;
                     $used_question_ids = $DB->get_fieldset_sql($sql_used);
                 } else if (isset($columns['questionid'])) {
-                    // Moodle 3.x/4.0 : utilise questionid directement
-                    $debug_info['mode'] = 'Moodle 3.x/4.0 (questionid)';
+                    // Moodle 4.0 uniquement : utilise questionid directement
+                    // ⚠️ Note : Moodle 3.x NON supporté (architecture incompatible)
+                    $debug_info['mode'] = 'Moodle 4.0 (questionid)';
                     $sql_used = "SELECT DISTINCT qs.questionid
                                  FROM {quiz_slots} qs";
                     $debug_info['sql'] = $sql_used;
@@ -1027,9 +1031,10 @@ class question_analyzer {
                     INNER JOIN {question_bank_entries} qbe ON qbe.id = qs.questionbankentryid
                     INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
                 ");
-            } else if (isset($columns['questionid'])) {
-                // Moodle 3.x/4.0 : Comptage direct
-                $used_in_quiz = (int)$DB->count_records_sql("
+                } else if (isset($columns['questionid'])) {
+                    // Moodle 4.0 uniquement : Comptage direct
+                    // ⚠️ Note : Moodle 3.x NON supporté (architecture incompatible)
+                    $used_in_quiz = (int)$DB->count_records_sql("
                     SELECT COUNT(DISTINCT qs.questionid) FROM {quiz_slots} qs
                 ");
             }
@@ -1132,7 +1137,8 @@ class question_analyzer {
                         INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
                     ");
                 } else if (isset($columns['questionid'])) {
-                    // Moodle 3.x/4.0 : utilise questionid directement
+                    // Moodle 4.0 uniquement : utilise questionid directement
+                    // ⚠️ Note : Moodle 3.x NON supporté (architecture incompatible)
                     $used_in_quiz = $DB->count_records_sql("
                         SELECT COUNT(DISTINCT qs.questionid)
                         FROM {quiz_slots} qs
