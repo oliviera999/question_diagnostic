@@ -162,13 +162,11 @@ class category_manager {
                     $is_protected = true;
                     $protection_reason = 'A une description';
                 }
-                // Protection 3 : Racine de cours avec enfants (utilise données pré-calculées)
-                else if ($cat->parent == 0 && $subcategories > 0 && $context_valid) {
-                    // 🚀 OPTIMISATION : Utiliser la liste pré-calculée au lieu de charger chaque contexte
-                    if (in_array($cat->contextid, $course_context_ids)) {
-                        $is_protected = true;
-                        $protection_reason = 'Racine de cours';
-                    }
+                // Protection 3 : TOUTES les catégories TOP (parent = 0)
+                // 🔧 v1.9.29 : Protection renforcée pour toutes les catégories racine
+                else if ($cat->parent == 0 && $context_valid) {
+                    $is_protected = true;
+                    $protection_reason = 'Catégorie racine (top-level)';
                 }
                 
                 // Vérifier si c'est un doublon
@@ -326,17 +324,11 @@ class category_manager {
                 $stats->is_protected = true;
                 $stats->protection_reason = 'A une description';
             }
-            // Protection 3 : Racine de cours avec enfants
-            else if ($category->parent == 0 && $stats->subcategories > 0 && $stats->context_valid) {
-                try {
-                    $context_obj = \context::instance_by_id($category->contextid, IGNORE_MISSING);
-                    if ($context_obj && $context_obj->contextlevel == CONTEXT_COURSE) {
-                        $stats->is_protected = true;
-                        $stats->protection_reason = 'Racine de cours';
-                    }
-                } catch (\Exception $e) {
-                    // Ignorer
-                }
+            // Protection 3 : TOUTES les catégories TOP (parent = 0)
+            // 🔧 v1.9.29 : Protection renforcée pour toutes les catégories racine
+            else if ($category->parent == 0 && $stats->context_valid) {
+                $stats->is_protected = true;
+                $stats->protection_reason = 'Catégorie racine (top-level)';
             }
             
         } catch (\Exception $e) {
@@ -420,12 +412,14 @@ class category_manager {
                 return "❌ PROTÉGÉE : Cette catégorie a une description, indiquant un usage intentionnel. Supprimez d'abord la description si vous êtes certain de vouloir la supprimer.";
             }
             
-            // 🛡️ PROTECTION 3 : Catégories racine (parent=0) dans un contexte de cours
+            // 🛡️ PROTECTION 3 : TOUTES les catégories TOP (parent = 0)
+            // 🔧 v1.9.29 : Protection renforcée - Toutes les catégories racine sont protégées
             if ($category->parent == 0) {
                 try {
                     $context = \context::instance_by_id($category->contextid, IGNORE_MISSING);
-                    if ($context && $context->contextlevel == CONTEXT_COURSE) {
-                        return "❌ PROTÉGÉE : Cette catégorie est à la racine d'un cours (parent=0). Moodle crée automatiquement une catégorie racine pour chaque cours. Ne pas supprimer.";
+                    if ($context) {
+                        // Protéger TOUTE catégorie racine avec contexte valide
+                        return "❌ PROTÉGÉE : Cette catégorie est une catégorie racine (parent=0, top-level). Les catégories racine sont critiques pour la structure de Moodle et ne doivent jamais être supprimées.";
                     }
                 } catch (\Exception $e) {
                     // Si erreur de contexte, continuer (peut-être une catégorie orpheline)
@@ -732,7 +726,16 @@ class category_manager {
             WHERE info IS NOT NULL AND info != ''
         ");
         
-        // Protection type 3 : Catégories racine (parent=0) dans contextes COURSE
+        // Protection type 3 : TOUTES les catégories racine (parent=0)
+        // 🔧 v1.9.29 : Protection étendue à TOUTES les catégories top-level
+        $stats->protected_root_all = (int)$DB->count_records_sql("
+            SELECT COUNT(qc.id)
+            FROM {question_categories} qc
+            INNER JOIN {context} ctx ON ctx.id = qc.contextid
+            WHERE qc.parent = 0
+        ");
+        
+        // Conserver aussi le compteur spécifique COURSE pour compatibilité
         $stats->protected_root_courses = (int)$DB->count_records_sql("
             SELECT COUNT(qc.id)
             FROM {question_categories} qc
@@ -742,6 +745,7 @@ class category_manager {
         );
         
         // Total des catégories protégées (éviter les doublons en utilisant UNION)
+        // 🔧 v1.9.29 : Inclure TOUTES les catégories racine (pas juste COURSE)
         $stats->total_protected = (int)$DB->count_records_sql("
             SELECT COUNT(DISTINCT qc.id)
             FROM {question_categories} qc
@@ -749,7 +753,7 @@ class category_manager {
             WHERE (
                 " . $DB->sql_like('qc.name', ':pattern1', false) . "
                 OR (qc.info IS NOT NULL AND qc.info != '')
-                OR (qc.parent = 0 AND ctx.contextlevel = " . CONTEXT_COURSE . ")
+                OR (qc.parent = 0 AND ctx.id IS NOT NULL)
             )",
             ['pattern1' => '%Default for%']
         );

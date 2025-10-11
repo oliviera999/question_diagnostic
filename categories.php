@@ -127,7 +127,9 @@ if (isset($globalstats->total_protected) && $globalstats->total_protected > 0) {
         echo '<li>📌 <strong>' . $globalstats->protected_default . '</strong> catégorie(s) "<strong>Default for...</strong>" (créées par Moodle)</li>';
     }
     
-    if (isset($globalstats->protected_root_courses) && $globalstats->protected_root_courses > 0) {
+    if (isset($globalstats->protected_root_all) && $globalstats->protected_root_all > 0) {
+        echo '<li>📂 <strong>' . $globalstats->protected_root_all . '</strong> catégorie(s) <strong>racine (top-level)</strong> (parent=0, toutes protégées)</li>';
+    } else if (isset($globalstats->protected_root_courses) && $globalstats->protected_root_courses > 0) {
         echo '<li>📂 <strong>' . $globalstats->protected_root_courses . '</strong> catégorie(s) <strong>racine de cours</strong> (parent=0)</li>';
     }
     

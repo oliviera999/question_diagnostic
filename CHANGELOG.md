@@ -5,6 +5,49 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.9.29] - 2025-10-10
+
+### 🛡️ SÉCURITÉ : Protection Renforcée des Catégories TOP/Racine
+
+#### Contexte
+
+Suite à une demande utilisateur, renforcement de la protection des catégories racine.
+
+#### Problème
+
+**Avant** : Seules les catégories racine de COURS (parent=0 + contextlevel=COURSE + avec enfants) étaient protégées.
+
+**Risque** : Les catégories racine d'autres contextes (SYSTEM, MODULE, etc.) pouvaient être supprimées.
+
+#### Solution Appliquée
+
+**Protection étendue** : TOUTES les catégories avec parent=0 et contexte valide sont maintenant protégées, quel que soit le type de contexte.
+
+**Modifications** :
+- `classes/category_manager.php` :
+  - `get_all_categories_with_stats()` : Protection 3 étendue (ligne 165-170)
+  - `get_category_stats()` : Protection 3 étendue (ligne 327-332)
+  - `delete_category()` : Protection 3 renforcée (ligne 415-427)
+  - `get_global_stats()` : Nouveau compteur `protected_root_all` (ligne 729-759)
+
+- `categories.php` :
+  - Affichage mis à jour pour montrer toutes les catégories racine protégées (ligne 130-134)
+
+#### Bénéfices
+
+- ✅ **Sécurité maximale** : Impossible de casser la structure Moodle
+- ✅ **Cohérence** : Toutes les racines traitées de la même manière
+- ✅ **Clarté** : Message explicite "Catégorie racine (top-level)"
+
+#### Types de Catégories Protégées
+
+Après v1.9.29, sont protégées :
+1. **"Default for..."** : Catégories par défaut Moodle
+2. **Avec description** : Usage intentionnel documenté
+3. **Parent = 0** : TOUTES les catégories racine (top-level) 🆕
+
+---
+
 ## [1.9.28] - 2025-10-10
 
 ### ✅ TODOs URGENT : Suite de l'Audit - Améliorations Critiques
