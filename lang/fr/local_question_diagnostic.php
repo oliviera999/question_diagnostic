@@ -231,3 +231,18 @@ $string['question_protected'] = 'Question protégée';
 // 🆕 v1.9.40 : Tâche planifiée
 $string['task_scan_broken_links'] = 'Scan automatique des liens cassés';
 
+// 🆕 v1.9.41 : Capabilities (permissions granulaires)
+$string['question_diagnostic:view'] = 'Voir le plugin Question Diagnostic';
+$string['question_diagnostic:viewcategories'] = 'Voir les catégories';
+$string['question_diagnostic:viewquestions'] = 'Voir les questions';
+$string['question_diagnostic:viewbrokenlinks'] = 'Voir les liens cassés';
+$string['question_diagnostic:viewauditlogs'] = 'Voir les logs d\'audit';
+$string['question_diagnostic:viewmonitoring'] = 'Voir le monitoring';
+$string['question_diagnostic:managecategories'] = 'Gérer les catégories';
+$string['question_diagnostic:deletecategories'] = 'Supprimer des catégories';
+$string['question_diagnostic:mergecategories'] = 'Fusionner des catégories';
+$string['question_diagnostic:movecategories'] = 'Déplacer des catégories';
+$string['question_diagnostic:deletequestions'] = 'Supprimer des questions';
+$string['question_diagnostic:export'] = 'Exporter des données (CSV)';
+$string['question_diagnostic:configureplugin'] = 'Configurer le plugin';
+

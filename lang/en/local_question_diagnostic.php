@@ -231,3 +231,18 @@ $string['question_protected'] = 'Protected question';
 // 🆕 v1.9.40 : Scheduled task
 $string['task_scan_broken_links'] = 'Automated broken links scan';
 
+// 🆕 v1.9.41 : Capabilities (granular permissions)
+$string['question_diagnostic:view'] = 'View Question Diagnostic plugin';
+$string['question_diagnostic:viewcategories'] = 'View categories';
+$string['question_diagnostic:viewquestions'] = 'View questions';
+$string['question_diagnostic:viewbrokenlinks'] = 'View broken links';
+$string['question_diagnostic:viewauditlogs'] = 'View audit logs';
+$string['question_diagnostic:viewmonitoring'] = 'View monitoring';
+$string['question_diagnostic:managecategories'] = 'Manage categories';
+$string['question_diagnostic:deletecategories'] = 'Delete categories';
+$string['question_diagnostic:mergecategories'] = 'Merge categories';
+$string['question_diagnostic:movecategories'] = 'Move categories';
+$string['question_diagnostic:deletequestions'] = 'Delete questions';
+$string['question_diagnostic:export'] = 'Export data (CSV)';
+$string['question_diagnostic:configureplugin'] = 'Configure plugin';
+

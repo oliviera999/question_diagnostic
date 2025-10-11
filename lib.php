@@ -431,3 +431,151 @@ function local_question_diagnostic_pluginfile($course, $cm, $context, $filearea,
     return false;
 }
 
+// ============================================================================
+// 🆕 v1.9.41 : Fonctions helper pour permissions granulaires (capabilities)
+// ============================================================================
+
+/**
+ * Vérifie si l'utilisateur peut accéder au plugin
+ * 
+ * @return bool
+ */
+function local_question_diagnostic_can_view() {
+    $context = context_system::instance();
+    return has_capability('local/question_diagnostic:view', $context) || is_siteadmin();
+}
+
+/**
+ * Vérifie si l'utilisateur peut voir les catégories
+ * 
+ * @return bool
+ */
+function local_question_diagnostic_can_view_categories() {
+    $context = context_system::instance();
+    return has_capability('local/question_diagnostic:viewcategories', $context) || is_siteadmin();
+}
+
+/**
+ * Vérifie si l'utilisateur peut voir les questions
+ * 
+ * @return bool
+ */
+function local_question_diagnostic_can_view_questions() {
+    $context = context_system::instance();
+    return has_capability('local/question_diagnostic:viewquestions', $context) || is_siteadmin();
+}
+
+/**
+ * Vérifie si l'utilisateur peut voir les liens cassés
+ * 
+ * @return bool
+ */
+function local_question_diagnostic_can_view_broken_links() {
+    $context = context_system::instance();
+    return has_capability('local/question_diagnostic:viewbrokenlinks', $context) || is_siteadmin();
+}
+
+/**
+ * Vérifie si l'utilisateur peut voir les logs d'audit
+ * 
+ * @return bool
+ */
+function local_question_diagnostic_can_view_audit_logs() {
+    $context = context_system::instance();
+    return has_capability('local/question_diagnostic:viewauditlogs', $context) || is_siteadmin();
+}
+
+/**
+ * Vérifie si l'utilisateur peut voir le monitoring
+ * 
+ * @return bool
+ */
+function local_question_diagnostic_can_view_monitoring() {
+    $context = context_system::instance();
+    return has_capability('local/question_diagnostic:viewmonitoring', $context) || is_siteadmin();
+}
+
+/**
+ * Vérifie si l'utilisateur peut gérer les catégories (supprimer, fusionner, déplacer)
+ * 
+ * @return bool
+ */
+function local_question_diagnostic_can_manage_categories() {
+    $context = context_system::instance();
+    return has_capability('local/question_diagnostic:managecategories', $context) || is_siteadmin();
+}
+
+/**
+ * Vérifie si l'utilisateur peut supprimer des catégories
+ * 
+ * @return bool
+ */
+function local_question_diagnostic_can_delete_categories() {
+    $context = context_system::instance();
+    return has_capability('local/question_diagnostic:deletecategories', $context) || is_siteadmin();
+}
+
+/**
+ * Vérifie si l'utilisateur peut fusionner des catégories
+ * 
+ * @return bool
+ */
+function local_question_diagnostic_can_merge_categories() {
+    $context = context_system::instance();
+    return has_capability('local/question_diagnostic:mergecategories', $context) || is_siteadmin();
+}
+
+/**
+ * Vérifie si l'utilisateur peut déplacer des catégories
+ * 
+ * @return bool
+ */
+function local_question_diagnostic_can_move_categories() {
+    $context = context_system::instance();
+    return has_capability('local/question_diagnostic:movecategories', $context) || is_siteadmin();
+}
+
+/**
+ * Vérifie si l'utilisateur peut supprimer des questions
+ * 
+ * @return bool
+ */
+function local_question_diagnostic_can_delete_questions() {
+    $context = context_system::instance();
+    return has_capability('local/question_diagnostic:deletequestions', $context) || is_siteadmin();
+}
+
+/**
+ * Vérifie si l'utilisateur peut exporter des données
+ * 
+ * @return bool
+ */
+function local_question_diagnostic_can_export() {
+    $context = context_system::instance();
+    return has_capability('local/question_diagnostic:export', $context) || is_siteadmin();
+}
+
+/**
+ * Vérifie si l'utilisateur peut configurer le plugin
+ * 
+ * @return bool
+ */
+function local_question_diagnostic_can_configure_plugin() {
+    $context = context_system::instance();
+    return has_capability('local/question_diagnostic:configureplugin', $context) || is_siteadmin();
+}
+
+/**
+ * Génère un message d'erreur de permission et redirige
+ * 
+ * @param string $permission Nom de la permission manquante
+ * @throws moodle_exception
+ */
+function local_question_diagnostic_require_capability_or_die($permission) {
+    $context = context_system::instance();
+    
+    if (!is_siteadmin() && !has_capability($permission, $context)) {
+        print_error('nopermission', 'error', '', $permission);
+    }
+}
+

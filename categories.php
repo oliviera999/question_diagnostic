@@ -32,6 +32,7 @@ $PAGE->set_pagelayout('report');
 
 // Ajouter les CSS et JavaScript personnalisés
 $PAGE->requires->css('/local/question_diagnostic/styles/main.css');
+$PAGE->requires->js('/local/question_diagnostic/scripts/progress.js', true);  // 🆕 v1.9.41 : Barres de progression
 $PAGE->requires->js('/local/question_diagnostic/scripts/main.js', true);
 
 // ======================================================================
