@@ -9,8 +9,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'local_question_diagnostic';
-$plugin->version = 2025101034;  // YYYYMMDDXX format (v1.9.32 - Suppression code mort et méthodes dépréciées)
+$plugin->version = 2025101035;  // YYYYMMDDXX format (v1.9.33 - Factorisation actions avec classe abstraite base_action)
 $plugin->requires = 2023100900; // Moodle 4.0+
 $plugin->maturity = MATURITY_STABLE;
-$plugin->release = 'v1.9.32';
+$plugin->release = 'v1.9.33';
 
