@@ -836,88 +836,17 @@ class question_analyzer {
         return self::find_exact_duplicates($question);
     }
 
-    /**
-     * Calcule le score de similarité entre deux questions
-     *
-     * 🗑️ DEPRECATED v1.9.28 : Méthode complexe remplacée par définition simple
-     * Conservée pour compatibilité mais non utilisée.
-     * Utiliser are_duplicates() pour la définition standard.
-     * 
-     * @deprecated Utiliser are_duplicates() à la place
-     * @param object $q1 Question 1
-     * @param object $q2 Question 2
-     * @return float Score de similarité (0-1)
-     */
-    private static function calculate_question_similarity($q1, $q2) {
-        $score = 0;
-        $weights = [
-            'name' => 0.3,
-            'text' => 0.4,
-            'type' => 0.2,
-            'category' => 0.1
-        ];
-
-        // Similarité du nom
-        $name1 = strtolower(trim($q1->name));
-        $name2 = strtolower(trim($q2->name));
-        $name_similarity = 0;
-        
-        if ($name1 === $name2) {
-            $name_similarity = 1.0;
-        } else {
-            similar_text($name1, $name2, $name_similarity);
-            $name_similarity = $name_similarity / 100;
-        }
-        $score += $name_similarity * $weights['name'];
-
-        // Similarité du texte
-        $text1 = strtolower(strip_tags(trim($q1->questiontext)));
-        $text2 = strtolower(strip_tags(trim($q2->questiontext)));
-        $text_similarity = 0;
-        
-        if (!empty($text1) && !empty($text2)) {
-            similar_text($text1, $text2, $text_similarity);
-            $text_similarity = $text_similarity / 100;
-        }
-        $score += $text_similarity * $weights['text'];
-
-        // Même type
-        if ($q1->qtype === $q2->qtype) {
-            $score += $weights['type'];
-        }
-
-        // Même catégorie (récupérer via question_bank_entries pour Moodle 4.x)
-        $cat1_id = self::get_question_category_id($q1->id);
-        $cat2_id = self::get_question_category_id($q2->id);
-        if ($cat1_id && $cat2_id && $cat1_id === $cat2_id) {
-            $score += $weights['category'];
-        }
-
-        return round($score, 3);
-    }
-
-    /**
-     * Récupère l'ID de catégorie d'une question (Moodle 4.x compatible)
-     *
-     * @param int $questionid ID de la question
-     * @return int|null ID de la catégorie
-     */
-    private static function get_question_category_id($questionid) {
-        global $DB;
-        
-        try {
-            $sql = "SELECT qbe.questioncategoryid 
-                    FROM {question_bank_entries} qbe
-                    INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
-                    INNER JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
-                    WHERE qv.questionid = :questionid
-                    LIMIT 1";
-            $result = $DB->get_record_sql($sql, ['questionid' => $questionid]);
-            return $result ? $result->questioncategoryid : null;
-        } catch (\Exception $e) {
-            return null;
-        }
-    }
+    // 🗑️ REMOVED v1.9.31 : Méthodes dépréciées supprimées (code mort)
+    //
+    // Les méthodes suivantes ont été supprimées car jamais utilisées :
+    //
+    // - calculate_question_similarity($q1, $q2) : Calcul complexe de similarité (DEPRECATED v1.9.28)
+    //   → Remplacée par are_duplicates() qui utilise une définition simple (nom + type)
+    //
+    // - get_question_category_id($questionid) : Helper utilisé uniquement par calculate_question_similarity()
+    //   → Plus nécessaire après suppression de calculate_question_similarity()
+    //
+    // Ces suppressions réduisent ~82 lignes de code mort et améliorent la maintenabilité.
 
     /**
      * Pré-calcule la map des doublons pour toutes les questions

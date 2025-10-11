@@ -9,8 +9,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'local_question_diagnostic';
-$plugin->version = 2025101033;  // YYYYMMDDXX format (v1.9.31 - Organisation documentation dans /docs)
+$plugin->version = 2025101034;  // YYYYMMDDXX format (v1.9.32 - Suppression code mort et méthodes dépréciées)
 $plugin->requires = 2023100900; // Moodle 4.0+
 $plugin->maturity = MATURITY_STABLE;
-$plugin->release = 'v1.9.31';
+$plugin->release = 'v1.9.32';
 

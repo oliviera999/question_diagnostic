@@ -5,6 +5,119 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.9.32] - 2025-10-11
+
+### 🗑️ NETTOYAGE : Suppression Code Mort et Méthodes Dépréciées
+
+#### Contexte
+
+Suite à l'audit complet du projet (TODO MOYENNE PRIORITÉ #10), suppression du code mort et des méthodes dépréciées identifiées pour améliorer la maintenabilité du code.
+
+#### Problème
+
+**Code mort identifié** :
+- `calculate_question_similarity()` : Méthode complexe de calcul de similarité (59 lignes)
+- `get_question_category_id()` : Helper utilisé uniquement par calculate_question_similarity() (16 lignes)
+- **Total** : ~82 lignes de code jamais utilisées
+
+**Impact** :
+- Maintenabilité réduite (confusion pour les développeurs)
+- Code complexe à maintenir inutilement
+- Risque de bugs dans du code non testé
+- Complexité accrue du codebase
+
+#### Historique
+
+**v1.9.28** : `calculate_question_similarity()` marquée `@deprecated`
+- Remplacée par `are_duplicates()` (définition simple : nom + type)
+- Conservée "pour compatibilité" mais jamais réellement utilisée
+
+**v1.9.31** : Suppression complète
+- Après vérification, aucune utilisation trouvée dans le code
+- `get_question_category_id()` utilisée uniquement par calculate_question_similarity()
+
+#### Solution Appliquée
+
+**Suppression de 2 méthodes dans `classes/question_analyzer.php`** :
+
+1. **`calculate_question_similarity($q1, $q2)`** (lignes 839-897) :
+   - Calcul complexe de similarité avec pondérations
+   - Utilisait similar_text(), strip_tags(), etc.
+   - 59 lignes supprimées
+
+2. **`get_question_category_id($questionid)`** (lignes 899-920) :
+   - Helper SQL pour récupérer l'ID de catégorie
+   - Utilisé uniquement par calculate_question_similarity()
+   - 21 lignes supprimées
+
+**Remplacement par commentaire explicatif** (lignes 839-849) :
+- Documente les méthodes supprimées
+- Explique le remplacement : `are_duplicates()` (v1.9.28)
+- Indique le gain : ~82 lignes de code mort supprimées
+
+#### Bénéfices
+
+✅ **Code plus maintenable** :
+- 82 lignes de code complexe supprimées
+- Pas de logique morte à maintenir
+- Moins de confusion pour les développeurs
+
+✅ **Clarté améliorée** :
+- Une seule définition de "doublon" : `are_duplicates()` (nom + type)
+- Pas de méthodes dépréciées qui induisent en erreur
+- Code plus simple à comprendre
+
+✅ **Performance** :
+- Pas d'impact direct (code non utilisé)
+- Réduction de la taille du fichier
+- Moins de méthodes à parser
+
+#### Code Mort Précédemment Supprimé
+
+**v1.9.27** : Autres suppressions de code mort
+- ✅ `find_similar_files()` dans question_link_checker.php
+- ✅ `state.currentPage` et `state.itemsPerPage` dans scripts/main.js
+- ✅ `find_duplicates_old()` dans category_manager.php
+
+#### Méthodes @deprecated Conservées (Non Supprimées)
+
+**`can_delete_question($questionid)`** : Conservée
+- Marquée `@deprecated` mais utilisée dans `delete_question()`
+- Wrapper pratique vers `can_delete_questions_batch()`
+- Utilité pour API publique (traiter une seule question)
+- **Décision** : Garder comme méthode convenience
+
+#### Statistiques
+
+| Métrique | Avant v1.9.32 | Après v1.9.32 | Gain |
+|----------|---------------|---------------|------|
+| **Lignes code mort** | ~82 lignes | 0 lignes | -82 (-100%) |
+| **Méthodes @deprecated inutilisées** | 2 méthodes | 0 méthodes | -2 |
+| **Complexité codebase** | Élevée (code mort) | Réduite | ✅ Amélioration |
+
+#### Fichiers Impactés
+
+- **`classes/question_analyzer.php`** :
+  - Suppression : `calculate_question_similarity()` (59 lignes)
+  - Suppression : `get_question_category_id()` (21 lignes)
+  - Ajout : Commentaire explicatif (11 lignes)
+  - **Net** : -69 lignes
+
+- **`version.php`** : Version 2025101034 (v1.9.32)
+
+#### Vérification de Non-Régression
+
+✅ **Aucun impact fonctionnel** :
+- Méthodes jamais utilisées dans le code
+- Aucune référence externe trouvée
+- Tests existants (v1.9.30) passent toujours
+
+✅ **Alternative disponible** :
+- `are_duplicates()` implémente la définition standard
+- Utilisée partout dans le plugin depuis v1.9.28
+
+---
+
 ## [1.9.31] - 2025-10-11
 
 ### 📚 ORGANISATION : Documentation Structurée dans /docs
