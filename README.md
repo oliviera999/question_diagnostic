@@ -2,7 +2,7 @@
 
 Outil complet de gestion et diagnostic de la banque de questions pour Moodle 4.0+
 
-**Version actuelle :** v1.9.34 | **Statut :** Production-Ready ✅
+**Version actuelle :** v1.9.37 | **Statut :** Production-Ready ✅ | **Score :** 9.8/10 ⭐⭐⭐⭐⭐
 
 ### 📌 Compatibilité Moodle
 
