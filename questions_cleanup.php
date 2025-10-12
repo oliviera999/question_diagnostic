@@ -1078,7 +1078,10 @@ try {
         $questions_with_stats = [];
         foreach ($questions as $q) {
             $stats = question_analyzer::get_question_stats($q);
-            $questions_with_stats[] = $stats;
+            $questions_with_stats[] = (object)[
+                'question' => $q,
+                'stats' => $stats
+            ];
         }
         
         // Message d'information spécifique
