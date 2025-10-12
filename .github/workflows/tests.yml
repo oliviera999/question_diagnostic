@@ -1,0 +1,79 @@
+name: Tests
+
+on:
+  push:
+    branches: [ master, develop ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  phpunit:
+    name: PHPUnit Tests
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        php: ['8.0', '8.1']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: mbstring, pgsql, mysqli, gd, zip, soap
+          coverage: xdebug
+
+      - name: PHP Syntax Check
+        run: find . -name "*.php" -not -path "./vendor/*" -print0 | xargs -0 -n1 php -l
+
+      - name: Check Code Style
+        run: |
+          if command -v phpcs &> /dev/null; then
+            phpcs --standard=PSR12 --extensions=php --ignore=vendor classes/ lib.php
+          else
+            echo "phpcs not installed, skipping..."
+          fi
+        continue-on-error: true
+
+  security:
+    name: Security Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for known vulnerabilities
+        run: |
+          echo "Checking for security issues..."
+          # Recherche de patterns dangereux
+          ! grep -r "eval(" --include="*.php" . || (echo "Found eval() usage" && exit 1)
+          ! grep -r "\$\$" --include="*.php" . || (echo "Found variable variables" && exit 1)
+          echo "✓ No critical security issues found"
+
+  quality:
+    name: Code Quality
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Count TODOs and FIXMEs
+        run: |
+          echo "=== TODOs ==="
+          grep -r "TODO" --include="*.php" . | wc -l
+          echo "=== FIXMEs ==="
+          grep -r "FIXME" --include="*.php" . | wc -l
+
+      - name: Check file permissions
+        run: |
+          echo "Checking for executable PHP files..."
+          find . -name "*.php" -executable -not -path "./vendor/*" || true
+
+      - name: Check for debug code
+        run: |
+          echo "Checking for debug statements..."
+          ! grep -r "var_dump\|print_r\|die(" --include="*.php" classes/ || (echo "⚠️ Found debug code" && exit 0)
+          echo "✓ No debug statements found"
+

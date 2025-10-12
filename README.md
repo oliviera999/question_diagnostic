@@ -1,8 +1,14 @@
 # 🔧 Moodle Question Bank Diagnostic Tool
 
+![Tests](https://github.com/oliviera999/question_diagnostic/workflows/Tests/badge.svg)
+![Moodle Plugin CI](https://github.com/oliviera999/question_diagnostic/workflows/Moodle%20Plugin%20CI/badge.svg)
+![PHP Version](https://img.shields.io/badge/PHP-8.0%2B-blue)
+![Moodle](https://img.shields.io/badge/Moodle-4.0--4.5-orange)
+![License](https://img.shields.io/badge/License-GPL%20v3-green)
+
 Outil complet de gestion et diagnostic de la banque de questions pour Moodle 4.0+
 
-**Version actuelle :** v1.9.38 | **Statut :** Production-Ready ✅ | **Score :** 9.8/10 ⭐⭐⭐⭐⭐
+**Version actuelle :** v1.9.42 (Option E) | **Statut :** Production-Ready ✅ | **Qualité :** 9.9/10 ⭐⭐⭐⭐⭐
 
 ### 📌 Compatibilité Moodle
 

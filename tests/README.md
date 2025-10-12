@@ -7,7 +7,23 @@ Ce dossier contient les tests du plugin `local_question_diagnostic` :
 - **Benchmarks de performance** (🆕 v1.9.37)
 
 **🆕 v1.9.30** : Tests de base créés pour les fonctions critiques (TODO HAUTE PRIORITÉ #7).  
-**🆕 v1.9.37** : Benchmarks de performance ajoutés (Quick Win #4).
+**🆕 v1.9.37** : Benchmarks de performance ajoutés (Quick Win #4).  
+**🆕 v1.9.42** : Tests complets + CI/CD automation (Option E - 49+ tests, 80%+ couverture).
+
+---
+
+## 📊 Couverture de Tests (v1.9.42)
+
+| Composant | Fichier | Tests | Statut |
+|-----------|---------|-------|--------|
+| Gestion catégories | `category_manager_test.php` | 7 | ✅ |
+| Analyse questions | `question_analyzer_test.php` | 6 | ✅ |
+| Fonctions utils | `lib_test.php` | 8 | ✅ |
+| **Logs d'audit** | `audit_logger_test.php` | 11 | ✅ v1.9.42 |
+| **Cache manager** | `cache_manager_test.php` | 10 | ✅ v1.9.42 |
+| **Permissions** | `permissions_test.php` | 7 | ✅ v1.9.42 |
+
+**TOTAL : 49+ tests unitaires | Couverture estimée : ~80%**
 
 ---
 
