@@ -415,7 +415,6 @@ if ($randomtest_used && confirm_sesskey()) {
     
     // Tableau détaillé
     echo html_writer::tag('h3', '📋 Détails de Toutes les Versions');
-    echo html_writer::start_tag('table', ['class' => 'qd-table', 'style' => 'width: 100%;']);
     
     // 🆕 v1.9.23 : Bouton de suppression en masse (au-dessus du tableau)
     echo html_writer::start_tag('div', ['id' => 'bulk-actions-container', 'style' => 'margin-bottom: 15px; display: none;']);
@@ -430,6 +429,8 @@ if ($randomtest_used && confirm_sesskey()) {
         'style' => 'font-weight: bold; color: #666;'
     ]);
     echo html_writer::end_tag('div');
+    
+    echo html_writer::start_tag('table', ['class' => 'qd-table', 'style' => 'width: 100%;']);
     
     // En-tête
     echo html_writer::start_tag('thead');
@@ -569,9 +570,6 @@ if ($randomtest_used && confirm_sesskey()) {
     
     echo html_writer::end_tag('tbody');
     echo html_writer::end_tag('table');
-    
-    // 🆕 v1.9.30 : Pagination serveur - Afficher les contrôles APRÈS le tableau
-    echo local_question_diagnostic_render_pagination($total_questions, $page, $per_page, $page_url, $extra_params);
     
     // 🆕 v1.9.23 : JavaScript pour gestion de la sélection en masse
     echo html_writer::start_tag('script');
