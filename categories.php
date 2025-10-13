@@ -39,6 +39,9 @@ $PAGE->requires->js('/local/question_diagnostic/scripts/main.js', true);
 // Section d'en-tête Moodle standard.
 echo $OUTPUT->header();
 
+// Afficher le badge de version
+echo local_question_diagnostic_render_version_badge();
+
 // Alerte sécurité pour les suppressions
 echo html_writer::start_div('alert alert-warning', ['style' => 'margin-bottom: 20px; border-left: 4px solid #d9534f;']);
 echo '<strong>🛡️ ATTENTION</strong> : Cette page permet de supprimer des catégories. ';
@@ -51,13 +54,9 @@ echo html_writer::link(
 echo ' pour les procédures de backup avant toute suppression.';
 echo html_writer::end_div();
 
-// Lien retour vers le menu principal
+// 🆕 v1.9.44 : Lien retour hiérarchique
 echo html_writer::start_tag('div', ['style' => 'margin-bottom: 20px;']);
-echo html_writer::link(
-    new moodle_url('/local/question_diagnostic/index.php'),
-    '← ' . get_string('backtomenu', 'local_question_diagnostic'),
-    ['class' => 'btn btn-secondary']
-);
+echo local_question_diagnostic_render_back_link('categories.php');
 echo html_writer::end_tag('div');
 
 // ======================================================================

@@ -21,6 +21,7 @@
  */
 
 require_once(__DIR__ . '/../../../config.php');
+require_once(__DIR__ . '/../lib.php');
 require_once(__DIR__ . '/../classes/question_analyzer.php');
 
 use local_question_diagnostic\question_analyzer;
@@ -84,6 +85,7 @@ if (empty($can_delete)) {
     $PAGE->set_title(get_string('delete_question_forbidden', 'local_question_diagnostic'));
     
     echo $OUTPUT->header();
+    echo local_question_diagnostic_render_version_badge();
     echo $OUTPUT->heading('🛑 ' . get_string('delete_question_forbidden', 'local_question_diagnostic'));
     
     // Message d'erreur principal
@@ -211,6 +213,7 @@ if (!$confirm) {
     $PAGE->set_title(get_string('confirm_delete_question', 'local_question_diagnostic'));
     
     echo $OUTPUT->header();
+    echo local_question_diagnostic_render_version_badge();
     
     if ($is_bulk) {
         echo $OUTPUT->heading('⚠️ Confirmation de Suppression en Masse');

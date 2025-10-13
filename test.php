@@ -39,6 +39,9 @@ $PAGE->set_heading(get_string('test_page_heading', 'local_question_diagnostic'))
 // Début de la page
 echo $OUTPUT->header();
 
+// Afficher le badge de version
+echo local_question_diagnostic_render_version_badge();
+
 // Contenu principal
 echo html_writer::tag('h2', '🔍 Diagnostic de la Base de Données');
 

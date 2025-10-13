@@ -41,6 +41,9 @@ $PAGE->requires->css('/local/question_diagnostic/styles/main.css');
 // Section d'en-tête Moodle standard.
 echo $OUTPUT->header();
 
+// Afficher le badge de version
+echo local_question_diagnostic_render_version_badge();
+
 // ======================================================================
 // ALERTE SÉCURITÉ
 // ======================================================================
@@ -69,8 +72,14 @@ echo html_writer::tag('div',
 // STATISTIQUES GLOBALES RAPIDES
 // ======================================================================
 
+require_once(__DIR__ . '/classes/question_analyzer.php');
+use local_question_diagnostic\question_analyzer;
+
 $category_stats = category_manager::get_global_stats();
 $link_stats = question_link_checker::get_global_stats();
+
+// 🆕 Charger les statistiques des questions (doublons, cachées, etc.)
+$question_stats = question_analyzer::get_global_stats(true, true);
 
 echo html_writer::tag('h3', '📊 ' . get_string('overview', 'local_question_diagnostic'));
 
@@ -94,11 +103,36 @@ echo html_writer::end_tag('div');
 // Carte 3 : Total questions
 echo html_writer::start_tag('div', ['class' => 'qd-card']);
 echo html_writer::tag('div', 'Questions', ['class' => 'qd-card-title']);
-echo html_writer::tag('div', $link_stats->total_questions, ['class' => 'qd-card-value']);
+echo html_writer::tag('div', $question_stats->total_questions, ['class' => 'qd-card-value']);
 echo html_writer::tag('div', 'Total', ['class' => 'qd-card-subtitle']);
 echo html_writer::end_tag('div');
 
-// Carte 4 : Questions avec liens cassés
+// Carte 4 : Questions en doublon
+$duplicate_class = $question_stats->duplicate_questions > 0 ? 'warning' : 'success';
+// Afficher le nombre de groupes et le total de doublons
+$duplicate_label = $question_stats->duplicate_questions;
+if ($question_stats->total_duplicates > 0) {
+    $duplicate_subtitle = $question_stats->total_duplicates . ' doublons totaux';
+} else {
+    $duplicate_subtitle = 'Aucun doublon détecté';
+}
+echo html_writer::start_tag('div', ['class' => 'qd-card ' . $duplicate_class]);
+echo html_writer::tag('div', '⚠️ Questions en Doublon', ['class' => 'qd-card-title']);
+echo html_writer::tag('div', $duplicate_label, ['class' => 'qd-card-value']);
+echo html_writer::tag('div', $duplicate_subtitle, ['class' => 'qd-card-subtitle']);
+echo html_writer::end_tag('div');
+
+// Carte 5 : Questions cachées
+$hidden_class = $question_stats->hidden_questions > 0 ? 'warning' : 'success';
+$hidden_label = $question_stats->hidden_questions;
+$hidden_subtitle = $question_stats->hidden_questions > 0 ? 'Non visibles' : 'Toutes visibles';
+echo html_writer::start_tag('div', ['class' => 'qd-card ' . $hidden_class]);
+echo html_writer::tag('div', '⚠️ Questions Cachées', ['class' => 'qd-card-title']);
+echo html_writer::tag('div', $hidden_label, ['class' => 'qd-card-value']);
+echo html_writer::tag('div', $hidden_subtitle, ['class' => 'qd-card-subtitle']);
+echo html_writer::end_tag('div');
+
+// Carte 6 : Questions avec liens cassés
 $broken_class = $link_stats->questions_with_broken_links > 0 ? 'danger' : 'success';
 echo html_writer::start_tag('div', ['class' => 'qd-card ' . $broken_class]);
 echo html_writer::tag('div', 'Liens cassés', ['class' => 'qd-card-title']);
@@ -226,10 +260,37 @@ echo html_writer::tag('p',
 
 // Statistiques spécifiques
 echo html_writer::start_tag('div', ['class' => 'qd-tool-stats']);
-echo html_writer::tag('span', '📊 ' . $link_stats->total_questions . ' questions', ['class' => 'qd-tool-stat-item']);
-echo html_writer::tag('span', '🔍 Détection de doublons', ['class' => 'qd-tool-stat-item qd-stat-info']);
-echo html_writer::tag('span', '📈 Statistiques d\'usage', ['class' => 'qd-tool-stat-item qd-stat-info']);
-echo html_writer::tag('span', '🧹 Nettoyage intelligent', ['class' => 'qd-tool-stat-item qd-stat-success']);
+echo html_writer::tag('span', '📊 ' . $question_stats->total_questions . ' questions', ['class' => 'qd-tool-stat-item']);
+
+// Doublons
+if ($question_stats->duplicate_questions > 0) {
+    echo html_writer::tag('span', 
+        '🔍 ' . $question_stats->duplicate_questions . ' groupes de doublons', 
+        ['class' => 'qd-tool-stat-item qd-stat-warning']
+    );
+}
+
+// Questions cachées
+if ($question_stats->hidden_questions > 0) {
+    echo html_writer::tag('span', 
+        '🙈 ' . $question_stats->hidden_questions . ' questions cachées', 
+        ['class' => 'qd-tool-stat-item qd-stat-warning']
+    );
+}
+
+// Questions inutilisées
+if ($question_stats->unused_questions > 0) {
+    echo html_writer::tag('span', 
+        '💤 ' . $question_stats->unused_questions . ' inutilisées', 
+        ['class' => 'qd-tool-stat-item qd-stat-info']
+    );
+}
+
+// Si tout est OK
+if ($question_stats->duplicate_questions == 0 && $question_stats->hidden_questions == 0) {
+    echo html_writer::tag('span', '✅ Base de questions saine', ['class' => 'qd-tool-stat-item qd-stat-success']);
+}
+
 echo html_writer::end_tag('div');
 
 $questions_url = new moodle_url('/local/question_diagnostic/questions_cleanup.php');

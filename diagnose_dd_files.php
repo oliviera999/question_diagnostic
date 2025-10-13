@@ -18,6 +18,9 @@ $PAGE->set_heading('Diagnostic des Fichiers Drag & Drop');
 
 echo $OUTPUT->header();
 
+// Afficher le badge de version
+echo local_question_diagnostic_render_version_badge();
+
 echo html_writer::tag('h2', '🔍 Diagnostic des Fichiers pour Questions Drag and Drop');
 
 // Trouver des questions ddmarker et ddimageortext

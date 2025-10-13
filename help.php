@@ -31,11 +31,13 @@ $PAGE->set_heading('📚 Centre d\'Aide - Plugin Question Diagnostic');
 
 echo $OUTPUT->header();
 
+// Afficher le badge de version
+echo local_question_diagnostic_render_version_badge();
+
 // Titre
 echo html_writer::tag('h2', '🎯 Bienvenue dans le Centre d\'Aide');
 
 echo html_writer::start_div('alert alert-info', ['style' => 'margin: 20px 0;']);
-echo html_writer::tag('p', '<strong>Version du plugin :</strong> v1.9.34');
 echo html_writer::tag('p', 'Consultez les guides ci-dessous pour tirer le meilleur parti du plugin.');
 echo html_writer::end_div();
 

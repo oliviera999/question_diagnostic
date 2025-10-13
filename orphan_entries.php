@@ -272,12 +272,12 @@ if ($action === 'reassign' && $entryid && $targetcategoryid) {
 // Début de la page
 echo $OUTPUT->header();
 
-// Breadcrumb et liens utiles
+// Afficher le badge de version
+echo local_question_diagnostic_render_version_badge();
+
+// 🆕 v1.9.44 : Breadcrumb et liens utiles avec navigation hiérarchique
 echo html_writer::start_div('breadcrumb-nav', ['style' => 'margin-bottom: 20px;']);
-echo html_writer::link(
-    new moodle_url('/local/question_diagnostic/index.php'),
-    '← Retour au menu principal'
-);
+echo local_question_diagnostic_render_back_link('orphan_entries.php');
 echo ' | ';
 echo html_writer::link(
     new moodle_url('/local/question_diagnostic/test.php'),

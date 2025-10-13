@@ -8,7 +8,7 @@
 
 Outil complet de gestion et diagnostic de la banque de questions pour Moodle 4.0+
 
-**Version actuelle :** v1.9.42 (Option E) | **Statut :** Production-Ready ✅ | **Qualité :** 9.9/10 ⭐⭐⭐⭐⭐
+**Version actuelle :** v1.9.50 | **Statut :** Production-Ready ✅ | **Qualité :** 9.9/10 ⭐⭐⭐⭐⭐
 
 ### 📌 Compatibilité Moodle
 
@@ -34,26 +34,29 @@ La documentation complète (79 fichiers) est maintenant organisée dans le dossi
 
 ---
 
-## 🌟 Nouveautés v1.1.0
+## 🌟 Fonctionnalités Principales
 
-### 🔗 Détection des Liens Cassés (NOUVEAU !)
-- **Analyse automatique** de toutes les questions pour détecter les liens cassés
-- **Support complet** des plugins tiers (drag and drop sur image, markers, etc.)
-- **Interface dédiée** avec dashboard statistiques et filtres
-- **Options de réparation** pour chaque problème détecté
-- **Documentation complète** et guides d'utilisation
-
-[→ Voir la documentation détaillée](FEATURE_BROKEN_LINKS.md)
+Ce plugin offre un ensemble complet d'outils pour diagnostiquer et gérer votre banque de questions Moodle.
 
 ## 📋 Fonctionnalités
 
-### 🎯 Deux Outils Principaux
+### 🎯 Outils de Diagnostic
 
 #### 1. 📂 Gestion des Catégories
-Gérez les catégories de questions : détectez et corrigez les catégories orphelines, vides ou en doublon.
+- Détection des catégories vides, orphelines ou en doublon
+- Suppression individuelle ou en masse (avec confirmation)
+- Fusion de catégories et déplacement de questions
+- Export CSV pour audit et documentation
 
-#### 2. 🔗 Vérification des Liens (NOUVEAU v1.1.0)
-Détectez les questions avec des liens cassés vers des images ou fichiers manquants dans moodledata.
+#### 2. 🔗 Vérification des Liens Cassés
+- Détection automatique des images et fichiers manquants
+- Support complet des plugins tiers (drag and drop, markers, etc.)
+- Interface de réparation avec recommandations
+
+#### 3. 📊 Statistiques des Questions
+- Vue d'ensemble de l'utilisation des questions dans les tests
+- Identification des questions jamais utilisées
+- Optimisation du nettoyage de la banque
 
 ### 📊 Dashboard et Statistiques
 
@@ -67,11 +70,12 @@ Détectez les questions avec des liens cassés vers des images ou fichiers manqu
 - Statistiques en temps réel (total, vides, orphelines, doublons)
 - Cartes visuelles avec codes couleur
 
-#### Vérification des Liens (NOUVEAU)
+#### Vérification des Liens
 - Statistiques sur les questions avec liens cassés
 - Répartition par type de question
 - Pourcentage de santé globale
 - Liens directs vers la banque de questions
+- Options de réparation automatisées
 
 ### 🔍 Filtres et Recherche
 
@@ -81,9 +85,10 @@ Détectez les questions avec des liens cassés vers des images ou fichiers manqu
 - **Filtrage par contexte** : Système, Cours, Module, etc.
 - Statistiques de filtrage dynamiques
 
-#### Sur les Questions (NOUVEAU)
+#### Sur les Questions
 - **Recherche en temps réel** par nom, ID ou catégorie
 - **Filtrage par type** de question
+- **Filtrage par utilisation** dans les tests
 - Mise à jour instantanée des résultats
 
 ### ✅ Sélection Multiple et Actions Groupées
@@ -92,7 +97,7 @@ Détectez les questions avec des liens cassés vers des images ou fichiers manqu
 - Suppression groupée de catégories vides
 - Barre d'actions contextuelle
 
-### 🔗 Vérification des Liens (NOUVEAU v1.1.0)
+### 🔗 Vérification des Liens Cassés
 
 #### Détection Automatique
 - **Analyse complète** de toutes les questions de la banque
@@ -146,6 +151,7 @@ Détectez les questions avec des liens cassés vers des images ou fichiers manqu
 
 ### 🎨 Interface Moderne
 - Design responsive (mobile-friendly)
+- **Badge de version visible** sur toutes les pages (🆕 v1.9.50)
 - Tri par colonne (cliquer sur les en-têtes)
 - Badges de statut colorés
 - Animations et transitions fluides
@@ -251,11 +257,13 @@ Le dashboard affiche immédiatement :
 
 ## 🔧 Configuration Requise
 
-- **Moodle** : 3.9 ou supérieur (testé sur 4.3, 4.4, 4.5)
-- **PHP** : 7.4 ou supérieur
+- **Moodle** : 4.0+ (testé sur 4.0, 4.1 LTS, 4.3, 4.4, **4.5 recommandé**)
+- **PHP** : 7.4+ (8.0+ recommandé)
 - **Permissions** : Administrateur du site uniquement
 - **Navigateurs** : Chrome, Firefox, Safari, Edge (versions récentes)
-- **Base de données** : MySQL, MariaDB ou PostgreSQL
+- **Base de données** : MySQL 8.0+, MariaDB 10.6+, PostgreSQL 13+
+
+**Note** : Moodle 3.x n'est pas supporté (architecture question_bank_entries requise)
 
 ## 🎯 Cas d'Usage
 
@@ -273,7 +281,7 @@ Identifier les catégories orphelines suite à la suppression de cours.
 #### Documentation
 Exporter la structure complète de la banque de questions.
 
-### Vérification des Liens (NOUVEAU)
+### Vérification des Liens Cassés
 
 #### Migration de Serveur
 Après une migration, détecter les fichiers qui n'ont pas été transférés correctement.
@@ -313,33 +321,34 @@ Détecter les liens cassés dans les questions importées d'un contexte à un au
 
 ## 📝 Changelog
 
-### v1.1.0 (2025-10-07) - ACTUEL
-- 🎉 **Nouvelle fonctionnalité majeure** : Détection des liens cassés
-- ✨ Classe `question_link_checker` pour analyse complète
-- ✨ Interface dédiée avec dashboard et filtres
-- ✨ Support des plugins tiers (drag and drop, etc.)
-- ✨ Options de réparation pour chaque problème
-- 🔄 Menu principal restructuré (2 outils)
-- 📚 Documentation extensive (4 nouveaux docs)
-- 🌐 40+ nouvelles chaînes de langue (FR/EN)
+### v1.9.42 (2025-10-11) - ACTUEL
+- 🧪 **Tests & Qualité** : 49+ tests unitaires (~80% couverture)
+- 🤖 **CI/CD** : GitHub Actions (tests automatisés sur 3 versions PHP et Moodle)
+- ⚡ **Performance** : Optimisations pour sites avec 100k+ questions
+- 🔒 **Sécurité** : Système d'audit complet et logs des actions
+- 📊 **Qualité** : Score 9.9/10 - Production Ready
+
+### Versions Précédentes Majeures
+
+**v1.9.30** (2025-10-11) - Optimisations Gros Sites
+- Pagination serveur pour grandes bases (100k+ questions)
+- Transactions SQL avec rollback automatique
+- Cache amélioré avec gestion centralisée
+
+**v1.9.0** (2025-10-10) - Suppression Sécurisée Questions
+- Suppression individuelle et en masse de questions
+- Vérifications d'utilisation dans les tests
+- Protection des questions actives
+
+**v1.4.0** (2025-10-08) - Corrections Critiques
+- Compatibilité Moodle 4.5
+- Corrections architecture question_bank_entries
+
+**v1.1.0** (2025-10-07) - Détection Liens Cassés
+- Analyse automatique des liens cassés
+- Support plugins tiers
 
 [→ Voir le CHANGELOG complet](CHANGELOG.md)
-
-### v1.0.1 (2025-01-07)
-- ✨ Liens directs vers la banque de questions
-- 🎨 Bouton "👁️ Voir" dans les actions
-- 🔗 Navigation améliorée
-
-### v1.0.0 (2025-01-07)
-- 🎉 Version initiale
-- ✅ Dashboard avec statistiques complètes
-- ✅ Filtres et recherche avancés
-- ✅ Suppression individuelle et groupée
-- ✅ Fusion de catégories
-- ✅ Export CSV
-- ✅ Interface responsive et moderne
-- ✅ Tri par colonne
-- ✅ Sélection multiple
 
 ## 👨‍💻 Développement
 
@@ -363,22 +372,25 @@ GNU General Public License v3 or later (GPL-3.0-or-later)
 
 Compatible avec Moodle.
 
-## 📚 Documentation
+## 📚 Documentation Complète
 
-### Guides d'utilisation
-- [**README.md**](README.md) - Ce fichier (vue d'ensemble)
-- [**QUICKSTART.md**](QUICKSTART.md) - Guide de démarrage rapide
-- [**INSTALLATION.md**](INSTALLATION.md) - Installation détaillée
+**📖 [INDEX COMPLET DE LA DOCUMENTATION](docs/README.md)** ← Commencez ici
 
-### Fonctionnalités
-- [**FEATURE_NAVIGATION.md**](FEATURE_NAVIGATION.md) - Navigation et banque de questions
-- [**FEATURE_BROKEN_LINKS.md**](FEATURE_BROKEN_LINKS.md) - ✨ Détection des liens cassés (NOUVEAU)
-- [**FEATURE_SUMMARY_v1.1.md**](FEATURE_SUMMARY_v1.1.md) - ✨ Résumé complet v1.1.0 (NOUVEAU)
+### Démarrage Rapide
+- [**Installation**](docs/installation/INSTALLATION.md) - Guide d'installation
+- [**Guide Rapide**](docs/guides/QUICKSTART.md) - Démarrage rapide
+- [**Tests**](tests/README.md) - Tests unitaires et PHPUnit
 
-### Mise à jour et maintenance
-- [**CHANGELOG.md**](CHANGELOG.md) - Historique des versions
-- [**UPGRADE_v1.1.md**](UPGRADE_v1.1.md) - ✨ Guide de mise à jour v1.0 → v1.1 (NOUVEAU)
-- [**IMPLEMENTATION_COMPLETE.md**](IMPLEMENTATION_COMPLETE.md) - ✨ Récapitulatif implémentation (NOUVEAU)
+### Documentation Technique
+- [**Audit Complet**](docs/audits/AUDIT_COMPLET_v1.9.42.md) - Audit de code v1.9.42
+- [**Base de Données**](docs/technical/MOODLE_4.5_DATABASE_REFERENCE.md) - Structure BDD Moodle 4.5
+- [**Performance**](docs/performance/GROS_SITES_OPTIMISATIONS_v1.9.30.md) - Optimisations gros sites
+- [**Compatibilité**](docs/technical/MOODLE_COMPATIBILITY_POLICY.md) - Politique de compatibilité
+
+### Guides Fonctionnels
+- [**Opérations en masse**](docs/guides/GUIDE_OPERATIONS_PAR_LOT.md) - Suppression groupée
+- [**Liens cassés**](docs/features/FEATURE_BROKEN_LINKS.md) - Détection et réparation
+- [**Patterns de confirmation**](docs/guides/USER_CONSENT_PATTERNS.md) - Bonnes pratiques UX
 
 ## 🤝 Contribution
 

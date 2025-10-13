@@ -2,6 +2,7 @@
 // This file is part of Moodle - http://moodle.org/
 
 require_once(__DIR__ . '/../../../config.php');
+require_once(__DIR__ . '/../lib.php');
 require_once(__DIR__ . '/../classes/category_manager.php');
 require_once(__DIR__ . '/../classes/question_analyzer.php');
 
@@ -22,8 +23,8 @@ define('MAX_BULK_DELETE_CATEGORIES', 100);
 $categoryid = optional_param('id', 0, PARAM_INT);
 $categoryids = optional_param('ids', '', PARAM_TEXT);
 $confirm = optional_param('confirm', 0, PARAM_INT);
-$return = optional_param('return', 'categories', PARAM_ALPHA);
-$returnurl = new moodle_url('/local/question_diagnostic/' . ($return === 'index' ? 'index.php' : 'categories.php'));
+// 🆕 v1.9.44 : URL de retour hiérarchique
+$returnurl = local_question_diagnostic_get_parent_url('actions/delete.php');
 
 // Suppression multiple
 if ($categoryids) {
@@ -58,6 +59,7 @@ if ($categoryids) {
         $PAGE->set_title('Confirmation de suppression');
         
         echo $OUTPUT->header();
+        echo local_question_diagnostic_render_version_badge();
         echo $OUTPUT->heading('⚠️ Confirmation de suppression');
         echo html_writer::tag('p', "Vous êtes sur le point de supprimer <strong>" . count($ids) . " catégorie(s)</strong>.");
         echo html_writer::tag('p', "Cette action est irréversible. Êtes-vous sûr ?");
@@ -107,6 +109,7 @@ if ($categoryid) {
         $PAGE->set_title('Confirmation de suppression');
         
         echo $OUTPUT->header();
+        echo local_question_diagnostic_render_version_badge();
         echo $OUTPUT->heading('⚠️ Confirmation de suppression');
         echo html_writer::tag('p', "Vous êtes sur le point de supprimer la catégorie : <strong>" . format_string($category->name) . "</strong> (ID: $categoryid)");
         echo html_writer::tag('p', "Cette action est irréversible. Êtes-vous sûr ?");

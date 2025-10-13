@@ -2,6 +2,7 @@
 // This file is part of Moodle - http://moodle.org/
 
 require_once(__DIR__ . '/../../../config.php');
+require_once(__DIR__ . '/../lib.php');
 require_once(__DIR__ . '/../classes/category_manager.php');
 require_once(__DIR__ . '/../classes/question_analyzer.php');
 
@@ -37,7 +38,8 @@ if ($type === 'csv') {
     
     // 🔧 SÉCURITÉ v1.9.28 : Vérifier la limite
     if (count($categories) > MAX_EXPORT_CATEGORIES) {
-        $returnurl = new moodle_url('/local/question_diagnostic/categories.php');
+        // 🆕 v1.9.44 : URL de retour hiérarchique
+        $returnurl = local_question_diagnostic_get_parent_url('actions/export.php');
         print_error('error', 'local_question_diagnostic', $returnurl,
             'Trop de catégories à exporter. Maximum autorisé : ' . MAX_EXPORT_CATEGORIES . '. Trouvé : ' . count($categories) . '. Utilisez les filtres pour réduire la sélection.');
     }

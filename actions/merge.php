@@ -2,6 +2,7 @@
 // This file is part of Moodle - http://moodle.org/
 
 require_once(__DIR__ . '/../../../config.php');
+require_once(__DIR__ . '/../lib.php');
 require_once(__DIR__ . '/../classes/category_manager.php');
 require_once(__DIR__ . '/../classes/question_analyzer.php');
 
@@ -18,8 +19,8 @@ if (!is_siteadmin()) {
 $sourceid = required_param('source', PARAM_INT);
 $destid = required_param('dest', PARAM_INT);
 $confirm = optional_param('confirm', 0, PARAM_INT);
-$return = optional_param('return', 'categories', PARAM_ALPHA);
-$returnurl = new moodle_url('/local/question_diagnostic/' . ($return === 'index' ? 'index.php' : 'categories.php'));
+// 🆕 v1.9.44 : URL de retour hiérarchique
+$returnurl = local_question_diagnostic_get_parent_url('actions/merge.php');
 
 if ($confirm) {
     $result = category_manager::merge_categories($sourceid, $destid);
@@ -49,6 +50,7 @@ if ($confirm) {
     $PAGE->set_title('Confirmation de fusion');
     
     echo $OUTPUT->header();
+    echo local_question_diagnostic_render_version_badge();
     echo $OUTPUT->heading('🔀 Confirmation de fusion');
     
     echo html_writer::tag('p', "Vous êtes sur le point de fusionner :");

@@ -15,6 +15,7 @@
  */
 
 require_once(__DIR__ . '/../../../config.php');
+require_once(__DIR__ . '/../lib.php');
 require_once(__DIR__ . '/../classes/question_analyzer.php');
 
 use local_question_diagnostic\question_analyzer;
@@ -32,7 +33,10 @@ define('MAX_BULK_DELETE_QUESTIONS', 500);
 // Récupérer les IDs des questions à supprimer
 $questionids_param = required_param('ids', PARAM_TEXT);
 $confirm = optional_param('confirm', 0, PARAM_INT);
-$returnurl = new moodle_url('/local/question_diagnostic/questions_cleanup.php', ['randomtest_used' => 1, 'sesskey' => sesskey()]);
+// 🆕 v1.9.44 : URL de retour hiérarchique avec paramètres
+$returnurl = local_question_diagnostic_get_parent_url('actions/delete_questions_bulk.php');
+$returnurl->param('randomtest_used', 1);
+$returnurl->param('sesskey', sesskey());
 
 // Parser les IDs
 $question_ids = array_map('intval', explode(',', $questionids_param));
@@ -71,6 +75,7 @@ if (empty($can_delete)) {
     $PAGE->set_title('Suppression Interdite');
     
     echo $OUTPUT->header();
+    echo local_question_diagnostic_render_version_badge();
     echo $OUTPUT->heading('🛑 Suppression Interdite');
     
     echo html_writer::start_tag('div', ['class' => 'alert alert-danger']);
@@ -100,6 +105,7 @@ if (!$confirm) {
     $PAGE->set_title('Confirmation de Suppression en Masse');
     
     echo $OUTPUT->header();
+    echo local_question_diagnostic_render_version_badge();
     echo $OUTPUT->heading('⚠️ Confirmation de Suppression en Masse');
     
     // Message principal

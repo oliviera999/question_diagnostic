@@ -70,13 +70,12 @@ if ($action) {
 // Section d'en-tête Moodle standard.
 echo $OUTPUT->header();
 
-// Lien retour vers le menu principal + Bouton rafraîchir
+// Afficher le badge de version
+echo local_question_diagnostic_render_version_badge();
+
+// 🆕 v1.9.44 : Lien retour hiérarchique + Bouton rafraîchir
 echo html_writer::start_tag('div', ['style' => 'margin-bottom: 20px; display: flex; gap: 10px;']);
-echo html_writer::link(
-    new moodle_url('/local/question_diagnostic/index.php'),
-    '← ' . get_string('backtomenu', 'local_question_diagnostic'),
-    ['class' => 'btn btn-secondary']
-);
+echo local_question_diagnostic_render_back_link('broken_links.php');
 echo html_writer::link(
     new moodle_url('/local/question_diagnostic/broken_links.php', ['refresh' => 1, 'sesskey' => sesskey()]),
     '🔄 Rafraîchir l\'analyse',

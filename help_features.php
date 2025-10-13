@@ -32,11 +32,13 @@ $PAGE->set_heading('📚 Fonctionnalités du Plugin Question Diagnostic');
 
 echo $OUTPUT->header();
 
+// Afficher le badge de version
+echo local_question_diagnostic_render_version_badge();
+
 // Titre et introduction
 echo html_writer::tag('h2', '🎯 Vue d\'Ensemble des Fonctionnalités');
 
 echo html_writer::start_div('alert alert-info', ['style' => 'margin: 20px 0;']);
-echo html_writer::tag('p', '<strong>Version actuelle :</strong> v1.9.34');
 echo html_writer::tag('p', 'Le plugin Question Diagnostic offre 3 outils principaux pour gérer et diagnostiquer votre banque de questions Moodle.');
 echo html_writer::end_div();
 

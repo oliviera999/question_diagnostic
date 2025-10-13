@@ -2,6 +2,7 @@
 // This file is part of Moodle - http://moodle.org/
 
 require_once(__DIR__ . '/../../../config.php');
+require_once(__DIR__ . '/../lib.php');
 require_once(__DIR__ . '/../classes/category_manager.php');
 
 use local_question_diagnostic\category_manager;
@@ -16,8 +17,8 @@ if (!is_siteadmin()) {
 $categoryid = required_param('id', PARAM_INT);
 $newparentid = required_param('parent', PARAM_INT);
 $confirm = optional_param('confirm', 0, PARAM_INT);
-$return = optional_param('return', 'categories', PARAM_ALPHA);
-$returnurl = new moodle_url('/local/question_diagnostic/' . ($return === 'index' ? 'index.php' : 'categories.php'));
+// 🆕 v1.9.44 : URL de retour hiérarchique
+$returnurl = local_question_diagnostic_get_parent_url('actions/move.php');
 
 if ($confirm) {
     $result = category_manager::move_category($categoryid, $newparentid);
@@ -45,6 +46,7 @@ if ($confirm) {
     $PAGE->set_title(get_string('move', 'local_question_diagnostic'));
     
     echo $OUTPUT->header();
+    echo local_question_diagnostic_render_version_badge();
     echo $OUTPUT->heading('📦 ' . get_string('move', 'local_question_diagnostic'));
     
     echo html_writer::tag('p', "Vous êtes sur le point de déplacer :");

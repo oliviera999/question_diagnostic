@@ -68,6 +68,58 @@ function local_question_diagnostic_get_heading_with_version($heading) {
 }
 
 /**
+ * Render version badge HTML
+ * 
+ * 🆕 v1.9.50 : Badge de version visible sur toutes les pages
+ * 
+ * Cette fonction génère un badge HTML élégant affichant la version actuelle du plugin.
+ * Le badge est conçu pour être affiché dans le header de chaque page.
+ * 
+ * Style : Badge flottant en haut à droite, responsive, avec tooltip
+ * 
+ * @param bool $with_tooltip Si true, ajoute un tooltip avec la date de version
+ * @return string HTML du badge de version
+ */
+function local_question_diagnostic_render_version_badge($with_tooltip = true) {
+    global $CFG;
+    
+    $version = local_question_diagnostic_get_version();
+    
+    // Récupérer la version timestamp pour le tooltip
+    $plugin = new stdClass();
+    require($CFG->dirroot . '/local/question_diagnostic/version.php');
+    $version_date = $plugin->version ?? '0';
+    
+    // Formater la date depuis le timestamp YYYYMMDDXX
+    $year = substr($version_date, 0, 4);
+    $month = substr($version_date, 4, 2);
+    $day = substr($version_date, 6, 2);
+    $formatted_date = "$day/$month/$year";
+    
+    $tooltip_text = get_string('version_tooltip', 'local_question_diagnostic', [
+        'version' => $version,
+        'date' => $formatted_date
+    ]);
+    
+    $html = html_writer::start_div('qd-version-badge', [
+        'title' => $with_tooltip ? $tooltip_text : '',
+        'data-version' => $version
+    ]);
+    
+    $html .= html_writer::tag('span', get_string('version_label', 'local_question_diagnostic'), [
+        'class' => 'qd-version-label'
+    ]);
+    
+    $html .= html_writer::tag('span', $version, [
+        'class' => 'qd-version-number'
+    ]);
+    
+    $html .= html_writer::end_div();
+    
+    return $html;
+}
+
+/**
  * Get detailed context information including course and module names
  *
  * @param int $contextid Context ID

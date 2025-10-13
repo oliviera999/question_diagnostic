@@ -2,6 +2,63 @@
    Moodle Question Bank Diagnostic Tool - Styles
    ====================================================================== */
 
+/* ===== BADGE DE VERSION (v1.9.50) ===== */
+.qd-version-badge {
+    position: fixed;
+    top: 60px;
+    right: 20px;
+    background: linear-gradient(135deg, #0f6cbf 0%, #084e8a 100%);
+    color: white;
+    padding: 8px 16px;
+    border-radius: 20px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    font-size: 13px;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    z-index: 9999;
+    transition: all 0.3s ease;
+    cursor: default;
+}
+
+.qd-version-badge:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.qd-version-label {
+    opacity: 0.9;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.qd-version-number {
+    font-weight: 600;
+    background: rgba(255, 255, 255, 0.2);
+    padding: 2px 8px;
+    border-radius: 10px;
+}
+
+/* Responsive : masquer le label sur mobile */
+@media (max-width: 768px) {
+    .qd-version-badge {
+        top: 10px;
+        right: 10px;
+        padding: 6px 12px;
+        font-size: 11px;
+    }
+    
+    .qd-version-label {
+        display: none;
+    }
+    
+    .qd-version-number {
+        padding: 2px 6px;
+    }
+}
+
 /* Dashboard Cards */
 .qd-dashboard {
     display: grid;

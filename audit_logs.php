@@ -35,6 +35,9 @@ $PAGE->set_heading('📋 Logs d\'Audit - Traçabilité des Modifications');
 
 echo $OUTPUT->header();
 
+// Afficher le badge de version
+echo local_question_diagnostic_render_version_badge();
+
 // 🆕 v1.9.44 : Lien retour hiérarchique
 echo html_writer::start_tag('div', ['style' => 'margin-bottom: 20px;']);
 echo local_question_diagnostic_render_back_link('audit_logs.php');

@@ -18,6 +18,9 @@ $PAGE->set_heading('Vérification Catégories Par Défaut');
 
 echo $OUTPUT->header();
 
+// Afficher le badge de version
+echo local_question_diagnostic_render_version_badge();
+
 echo html_writer::tag('h2', '🔍 Analyse des Catégories Par Défaut de Moodle');
 
 echo html_writer::start_div('alert alert-info');

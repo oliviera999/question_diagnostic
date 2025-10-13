@@ -36,13 +36,12 @@ $PAGE->requires->css('/local/question_diagnostic/styles/main.css');
 
 echo $OUTPUT->header();
 
-// Lien retour
+// Afficher le badge de version
+echo local_question_diagnostic_render_version_badge();
+
+// 🆕 v1.9.44 : Lien retour hiérarchique (vers help.php)
 echo html_writer::start_tag('div', ['style' => 'margin-bottom: 20px;']);
-echo html_writer::link(
-    new moodle_url('/local/question_diagnostic/index.php'),
-    '← Retour au menu principal',
-    ['class' => 'btn btn-secondary']
-);
+echo local_question_diagnostic_render_back_link('help_database_impact.php');
 echo html_writer::end_tag('div');
 
 // Contenu principal

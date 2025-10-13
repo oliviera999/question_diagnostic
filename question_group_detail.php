@@ -77,6 +77,9 @@ $PAGE->requires->js('/local/question_diagnostic/scripts/main.js', true);
 // Section d'en-tête Moodle standard.
 echo $OUTPUT->header();
 
+// Afficher le badge de version
+echo local_question_diagnostic_render_version_badge();
+
 // 🆕 v1.9.45 : Lien retour hiérarchique
 echo html_writer::start_tag('div', ['style' => 'margin-bottom: 20px;']);
 echo html_writer::link(

@@ -5,6 +5,202 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.9.51] - 2025-10-13
+
+### 🔧 Outils de Diagnostic et Résolution : Erreur "Call to undefined function"
+
+#### 🐛 Problème Identifié
+
+Les utilisateurs rencontrent l'erreur suivante lors de la suppression de questions :
+
+```
+Exception : Call to undefined function local_question_diagnostic_get_parent_url()
+```
+
+**Cause racine** : Cache Moodle non purgé après modification de `lib.php` ou fichiers non synchronisés entre le dépôt de développement et l'installation Moodle.
+
+#### ✅ Solution : Suite d'Outils de Diagnostic
+
+Création d'une suite complète d'outils pour diagnostiquer et résoudre rapidement ce type de problème.
+
+**Nouveaux Fichiers Créés** :
+
+1. **`purge_cache.php`** - Script Automatique de Purge des Caches
+   - Interface utilisateur conviviale avec confirmation
+   - Purge automatique de tous les caches Moodle
+   - Instructions post-purge détaillées
+   - Liens de test directs
+   - Accès : `http://votresite.moodle/local/question_diagnostic/purge_cache.php`
+
+2. **`test_function.php`** - Diagnostic Automatique
+   - Test 1 : Vérification de l'existence de `lib.php`
+   - Test 2 : Vérification de l'existence de la fonction `local_question_diagnostic_get_parent_url()`
+   - Test 3 : Test d'exécution de la fonction
+   - Test 4 : Instructions pour purger les caches
+   - Affichage de toutes les fonctions du plugin disponibles
+   - Accès : `http://votresite.moodle/local/question_diagnostic/test_function.php`
+
+3. **`FIX_UNDEFINED_FUNCTION.md`** - Guide Complet de Résolution
+   - Solution rapide en 3 étapes
+   - Diagnostic avancé avec 3 niveaux de vérification
+   - Solutions de secours (réinstallation, vérification manuelle)
+   - Checklist complète de résolution
+   - Explication technique de la cause du problème
+   - Conseils de prévention
+
+4. **`PURGE_CACHE_INSTRUCTIONS.md`** - Instructions Détaillées de Purge
+   - Étape 1 : Vérification de la synchronisation des fichiers
+   - Étape 2 : 3 méthodes de purge des caches (interface, URL, CLI)
+   - Étape 3 : Tests de validation
+   - Solutions de secours
+   - Checklist de vérification
+
+5. **`QUICK_FIX_README.txt`** - Résumé Rapide en ASCII Art
+   - Format texte brut pour consultation rapide
+   - Les 3 étapes essentielles en visuel
+   - Checklist de succès
+   - Pointeurs vers la documentation complète
+
+#### 🎯 Workflow de Résolution
+
+**Étape 1 : Synchronisation des Fichiers**
+```powershell
+# Windows/XAMPP
+Copy-Item -Path "dépôt\*" -Destination "moodle\local\question_diagnostic\" -Recurse -Force
+```
+
+**Étape 2 : Purge des Caches**
+- Via `purge_cache.php` (interface automatique)
+- OU via Administration du site → Développement → Purger les caches
+- OU via CLI : `php admin/cli/purge_caches.php`
+
+**Étape 3 : Test et Validation**
+- Exécuter `test_function.php` (tous les tests doivent être verts ✅)
+- Tester la suppression de question
+
+#### 📊 Détails Techniques
+
+**Fonction concernée** : `local_question_diagnostic_get_parent_url()`
+- **Fichier** : `lib.php` (ligne 665)
+- **Rôle** : Génère l'URL de la page parente pour la navigation hiérarchique
+- **Utilisée dans** : 
+  - `actions/delete_question.php` (ligne 41)
+  - `actions/delete_questions_bulk.php` (ligne 37)
+  - Tous les fichiers d'actions pour la navigation de retour
+
+**Pourquoi l'erreur se produit** :
+1. ✅ La fonction existe dans `lib.php`
+2. ✅ `lib.php` est correctement inclus (`require_once(__DIR__ . '/../lib.php');`)
+3. ❌ **MAIS** : PHP a mis en cache l'ancienne version de `lib.php` sans la fonction
+4. ❌ **OU** : Les fichiers du dépôt Git ne sont pas synchronisés avec l'installation Moodle
+
+#### 🎓 Prévention Future
+
+Pour éviter ce problème à l'avenir :
+
+1. **Workflow Git recommandé** :
+   ```bash
+   git commit -am "Modification de lib.php"
+   git push origin master
+   # Sur le serveur :
+   git pull
+   php admin/cli/purge_caches.php
+   ```
+
+2. **Après toute modification de `lib.php`** : Toujours purger les caches immédiatement
+
+3. **Synchronisation régulière** : Vérifier que le dépôt Git et l'installation Moodle sont bien synchronisés
+
+4. **Tests systématiques** : Utiliser `test_function.php` après chaque mise à jour
+
+#### 📚 Documentation Utilisateur
+
+Tous les fichiers de diagnostic sont documentés et accessibles directement :
+
+- **Pour les utilisateurs** : `QUICK_FIX_README.txt` (guide rapide)
+- **Pour les développeurs** : `FIX_UNDEFINED_FUNCTION.md` (guide complet)
+- **Pour les admins sys** : `PURGE_CACHE_INSTRUCTIONS.md` (instructions techniques)
+
+#### ✨ Impact
+
+- 🚀 **Résolution rapide** : Problème résolu en < 5 minutes avec les outils fournis
+- 🧪 **Diagnostic automatisé** : `test_function.php` identifie la cause exacte
+- 📖 **Documentation complète** : 3 niveaux de documentation (rapide, détaillée, technique)
+- 🛡️ **Prévention** : Conseils pour éviter le problème à l'avenir
+
+---
+
+## [1.9.50] - 2025-10-13
+
+### ✨ Nouvelle Fonctionnalité : Badge de Version Visible
+
+#### 🏷️ Badge Flottant sur Toutes les Pages
+
+Ajout d'un **badge de version** visible et élégant sur toutes les pages du plugin.
+
+**Caractéristiques** :
+- 🎨 **Design moderne** : Badge flottant en haut à droite avec dégradé bleu Moodle
+- 💡 **Tooltip informatif** : Au survol, affiche la version complète et la date de mise à jour
+- 📱 **Responsive** : S'adapte automatiquement sur mobile (label masqué, taille réduite)
+- ✨ **Animation** : Effet d'élévation au survol pour un rendu premium
+- 🔧 **Non-intrusif** : Position fixe qui ne gêne pas le contenu
+
+#### 📄 Implémentation
+
+**Pages modifiées (19 fichiers)** :
+
+Pages principales :
+- ✅ `index.php` (Dashboard)
+- ✅ `categories.php` (Gestion catégories)
+- ✅ `broken_links.php` (Liens cassés)
+- ✅ `questions_cleanup.php` (Statistiques questions)
+- ✅ `orphan_entries.php` (Entrées orphelines)
+- ✅ `monitoring.php` (Monitoring)
+- ✅ `audit_logs.php` (Logs d'audit)
+- ✅ `help.php`, `help_features.php`, `help_database_impact.php`
+
+Pages de test/debug :
+- ✅ `test.php`, `quick_check_categories.php`, `check_default_categories.php`
+- ✅ `diagnose_dd_files.php`, `question_group_detail.php`
+
+Pages d'action :
+- ✅ `actions/delete.php`, `actions/merge.php`, `actions/move.php`
+- ✅ `actions/delete_question.php`, `actions/delete_questions_bulk.php`
+
+**Nouvelle fonction (lib.php)** :
+```php
+local_question_diagnostic_render_version_badge($with_tooltip = true)
+```
+
+**Nouvelles chaînes de langue** :
+- `version_label` : "Version" (FR/EN)
+- `version_tooltip` : "Plugin Question Diagnostic {version} - Dernière mise à jour : {date}" (FR/EN)
+
+**Nouveaux styles CSS** :
+- `.qd-version-badge` : Badge principal avec gradient et shadow
+- `.qd-version-label` : Label "Version"
+- `.qd-version-number` : Numéro de version avec fond translucide
+- Media query responsive pour mobile
+
+#### 🎯 Avantages Utilisateur
+
+1. **Traçabilité** : Version immédiatement visible sur toutes les pages
+2. **Debugging** : Facilite le support technique (version visible instantanément)
+3. **Maintenance** : Vérification rapide de la version installée
+4. **Professionnalisme** : Design soigné renforçant la qualité du plugin
+
+#### 🧹 Nettoyage
+
+Suppression des versions hardcodées obsolètes dans :
+- `help.php` (ligne 41) : Suppression de `v1.9.34` hardcodé
+- `help_features.php` (ligne 42) : Suppression de `v1.9.34` hardcodé
+
+#### 📚 Documentation
+
+Nouvelle documentation complète : `docs/releases/VERSION_BADGE_v1.9.50.md`
+
+---
+
 ## [1.9.49] - 2025-10-13
 
 ### 🐛 Bugfix : Correction fonction render_back_link non définie
