@@ -150,22 +150,22 @@ echo html_writer::end_tag('div');
 // Tableau détaillé
 echo html_writer::tag('h3', '📋 ' . get_string('all_versions_in_group', 'local_question_diagnostic'));
 
-echo html_writer::start_tag('table', ['class' => 'qd-table', 'style' => 'width: 100%;']);
+echo html_writer::start_tag('table', ['class' => 'qd-table qd-sortable-table', 'style' => 'width: 100%;', 'id' => 'group-detail-table']);
 
-// En-tête
+// En-tête avec tri
 echo html_writer::start_tag('thead');
 echo html_writer::start_tag('tr');
 echo html_writer::tag('th', '<input type="checkbox" id="select-all-questions" title="Tout sélectionner/désélectionner">', ['style' => 'width: 40px;']);
-echo html_writer::tag('th', 'ID');
-echo html_writer::tag('th', 'Nom');
-echo html_writer::tag('th', 'Type');
-echo html_writer::tag('th', 'Catégorie');
-echo html_writer::tag('th', 'Contexte');
-echo html_writer::tag('th', 'Cours');
-echo html_writer::tag('th', '📊 Dans Quiz', ['title' => 'Nombre de quiz utilisant cette question']);
-echo html_writer::tag('th', '🔢 Utilisations', ['title' => 'Nombre total d\'utilisations (dans différents quiz)']);
-echo html_writer::tag('th', 'Statut');
-echo html_writer::tag('th', 'Créée le');
+echo html_writer::tag('th', 'ID ▲▼', ['class' => 'sortable', 'data-column' => 'id', 'style' => 'cursor: pointer;']);
+echo html_writer::tag('th', 'Nom ▲▼', ['class' => 'sortable', 'data-column' => 'name', 'style' => 'cursor: pointer;']);
+echo html_writer::tag('th', 'Type ▲▼', ['class' => 'sortable', 'data-column' => 'type', 'style' => 'cursor: pointer;']);
+echo html_writer::tag('th', 'Catégorie ▲▼', ['class' => 'sortable', 'data-column' => 'category', 'style' => 'cursor: pointer;']);
+echo html_writer::tag('th', 'Contexte ▲▼', ['class' => 'sortable', 'data-column' => 'context', 'style' => 'cursor: pointer;']);
+echo html_writer::tag('th', 'Cours ▲▼', ['class' => 'sortable', 'data-column' => 'course', 'style' => 'cursor: pointer;']);
+echo html_writer::tag('th', '📊 Quiz ▲▼', ['class' => 'sortable', 'data-column' => 'quiz', 'style' => 'cursor: pointer;', 'title' => 'Nombre de quiz utilisant cette question']);
+echo html_writer::tag('th', '🔢 Util. ▲▼', ['class' => 'sortable', 'data-column' => 'usages', 'style' => 'cursor: pointer;', 'title' => 'Nombre total d\'utilisations (dans différents quiz)']);
+echo html_writer::tag('th', 'Statut ▲▼', ['class' => 'sortable', 'data-column' => 'status', 'style' => 'cursor: pointer;']);
+echo html_writer::tag('th', 'Créée le ▲▼', ['class' => 'sortable', 'data-column' => 'created', 'style' => 'cursor: pointer;']);
 echo html_writer::tag('th', 'Actions');
 echo html_writer::end_tag('tr');
 echo html_writer::end_tag('thead');
@@ -200,7 +200,23 @@ foreach ($all_questions as $q) {
         $row_style = 'background: #fff3cd;'; // Jaune pour les utilisées
     }
     
-    echo html_writer::start_tag('tr', ['style' => $row_style, 'data-question-id' => $q->id]);
+    // Attributs data-* pour le tri
+    $row_attrs = [
+        'style' => $row_style,
+        'data-question-id' => $q->id,
+        'data-id' => $q->id,
+        'data-name' => format_string($q->name),
+        'data-type' => $q->qtype,
+        'data-category' => isset($stats->category_name) ? $stats->category_name : 'N/A',
+        'data-context' => isset($stats->context_name) ? strip_tags($stats->context_name) : '-',
+        'data-course' => isset($stats->course_name) ? strip_tags($stats->course_name) : '-',
+        'data-quiz' => $quiz_count,
+        'data-usages' => $total_usages,
+        'data-status' => $is_used ? '1' : '0',
+        'data-created' => $q->timecreated
+    ];
+    
+    echo html_writer::start_tag('tr', $row_attrs);
     
     // Checkbox de sélection (uniquement pour questions supprimables)
     $can_delete_check = isset($deletability_map[$q->id]) ? $deletability_map[$q->id] : null;
@@ -214,12 +230,22 @@ foreach ($all_questions as $q) {
     echo html_writer::tag('td', $q->id . ($representative_id && $q->id == $representative_id ? ' 🎯' : ''));
     echo html_writer::tag('td', format_string($q->name));
     echo html_writer::tag('td', $q->qtype);
-    // Afficher nom de catégorie + ID
-    $category_display = isset($stats->category_name) ? $stats->category_name : 'N/A';
-    if (isset($stats->category_id) && $stats->category_id > 0) {
+    
+    // Catégorie cliquable
+    echo html_writer::start_tag('td');
+    if (isset($stats->category_id) && $stats->category_id > 0 && isset($stats->context_id)) {
+        $cat_url = new moodle_url('/question/edit.php', [
+            'courseid' => 1,
+            'cat' => $stats->category_id . ',' . $stats->context_id
+        ]);
+        $category_display = html_writer::link($cat_url, format_string($stats->category_name), ['target' => '_blank', 'title' => 'Ouvrir la catégorie dans la banque de questions']);
         $category_display .= ' <span style="color: #666; font-size: 11px;">(ID: ' . $stats->category_id . ')</span>';
+        echo $category_display;
+    } else {
+        echo 'N/A';
     }
-    echo html_writer::tag('td', $category_display);
+    echo html_writer::end_tag('td');
+    
     // Afficher nom du contexte + ID
     $context_display = isset($stats->context_name) ? $stats->context_name : '-';
     if (isset($stats->context_id) && $stats->context_id > 0) {
@@ -336,6 +362,67 @@ function bulkDeleteQuestions() {
         window.location.href = url;
     }
 }
+
+// ======================================================================
+// TRI DES COLONNES
+// ======================================================================
+
+document.addEventListener('DOMContentLoaded', function() {
+    const table = document.getElementById('group-detail-table');
+    if (!table) return;
+    
+    const headers = table.querySelectorAll('th.sortable');
+    let currentSort = { column: null, direction: 'asc' };
+    
+    headers.forEach(function(header) {
+        header.addEventListener('click', function() {
+            const column = this.getAttribute('data-column');
+            
+            if (currentSort.column === column) {
+                currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+            } else {
+                currentSort.column = column;
+                currentSort.direction = 'asc';
+            }
+            
+            sortTable(table, column, currentSort.direction);
+            
+            // Mettre à jour les indicateurs visuels
+            headers.forEach(h => {
+                h.classList.remove('sort-asc', 'sort-desc');
+            });
+            this.classList.add('sort-' + currentSort.direction);
+        });
+    });
+});
+
+function sortTable(table, column, direction) {
+    const tbody = table.querySelector('tbody');
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    
+    rows.sort(function(a, b) {
+        let aVal = a.getAttribute('data-' + column) || '';
+        let bVal = b.getAttribute('data-' + column) || '';
+        
+        // Tenter de convertir en nombre si possible
+        const aNum = parseFloat(aVal);
+        const bNum = parseFloat(bVal);
+        
+        if (!isNaN(aNum) && !isNaN(bNum)) {
+            return direction === 'asc' ? aNum - bNum : bNum - aNum;
+        } else {
+            aVal = aVal.toLowerCase();
+            bVal = bVal.toLowerCase();
+            if (direction === 'asc') {
+                return aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
+            } else {
+                return aVal > bVal ? -1 : aVal < bVal ? 1 : 0;
+            }
+        }
+    });
+    
+    rows.forEach(row => tbody.appendChild(row));
+}
 ";
 echo html_writer::end_tag('script');
 
@@ -393,6 +480,27 @@ echo html_writer::link(
     ['class' => 'btn btn-secondary btn-lg']
 );
 echo html_writer::end_tag('div');
+
+// CSS pour les indicateurs de tri
+echo html_writer::start_tag('style');
+?>
+.sort-asc::after {
+    content: ' ▲';
+    font-size: 10px;
+    color: #0f6cbf;
+}
+
+.sort-desc::after {
+    content: ' ▼';
+    font-size: 10px;
+    color: #0f6cbf;
+}
+
+th.sortable:hover {
+    background-color: #f5f5f5;
+}
+<?php
+echo html_writer::end_tag('style');
 
 // Pied de page Moodle standard
 echo $OUTPUT->footer();
