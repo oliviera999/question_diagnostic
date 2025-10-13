@@ -173,7 +173,12 @@ if ($randomtest && confirm_sesskey()) {
                 $category_display .= ' <span style="color: #666; font-size: 11px;">(ID: ' . $stats->category_id . ')</span>';
             }
             echo html_writer::tag('td', $category_display);
-            echo html_writer::tag('td', isset($stats->context_name) ? $stats->context_name : 'N/A');
+            // Afficher nom du contexte + ID
+            $context_display = isset($stats->context_name) ? $stats->context_name : 'N/A';
+            if (isset($stats->context_id) && $stats->context_id > 0) {
+                $context_display .= ' <span style="color: #666; font-size: 11px;">(ID: ' . $stats->context_id . ')</span>';
+            }
+            echo html_writer::tag('td', $context_display);
             echo html_writer::tag('td', isset($stats->quiz_count) ? $stats->quiz_count : 0);
             echo html_writer::tag('td', isset($stats->attempt_count) ? $stats->attempt_count : 0);
             echo html_writer::tag('td', userdate($q->timecreated, '%d/%m/%Y %H:%M'));
@@ -533,7 +538,12 @@ if ($randomtest_used && confirm_sesskey()) {
             $category_display .= ' <span style="color: #666; font-size: 11px;">(ID: ' . $stats->category_id . ')</span>';
         }
         echo html_writer::tag('td', $category_display);
-        echo html_writer::tag('td', isset($stats->context_name) ? $stats->context_name : '-', ['style' => 'font-size: 12px;']);
+        // Afficher nom du contexte + ID
+        $context_display = isset($stats->context_name) ? $stats->context_name : '-';
+        if (isset($stats->context_id) && $stats->context_id > 0) {
+            $context_display .= ' <span style="color: #666; font-size: 10px;">(ID: ' . $stats->context_id . ')</span>';
+        }
+        echo html_writer::tag('td', $context_display, ['style' => 'font-size: 12px;']);
         echo html_writer::tag('td', isset($stats->course_name) ? '📚 ' . $stats->course_name : '-');
         
         // Colonne "Dans Quiz" - Nombre de quiz différents
