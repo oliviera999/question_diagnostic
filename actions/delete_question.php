@@ -105,10 +105,10 @@ if (empty($can_delete)) {
         
         echo html_writer::tag('p', '<strong>' . get_string('reason', 'local_question_diagnostic') . '</strong> : ' . $first_reason, ['style' => 'font-size: 16px;']);
         
-        // 🆕 v1.9.45 : Afficher les informations de débogage pour toutes les erreurs
-        if ($CFG->debugdisplay && isset($check->details)) {
+        // 🆕 v1.9.45 : Afficher les informations de diagnostic (toujours activé pour les admins)
+        if (isset($check->details)) {
             echo html_writer::start_tag('div', ['style' => 'margin-top: 20px; padding: 15px; background: #fff3cd; border: 1px solid #ffc107; border-radius: 4px;']);
-            echo html_writer::tag('h4', '🔍 Informations de Débogage', ['style' => 'margin-top: 0; color: #856404;']);
+            echo html_writer::tag('h4', '🔍 Informations de Diagnostic', ['style' => 'margin-top: 0; color: #856404;']);
             
             if (isset($check->details['debug_name'])) {
                 echo html_writer::tag('p', '<strong>Nom :</strong> ' . s($check->details['debug_name']));
@@ -117,10 +117,10 @@ if (empty($can_delete)) {
                 echo html_writer::tag('p', '<strong>Type :</strong> ' . s($check->details['debug_type']));
             }
             if (isset($check->details['debug_signature'])) {
-                echo html_writer::tag('p', '<strong>Signature :</strong> ' . s($check->details['debug_signature']));
+                echo html_writer::tag('p', '<strong>Signature de détection :</strong> ' . s($check->details['debug_signature']));
             }
             if (isset($check->details['quiz_count'])) {
-                echo html_writer::tag('p', '<strong>Quiz count :</strong> ' . $check->details['quiz_count']);
+                echo html_writer::tag('p', '<strong>Quiz utilisant cette question :</strong> ' . $check->details['quiz_count']);
             }
             if (isset($check->details['is_unique'])) {
                 echo html_writer::tag('p', '<strong>Est unique :</strong> ' . ($check->details['is_unique'] ? 'Oui' : 'Non'));
@@ -129,7 +129,7 @@ if (empty($can_delete)) {
                 echo html_writer::tag('p', '<strong>Nombre de doublons :</strong> ' . $check->details['duplicate_count']);
             }
             
-            echo html_writer::tag('p', '<em style="font-size: 12px;">Mode débogage activé. Utilisez ces informations pour diagnostiquer le problème.</em>');
+            echo html_writer::tag('p', '<em style="font-size: 12px;">Ces informations vous aident à comprendre pourquoi la suppression est refusée.</em>');
             echo html_writer::end_tag('div');
         }
     }
@@ -163,16 +163,14 @@ if (empty($can_delete)) {
         echo html_writer::tag('p', 'La suppression de questions uniques est <strong>interdite par sécurité</strong> pour éviter la perte de contenu pédagogique.');
         echo html_writer::end_tag('div');
         
-        // 🆕 v1.9.45 : Informations de débogage détaillées
-        if ($CFG->debugdisplay) {
-            echo html_writer::start_tag('div', ['class' => 'alert alert-warning', 'style' => 'margin-top: 15px;']);
-            echo html_writer::tag('h4', '🔍 Informations de Débogage', ['style' => 'margin-top: 0;']);
-            echo html_writer::tag('p', '<strong>Nom de la question :</strong> ' . s($check->details['debug_name']));
-            echo html_writer::tag('p', '<strong>Type de la question :</strong> ' . s($check->details['debug_type']));
-            echo html_writer::tag('p', '<strong>Signature de détection :</strong> ' . s($check->details['debug_signature']));
-            echo html_writer::tag('p', '<em>Aucune autre question avec ce nom exact et ce type n\'a été trouvée.</em>');
-            echo html_writer::end_tag('div');
-        }
+        // 🆕 v1.9.45 : Informations de diagnostic détaillées
+        echo html_writer::start_tag('div', ['class' => 'alert alert-warning', 'style' => 'margin-top: 15px;']);
+        echo html_writer::tag('h4', '🔍 Informations de Diagnostic', ['style' => 'margin-top: 0;']);
+        echo html_writer::tag('p', '<strong>Nom de la question :</strong> ' . s($check->details['debug_name']));
+        echo html_writer::tag('p', '<strong>Type de la question :</strong> ' . s($check->details['debug_type']));
+        echo html_writer::tag('p', '<strong>Signature de détection :</strong> ' . s($check->details['debug_signature']));
+        echo html_writer::tag('p', '<em>Aucune autre question avec ce nom exact et ce type n\'a été trouvée.</em>');
+        echo html_writer::end_tag('div');
     }
     
     // Règles de protection
@@ -259,17 +257,15 @@ if (!$confirm) {
         echo html_writer::tag('p', 'Les autres versions de cette question seront conservées.');
         echo html_writer::end_tag('div');
         
-        // 🆕 v1.9.45 : Informations de débogage détaillées
-        if ($CFG->debugdisplay) {
-            echo html_writer::start_tag('div', ['class' => 'alert alert-secondary', 'style' => 'margin-top: 15px;']);
-            echo html_writer::tag('h4', '🔍 Informations de Débogage', ['style' => 'margin-top: 0;']);
-            echo html_writer::tag('p', '<strong>Nom de la question :</strong> ' . s($check->details['debug_name']));
-            echo html_writer::tag('p', '<strong>Type de la question :</strong> ' . s($check->details['debug_type']));
-            echo html_writer::tag('p', '<strong>Signature de détection :</strong> ' . s($check->details['debug_signature']));
-            echo html_writer::tag('p', '<strong>IDs des doublons :</strong> ' . implode(', ', $check->details['duplicate_ids']));
-            echo html_writer::tag('p', '<em>Mode débogage activé. Utilisez ces informations pour signaler un problème si nécessaire.</em>');
-            echo html_writer::end_tag('div');
-        }
+        // 🆕 v1.9.45 : Informations de diagnostic détaillées
+        echo html_writer::start_tag('div', ['class' => 'alert alert-secondary', 'style' => 'margin-top: 15px;']);
+        echo html_writer::tag('h4', '🔍 Informations de Diagnostic', ['style' => 'margin-top: 0;']);
+        echo html_writer::tag('p', '<strong>Nom de la question :</strong> ' . s($check->details['debug_name']));
+        echo html_writer::tag('p', '<strong>Type de la question :</strong> ' . s($check->details['debug_type']));
+        echo html_writer::tag('p', '<strong>Signature de détection :</strong> ' . s($check->details['debug_signature']));
+        echo html_writer::tag('p', '<strong>IDs des doublons :</strong> ' . implode(', ', $check->details['duplicate_ids']));
+        echo html_writer::tag('p', '<em>Ces informations confirment que la question peut être supprimée en toute sécurité.</em>');
+        echo html_writer::end_tag('div');
     }
     
     // AVERTISSEMENT IRRÉVERSIBLE
