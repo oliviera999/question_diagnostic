@@ -56,6 +56,16 @@ $definitions = [
         'staticacceleration' => true,
         'staticaccelerationsize' => 10,
     ],
+    
+    // Cache pour les fichiers orphelins
+    'orphanfiles' => [
+        'mode' => cache_store::MODE_APPLICATION,
+        'simplekeys' => true,
+        'simpledata' => false,
+        'ttl' => 3600, // 1 heure
+        'staticacceleration' => true,
+        'staticaccelerationsize' => 10,
+    ],
 ];
 
 

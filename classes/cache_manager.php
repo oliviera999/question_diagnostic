@@ -41,6 +41,9 @@ class cache_manager {
     
     /** @var string Cache pour les liens cassés */
     const CACHE_BROKENLINKS = 'brokenlinks';
+    
+    /** @var string Cache pour les fichiers orphelins */
+    const CACHE_ORPHANFILES = 'orphanfiles';
 
     /**
      * Récupère une instance de cache
@@ -54,7 +57,8 @@ class cache_manager {
             self::CACHE_DUPLICATES,
             self::CACHE_GLOBALSTATS,
             self::CACHE_QUESTIONUSAGE,
-            self::CACHE_BROKENLINKS
+            self::CACHE_BROKENLINKS,
+            self::CACHE_ORPHANFILES
         ];
         
         if (!in_array($cache_name, $valid_caches)) {
@@ -96,6 +100,7 @@ class cache_manager {
         $results[self::CACHE_GLOBALSTATS] = self::purge_cache(self::CACHE_GLOBALSTATS);
         $results[self::CACHE_QUESTIONUSAGE] = self::purge_cache(self::CACHE_QUESTIONUSAGE);
         $results[self::CACHE_BROKENLINKS] = self::purge_cache(self::CACHE_BROKENLINKS);
+        $results[self::CACHE_ORPHANFILES] = self::purge_cache(self::CACHE_ORPHANFILES);
         
         $success_count = count(array_filter($results));
         $total_count = count($results);
@@ -173,7 +178,8 @@ class cache_manager {
             self::CACHE_DUPLICATES,
             self::CACHE_GLOBALSTATS,
             self::CACHE_QUESTIONUSAGE,
-            self::CACHE_BROKENLINKS
+            self::CACHE_BROKENLINKS,
+            self::CACHE_ORPHANFILES
         ];
         
         foreach ($cache_names as $cache_name) {

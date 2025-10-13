@@ -368,7 +368,51 @@ echo html_writer::end_tag('div'); // fin qd-tool-content
 echo html_writer::end_tag('div'); // fin qd-tool-card
 
 // ======================================================================
-// OPTION 6 : Page de test
+// 🆕 v1.10.0 : OPTION 6 : Fichiers Orphelins
+// ======================================================================
+
+require_once(__DIR__ . '/classes/orphan_file_detector.php');
+use local_question_diagnostic\orphan_file_detector;
+
+$orphan_stats = orphan_file_detector::get_global_stats();
+
+echo html_writer::start_tag('div', ['class' => 'qd-tool-card']);
+
+echo html_writer::start_tag('div', ['class' => 'qd-tool-icon']);
+echo '🗑️';
+echo html_writer::end_tag('div');
+
+echo html_writer::start_tag('div', ['class' => 'qd-tool-content']);
+
+echo html_writer::tag('h4', get_string('orphan_files', 'local_question_diagnostic'), ['class' => 'qd-tool-title']);
+
+echo html_writer::tag('p', 
+    get_string('orphan_files_tool_desc', 'local_question_diagnostic'),
+    ['class' => 'qd-tool-description']
+);
+
+// Statistiques spécifiques
+echo html_writer::start_tag('div', ['class' => 'qd-tool-stats']);
+echo html_writer::tag('span', '📊 ' . $orphan_stats->total_orphans . ' fichiers orphelins', ['class' => 'qd-tool-stat-item']);
+if ($orphan_stats->total_orphans > 0) {
+    echo html_writer::tag('span', '💾 ' . $orphan_stats->total_filesize_formatted . ' d\'espace', ['class' => 'qd-tool-stat-item qd-stat-warning']);
+    if ($orphan_stats->by_age['old'] > 0) {
+        echo html_writer::tag('span', '⏰ ' . $orphan_stats->by_age['old'] . ' anciens (>6 mois)', ['class' => 'qd-tool-stat-item qd-stat-danger']);
+    }
+} else {
+    echo html_writer::tag('span', '✅ Système de fichiers sain', ['class' => 'qd-tool-stat-item qd-stat-success']);
+}
+echo html_writer::end_tag('div');
+
+$orphan_url = new moodle_url('/local/question_diagnostic/orphan_files.php');
+echo html_writer::link($orphan_url, 'Gérer les fichiers orphelins →', ['class' => 'qd-tool-button']);
+
+echo html_writer::end_tag('div'); // fin qd-tool-content
+
+echo html_writer::end_tag('div'); // fin qd-tool-card
+
+// ======================================================================
+// OPTION 7 : Page de test
 // ======================================================================
 
 echo html_writer::start_tag('div', ['class' => 'qd-tool-card']);
