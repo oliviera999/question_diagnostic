@@ -9,8 +9,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'local_question_diagnostic';
-$plugin->version = 2025101308;  // YYYYMMDDXX format (v1.9.51 - Nettoyage automatique des doublons + sélection multiple)
+$plugin->version = 2025101310;  // YYYYMMDDXX format (v1.9.53 - Protection des questions cachées)
 $plugin->requires = 2022041900; // Moodle 4.0+ (architecture question_bank_entries requise)
 $plugin->maturity = MATURITY_STABLE;
-$plugin->release = 'v1.9.51';
+$plugin->release = 'v1.9.53';
 

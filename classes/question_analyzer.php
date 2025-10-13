@@ -1349,6 +1349,25 @@ class question_analyzer {
             // ÉTAPE 2 : Vérifier l'usage de TOUTES les questions en une seule requête
             $usage_map = self::get_questions_usage_by_ids($questionids);
             
+            // ÉTAPE 2.5 : Vérifier le statut caché de TOUTES les questions en une seule requête
+            // 🆕 v1.9.52 : Protection des questions cachées
+            // ⚠️ MOODLE 4.5 : Le statut est dans question_versions.status (pas question.hidden)
+            $hidden_map = [];
+            try {
+                list($insql_status, $params_status) = $DB->get_in_or_equal($questionids);
+                $status_sql = "SELECT qv.questionid, qv.status
+                              FROM {question_versions} qv
+                              WHERE qv.questionid $insql_status";
+                $status_records = $DB->get_records_sql($status_sql, $params_status);
+                
+                foreach ($status_records as $record) {
+                    $hidden_map[$record->questionid] = ($record->status === 'hidden');
+                }
+            } catch (\Exception $e) {
+                debugging('Error fetching question status: ' . $e->getMessage(), DEBUG_DEVELOPER);
+                // En cas d'erreur, considérer toutes comme visibles (pas de protection excessive)
+            }
+            
             // ÉTAPE 3 : Trouver les doublons pour chaque question en cherchant dans TOUTE la base
             // 🔧 v1.9.51 FIX CRITIQUE : Ne PAS se limiter aux questions en paramètre !
             // Pour chaque question à vérifier, on doit chercher dans TOUTE la base de données
@@ -1372,7 +1391,17 @@ class question_analyzer {
                     }
                 }
                 
-                // Vérification 2 : Question a des doublons ?
+                // Vérification 2 : Question cachée ?
+                // 🆕 v1.9.52 : Protéger TOUTES les questions cachées contre la suppression
+                if (isset($hidden_map[$qid]) && $hidden_map[$qid] === true) {
+                    $results[$qid]->reason = 'Question cachée (protégée)';
+                    $results[$qid]->details['is_hidden'] = true;
+                    $results[$qid]->details['debug_name'] = $q->name;
+                    $results[$qid]->details['debug_type'] = $q->qtype;
+                    continue;
+                }
+                
+                // Vérification 3 : Question a des doublons ?
                 // 🔧 v1.9.51 FIX CRITIQUE : Chercher TOUTES les questions avec ce nom+type dans la BASE
                 // (pas seulement parmi les questions passées en paramètre !)
                 $all_with_same_signature = $DB->get_records('question', [

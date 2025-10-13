@@ -220,8 +220,9 @@ $string['reason'] = 'Reason';
 $string['protection_rules'] = 'Protection Rules';
 $string['protection_rules_desc'] = 'To ensure the safety of your educational data, this plugin applies strict rules:';
 $string['rule_used_protected'] = 'Questions used in quizzes or with attempts are PROTECTED';
+$string['rule_hidden_protected'] = 'Hidden questions are PROTECTED';
 $string['rule_unique_protected'] = 'Unique questions (without duplicates) are PROTECTED';
-$string['rule_duplicate_deletable'] = 'Only duplicate AND unused questions can be deleted';
+$string['rule_duplicate_deletable'] = 'Only duplicate AND unused AND visible questions can be deleted';
 $string['backtoquestions'] = 'Back to questions list';
 $string['confirm_delete_question'] = 'Confirm Deletion';
 $string['question_to_delete'] = 'Question to Delete';
@@ -231,6 +232,8 @@ $string['confirm_delete_message'] = 'Are you absolutely sure you want to delete 
 $string['confirm_delete'] = 'Yes, delete permanently';
 $string['question_deleted_success'] = 'Question successfully deleted';
 $string['question_protected'] = 'Protected question';
+$string['question_hidden_protected'] = 'Hidden question protected';
+$string['question_hidden_info'] = 'This question is hidden in the question bank. Hidden questions are protected against deletion to prevent accidental loss of educational content.';
 
 // 🆕 v1.9.40 : Scheduled task
 $string['task_scan_broken_links'] = 'Automated broken links scan';

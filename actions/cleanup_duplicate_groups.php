@@ -38,6 +38,86 @@ if (!is_siteadmin()) {
 
 require_sesskey();
 
+/**
+ * Calcule le score d'accessibilité d'une question basé sur son contexte
+ * Score plus élevé = contexte plus large/accessible
+ * 
+ * Priorité :
+ * 1. CONTEXT_SYSTEM (50) = Niveau site, accessible partout
+ * 2. CONTEXT_COURSECAT (40) = Catégorie de cours
+ * 3. CONTEXT_COURSE (30) = Cours spécifique
+ * 4. CONTEXT_MODULE (20) = Module d'activité
+ * 5. Autres/Invalide (10) = Cas d'erreur
+ * 
+ * @param object $question Question Moodle
+ * @return object {score: int, contextlevel: int, contextid: int, timecreated: int, info: string}
+ */
+function local_question_diagnostic_get_accessibility_score($question) {
+    global $DB;
+    
+    $result = (object)[
+        'score' => 0,
+        'contextlevel' => null,
+        'contextid' => null,
+        'timecreated' => $question->timecreated,
+        'info' => 'Contexte inconnu'
+    ];
+    
+    try {
+        // Récupérer la catégorie et le contexte de la question
+        // Via question_bank_entries (Moodle 4.x)
+        $sql = "SELECT qc.contextid, ctx.contextlevel, qc.name as category_name
+                FROM {question_categories} qc
+                INNER JOIN {question_bank_entries} qbe ON qbe.questioncategoryid = qc.id
+                INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+                INNER JOIN {context} ctx ON ctx.id = qc.contextid
+                WHERE qv.questionid = :questionid
+                LIMIT 1";
+        
+        $record = $DB->get_record_sql($sql, ['questionid' => $question->id]);
+        
+        if (!$record) {
+            $result->info = 'Catégorie/contexte introuvable';
+            $result->score = 5; // Score très bas
+            return $result;
+        }
+        
+        $result->contextid = $record->contextid;
+        $result->contextlevel = $record->contextlevel;
+        
+        // Attribuer le score selon le niveau de contexte
+        switch ($record->contextlevel) {
+            case CONTEXT_SYSTEM:
+                $result->score = 50;
+                $result->info = '🌐 Site entier (le plus accessible)';
+                break;
+            case CONTEXT_COURSECAT:
+                $result->score = 40;
+                $result->info = '📂 Catégorie de cours';
+                break;
+            case CONTEXT_COURSE:
+                $result->score = 30;
+                $result->info = '📚 Cours spécifique';
+                break;
+            case CONTEXT_MODULE:
+                $result->score = 20;
+                $result->info = '📝 Module d\'activité';
+                break;
+            default:
+                $result->score = 10;
+                $result->info = 'Contexte non standard (niveau ' . $record->contextlevel . ')';
+                break;
+        }
+        
+    } catch (Exception $e) {
+        debugging('Erreur calcul accessibilité pour question ' . $question->id . ': ' . $e->getMessage(), DEBUG_DEVELOPER);
+        $result->score = 1;
+        $result->info = 'Erreur: ' . $e->getMessage();
+    }
+    
+    return $result;
+}
+
 // Définir le contexte de la page
 $context = context_system::instance();
 $PAGE->set_context($context);
@@ -187,7 +267,8 @@ if (!$confirm) {
     echo html_writer::start_tag('ul');
     echo html_writer::tag('li', '✅ Les versions utilisées dans des quiz seront CONSERVÉES');
     echo html_writer::tag('li', '✅ Seules les versions inutilisées seront supprimées');
-    echo html_writer::tag('li', '✅ Au moins 1 version sera toujours conservée (même si inutilisée)');
+    echo html_writer::tag('li', '✅ Au moins 1 version sera toujours conservée (même si toutes inutilisées)');
+    echo html_writer::tag('li', '🌐 <strong>Logique de conservation intelligente :</strong> Si aucune version n\'est utilisée, la version conservée sera celle du contexte le plus large (site > catégorie > cours > module), puis la plus ancienne en cas d\'égalité');
     echo html_writer::end_tag('ul');
     echo html_writer::end_tag('div');
     
@@ -267,11 +348,42 @@ foreach ($groups_to_clean as $group) {
         }
     }
     
-    // Sécurité : garder au moins 1 version
+    // 🆕 v1.9.46 : Sécurité intelligente - garder la version la plus accessible
     if (empty($to_keep) && !empty($to_delete)) {
-        // Garder la plus ancienne
-        $oldest = array_shift($to_delete);
-        $to_keep[] = $oldest;
+        // Calculer le score d'accessibilité pour chaque question inutilisée
+        $questions_with_scores = [];
+        foreach ($to_delete as $q) {
+            $score_info = local_question_diagnostic_get_accessibility_score($q);
+            $questions_with_scores[] = (object)[
+                'question' => $q,
+                'score' => $score_info->score,
+                'timecreated' => $q->timecreated,
+                'info' => $score_info->info
+            ];
+        }
+        
+        // Trier par score décroissant (contexte le plus large d'abord)
+        // puis par ancienneté croissante (plus ancien = prioritaire)
+        usort($questions_with_scores, function($a, $b) {
+            // Priorité 1 : Score d'accessibilité (plus élevé = mieux)
+            if ($a->score != $b->score) {
+                return $b->score - $a->score; // Décroissant
+            }
+            // Priorité 2 : Ancienneté (plus petit timestamp = plus vieux = mieux)
+            return $a->timecreated - $b->timecreated; // Croissant
+        });
+        
+        // Garder la meilleure (première après tri)
+        $best = array_shift($questions_with_scores);
+        $to_keep[] = $best->question;
+        
+        // Mettre à jour $to_delete pour exclure la meilleure
+        $to_delete = array_map(function($item) { return $item->question; }, $questions_with_scores);
+        
+        // 📝 Log pour traçabilité
+        debugging('Groupe "' . $group['name'] . '" : Version conservée ID ' . $best->question->id . 
+                  ' (Score: ' . $best->score . ', ' . $best->info . ', créée le ' . 
+                  userdate($best->timecreated, '%d/%m/%Y') . ')', DEBUG_DEVELOPER);
     }
     
     // Supprimer les questions inutilisées

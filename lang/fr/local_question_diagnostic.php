@@ -220,8 +220,9 @@ $string['reason'] = 'Raison';
 $string['protection_rules'] = 'Règles de Protection';
 $string['protection_rules_desc'] = 'Pour garantir la sécurité de vos données pédagogiques, ce plugin applique des règles strictes :';
 $string['rule_used_protected'] = 'Les questions utilisées dans des quiz ou ayant des tentatives sont PROTÉGÉES';
+$string['rule_hidden_protected'] = 'Les questions cachées sont PROTÉGÉES';
 $string['rule_unique_protected'] = 'Les questions uniques (sans doublon) sont PROTÉGÉES';
-$string['rule_duplicate_deletable'] = 'Seules les questions en doublon ET inutilisées peuvent être supprimées';
+$string['rule_duplicate_deletable'] = 'Seules les questions en doublon ET inutilisées ET visibles peuvent être supprimées';
 $string['backtoquestions'] = 'Retour à la liste des questions';
 $string['confirm_delete_question'] = 'Confirmer la suppression';
 $string['question_to_delete'] = 'Question à supprimer';
@@ -231,6 +232,8 @@ $string['confirm_delete_message'] = 'Êtes-vous absolument certain de vouloir su
 $string['confirm_delete'] = 'Oui, supprimer définitivement';
 $string['question_deleted_success'] = 'Question supprimée avec succès';
 $string['question_protected'] = 'Question protégée';
+$string['question_hidden_protected'] = 'Question cachée protégée';
+$string['question_hidden_info'] = 'Cette question est masquée dans la banque de questions. Les questions cachées sont protégées contre la suppression pour éviter toute perte accidentelle de contenu pédagogique.';
 
 // 🆕 v1.9.40 : Tâche planifiée
 $string['task_scan_broken_links'] = 'Scan automatique des liens cassés';

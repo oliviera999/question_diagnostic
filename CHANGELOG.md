@@ -5,6 +5,194 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.9.53] - 2025-10-13
+
+### 🛡️ Nouvelle Règle de Protection : Questions Cachées
+
+#### 🎯 Objectif
+Protéger les questions cachées contre toute suppression accidentelle, même si elles sont en doublon et inutilisées.
+
+#### 🔄 Changements Comportementaux
+
+**AVANT (v1.9.52 et antérieures)** :
+- Une question cachée pouvait être supprimée si elle était en doublon ET inutilisée
+- Le statut caché n'était pas considéré comme un critère de protection
+
+**MAINTENANT (v1.9.53+)** :
+- ✅ **Nouvelle règle** : Les questions cachées sont **TOUJOURS PROTÉGÉES**
+- ❌ **Impossible** de supprimer une question cachée, même si :
+  - Elle est en doublon avec d'autres versions visibles
+  - Elle n'est utilisée dans aucun quiz
+  - Elle n'a aucune tentative enregistrée
+
+#### 🚀 Avantages
+
+1. **Sécurité renforcée** : Évite la perte accidentelle de contenu pédagogique intentionnellement masqué
+2. **Respect de l'intention** : Une question cachée l'est pour une raison (révision, archivage, usage futur)
+3. **Conformité Moodle 4.5** : Utilise correctement `question_versions.status` au lieu de l'ancienne colonne `question.hidden`
+4. **Performance optimale** : Vérification en batch (pas de N+1 queries)
+
+#### 📋 Règles de Protection (Ordre de Vérification)
+
+1. ✅ **Question utilisée** → PROTÉGÉE
+2. ✅ **Question cachée** → PROTÉGÉE (🆕 v1.9.53)
+3. ✅ **Question unique (pas de doublon)** → PROTÉGÉE
+4. ⚠️ **Question en doublon ET inutilisée ET visible** → SUPPRIMABLE
+
+#### 🔧 Modifications Techniques
+
+**Fichier modifié** : `classes/question_analyzer.php`
+
+**Méthode** : `can_delete_questions_batch()` (lignes 1352-1402)
+
+1. **Nouvelle étape 2.5** : Vérification du statut caché en batch
+   ```php
+   // Récupération des statuts cachés pour TOUTES les questions en une requête
+   $status_sql = "SELECT qv.questionid, qv.status
+                  FROM {question_versions} qv
+                  WHERE qv.questionid IN (...)";
+   ```
+
+2. **Nouvelle vérification** : Ajoutée entre l'usage et les doublons
+   ```php
+   if (isset($hidden_map[$qid]) && $hidden_map[$qid] === true) {
+       $results[$qid]->reason = 'Question cachée (protégée)';
+       $results[$qid]->details['is_hidden'] = true;
+       continue; // Suppression interdite
+   }
+   ```
+
+3. **Compatible Moodle 4.5** : Utilise `question_versions.status = 'hidden'`
+   - ⚠️ L'ancienne colonne `question.hidden` n'existe plus dans Moodle 4.5
+
+#### 🌐 Internationalisation
+
+**Nouvelles chaînes de langue (FR + EN)** :
+- `rule_hidden_protected` : "Les questions cachées sont PROTÉGÉES"
+- `question_hidden_protected` : "Question cachée protégée"
+- `question_hidden_info` : Explication détaillée de la protection
+- `rule_duplicate_deletable` : Mise à jour pour inclure "ET visibles"
+
+#### 🔍 Interface Utilisateur
+
+**Message d'erreur enrichi** :
+```
+🛑 Suppression Interdite
+
+❌ Cette question ne peut pas être supprimée
+Raison : Question cachée (protégée)
+
+💡 Information
+Cette question est masquée dans la banque de questions. 
+Les questions cachées sont protégées contre la suppression pour 
+éviter toute perte accidentelle de contenu pédagogique.
+
+🛡️ Règles de Protection
+1. ✅ Les questions utilisées dans des quiz sont PROTÉGÉES
+2. ✅ Les questions cachées sont PROTÉGÉES (NOUVEAU)
+3. ✅ Les questions uniques (sans doublon) sont PROTÉGÉES
+4. ⚠️ Seules les questions en doublon ET inutilisées ET visibles peuvent être supprimées
+```
+
+#### 🧪 Tests Recommandés
+
+1. **Test 1** : Question cachée en doublon et inutilisée
+   - ✅ La suppression doit être refusée avec le message "Question cachée (protégée)"
+
+2. **Test 2** : Question visible en doublon avec une version cachée
+   - ✅ La version visible peut être supprimée
+   - ✅ La version cachée reste protégée
+
+3. **Test 3** : Suppression en masse incluant des questions cachées
+   - ✅ Les questions cachées sont automatiquement exclues
+   - ✅ Seules les versions visibles éligibles sont supprimées
+
+#### 🔒 Sécurité & Compatibilité
+
+- ✅ Compatible Moodle 4.5+ (utilise la nouvelle architecture)
+- ✅ Gestion d'erreurs robuste (fallback sur "visible" en cas d'erreur SQL)
+- ✅ Performance optimale (requête batch unique pour tous les statuts)
+- ✅ Rétrocompatible (pas de rupture avec les versions antérieures)
+
+#### 📚 Documentation
+
+- Standards Moodle respectés (API $DB, question_versions)
+- Commentaires détaillés dans le code
+- Logs de debug disponibles (`debugging()` pour développeurs)
+
+---
+
+## [1.9.52] - 2025-10-13
+
+### ✨ Nouvelle Fonctionnalité : Sélection Intelligente des Doublons
+
+#### 🎯 Objectif
+Améliorer la logique de conservation des questions en doublon pour privilégier les versions les plus accessibles et réutilisables dans l'architecture Moodle.
+
+#### 🔄 Changements Comportementaux
+
+**AVANT (v1.9.51 et antérieures)** :
+- Quand aucune version d'un groupe de doublons n'est utilisée, le plugin conservait **la plus ancienne** (simple critère de timestamp)
+- ❌ **Problème** : Une question créée dans un module d'activité pouvait être conservée au lieu d'une version identique au niveau site
+
+**MAINTENANT (v1.9.52+)** :
+- **Priorité 1** : Contexte le plus large (Score d'accessibilité)
+  - 🌐 CONTEXT_SYSTEM (site entier) = Score 50 → **Le plus prioritaire**
+  - 📂 CONTEXT_COURSECAT (catégorie) = Score 40
+  - 📚 CONTEXT_COURSE (cours) = Score 30
+  - 📝 CONTEXT_MODULE (module) = Score 20
+- **Priorité 2** : Si même contexte → **la plus ancienne** est conservée
+
+#### 🚀 Avantages
+
+1. **Réutilisabilité maximale** : Les questions du contexte site sont accessibles à tous
+2. **Patrimoine commun privilégié** : Favorise la mutualisation des ressources pédagogiques
+3. **Cohérence architecturale** : Respecte la hiérarchie Moodle
+4. **Traçabilité** : Logs détaillés pour audit (`DEBUG_DEVELOPER`)
+
+#### 📝 Exemple Concret
+
+**Groupe de 3 doublons (aucun utilisé)** :
+- Question A : CONTEXT_MODULE, créée 01/01/2024
+- Question B : CONTEXT_COURSE, créée 15/03/2024  
+- Question C : CONTEXT_SYSTEM, créée 10/05/2024
+
+**Résultat** : Question C conservée (score 50 > 30 > 20), même si plus récente
+
+#### 🔧 Modifications Techniques
+
+**Fichier modifié** : `actions/cleanup_duplicate_groups.php`
+
+1. **Nouvelle fonction** : `local_question_diagnostic_get_accessibility_score($question)`
+   - Calcule le score d'accessibilité basé sur le contexte
+   - Récupère les métadonnées (contextlevel, contextid, timecreated)
+   - Gestion robuste des erreurs (fallback sur score minimal)
+
+2. **Algorithme de sélection amélioré** (lignes 350-386)
+   - Calcul des scores pour toutes les versions inutilisées
+   - Tri multi-critères : Score décroissant → Ancienneté croissante
+   - Sélection de la meilleure version
+   - Logs détaillés pour traçabilité
+
+3. **Interface utilisateur** : Message de confirmation enrichi
+   - Nouvelle règle affichée : "Logique de conservation intelligente"
+   - Explication du critère de contexte
+
+#### 📚 Documentation
+
+- Nouveau fichier : `docs/bugfixes/FEATURE_INTELLIGENT_DUPLICATE_SELECTION_v1.9.46.md`
+- Documentation complète avec exemples et schémas
+- Tests recommandés
+
+#### 🔒 Sécurité & Compatibilité
+
+- ✅ Au moins 1 version toujours conservée (règle inchangée)
+- ✅ Versions utilisées jamais touchées
+- ✅ Compatible Moodle 4.3-4.5
+- ✅ Gestion d'erreurs robuste (aucune interruption du processus)
+
+---
+
 ## [1.9.51] - 2025-10-13
 
 ### 🔧 Outils de Diagnostic et Résolution : Erreur "Call to undefined function"
