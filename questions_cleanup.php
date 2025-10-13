@@ -39,13 +39,9 @@ $PAGE->requires->js('/local/question_diagnostic/scripts/questions.js', true);
 // Section d'en-tête Moodle standard.
 echo $OUTPUT->header();
 
-// Lien retour vers le menu principal et bouton de purge de cache
+// 🆕 v1.9.44 : Lien retour hiérarchique et bouton de purge de cache
 echo html_writer::start_tag('div', ['style' => 'margin-bottom: 20px; display: flex; gap: 10px; align-items: center;']);
-echo html_writer::link(
-    new moodle_url('/local/question_diagnostic/index.php'),
-    '← ' . get_string('backtomenu', 'local_question_diagnostic'),
-    ['class' => 'btn btn-secondary']
-);
+echo local_question_diagnostic_render_back_link('questions_cleanup.php');
 
 // Traiter la purge de cache si demandée
 $purgecache = optional_param('purgecache', 0, PARAM_INT);
@@ -1017,104 +1013,36 @@ echo html_writer::tag('div', '', ['id' => 'filter-stats-questions', 'style' => '
 echo html_writer::end_tag('div'); // fin qd-filters
 
 // ======================================================================
-// TABLEAU DES QUESTIONS
+// 🆕 v1.9.45 : TABLEAU DE SYNTHÈSE DES GROUPES DE DOUBLONS
 // ======================================================================
 
-echo html_writer::tag('h3', '📝 Liste détaillée des questions', ['style' => 'margin-top: 30px;']);
+echo html_writer::tag('h3', '📝 ' . get_string('duplicate_groups_table_title', 'local_question_diagnostic'), ['style' => 'margin-top: 30px;']);
 
 echo html_writer::start_tag('div', ['id' => 'loading-questions', 'style' => 'text-align: center; padding: 40px;']);
-echo html_writer::tag('p', '⏳ Chargement des questions en cours...', ['style' => 'font-size: 16px;']);
+echo html_writer::tag('p', '⏳ Chargement des groupes de doublons en cours...', ['style' => 'font-size: 16px;']);
 echo html_writer::tag('p', 'Cela peut prendre quelques instants pour les grandes bases de données.', ['style' => 'font-size: 14px; color: #666;']);
 echo html_writer::end_tag('div');
 
-// Charger les questions avec gestion d'erreurs optimisée
+// Charger les groupes de doublons avec gestion d'erreurs optimisée
 try {
-    // 🚨 v1.9.30 : PAGINATION SERVEUR pour gros sites
-    $total_questions = $globalstats->total_questions;
-    
-    // Paramètres de pagination
-    $page = optional_param('page', 1, PARAM_INT);
-    $per_page = optional_param('per_page', 100, PARAM_INT);
+    // 🆕 v1.9.45 : PAGINATION pour groupes de doublons
+    // Par défaut : 5 groupes affichés, bouton "Charger plus" pour +5
+    $groups_per_page = optional_param('show', 5, PARAM_INT);
     
     // Validation et limites de sécurité
-    $page = max(1, $page);
-    $per_page = max(10, min($per_page, 500)); // Entre 10 et 500 par page
+    $groups_per_page = max(5, min($groups_per_page, 100)); // Entre 5 et 100 groupes
     
-    // Calcul de l'offset pour la requête SQL
-    $offset = ($page - 1) * $per_page;
+    // Calculer l'offset (0 pour la première page)
+    $offset = 0;
     
-    // 🚫 DÉSACTIVER la détection de doublons par défaut (trop lourd)
-    $include_duplicates = false;
+    // Déterminer le mode : used_only pour mode "Doublons utilisés"
+    $used_only = $load_used_duplicates ? true : false;
     
-    // 🆕 v1.9.30 : Pagination serveur - Info et contrôles par page
-    echo html_writer::start_tag('div', ['class' => 'alert alert-info', 'style' => 'margin-bottom: 20px; border-left: 4px solid #0f6cbf;']);
-    echo html_writer::tag('strong', '📊 Votre base de données : ');
-    echo "<strong>" . number_format($total_questions, 0, ',', ' ') . " questions au total</strong>. ";
-    echo '<br><br>';
+    // Compter le nombre total de groupes de doublons
+    $total_groups = question_analyzer::count_duplicate_groups($used_only);
     
-    $total_pages = ceil($total_questions / $per_page);
-    echo '🎯 <strong>Navigation</strong> : Page <strong>' . $page . '</strong> sur <strong>' . $total_pages . '</strong> (' . $per_page . ' questions par page).';
-    echo '<br><br>';
-    echo '💡 <strong>Options</strong> :';
-    echo '<ul style="margin-top: 10px;">';
-    echo '<li>Utilisez les <strong>filtres</strong> pour affiner les résultats</li>';
-    echo '<li>Changez le nombre de questions par page : ';
-    
-    // Construire les URLs pour changer le nombre par page
-    $base_params = $load_used_duplicates ? ['loadusedduplicates' => 1] : ['loadstats' => 1];
-    $url_50 = new moodle_url('/local/question_diagnostic/questions_cleanup.php', array_merge($base_params, ['per_page' => 50, 'page' => 1]));
-    $url_100 = new moodle_url('/local/question_diagnostic/questions_cleanup.php', array_merge($base_params, ['per_page' => 100, 'page' => 1]));
-    $url_200 = new moodle_url('/local/question_diagnostic/questions_cleanup.php', array_merge($base_params, ['per_page' => 200, 'page' => 1]));
-    $url_500 = new moodle_url('/local/question_diagnostic/questions_cleanup.php', array_merge($base_params, ['per_page' => 500, 'page' => 1]));
-    
-    echo html_writer::link($url_50, '50', ['class' => $per_page == 50 ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-secondary']);
-    echo ' ';
-    echo html_writer::link($url_100, '100', ['class' => $per_page == 100 ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-secondary']);
-    echo ' ';
-    echo html_writer::link($url_200, '200', ['class' => $per_page == 200 ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-secondary']);
-    echo ' ';
-    echo html_writer::link($url_500, '500', ['class' => $per_page == 500 ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-secondary']);
-    
-    echo '</li>';
-    echo '</ul>';
-    echo '<p style="margin-top: 15px;"><em>Les statistiques globales ci-dessus concernent bien <strong>TOUTES les ' . number_format($total_questions, 0, ',', ' ') . ' questions</strong>.</em></p>';
-    echo html_writer::end_tag('div');
-    
-    // 🆕 v1.9.30 : Pagination serveur - Afficher les contrôles de pagination AVANT le tableau
-    $page_url = new moodle_url('/local/question_diagnostic/questions_cleanup.php');
-    $extra_params = $load_used_duplicates ? ['loadusedduplicates' => 1, 'per_page' => $per_page] : ['loadstats' => 1, 'per_page' => $per_page];
-    echo local_question_diagnostic_render_pagination($total_questions, $page, $per_page, $page_url, $extra_params);
-    
-    // 🆕 v1.8.0 : Mode de chargement ciblé pour doublons utilisés
-    if ($load_used_duplicates) {
-        // Charger uniquement les doublons avec au moins 1 version utilisée (avec pagination)
-        $questions = question_analyzer::get_used_duplicates_questions($per_page, $offset);
-        
-        // Enrichir avec les stats
-        $questions_with_stats = [];
-        foreach ($questions as $q) {
-            $stats = question_analyzer::get_question_stats($q);
-            $questions_with_stats[] = (object)[
-                'question' => $q,
-                'stats' => $stats
-            ];
-        }
-        
-        // Message d'information spécifique
-        echo html_writer::start_tag('div', ['class' => 'alert alert-success', 'style' => 'margin: 20px 0; border-left: 4px solid #28a745;']);
-        echo html_writer::tag('h3', '📋 Mode Doublons Utilisés Activé', ['style' => 'margin-top: 0; color: #28a745;']);
-        echo html_writer::tag('p', '<strong>' . count($questions_with_stats) . ' questions</strong> en doublon avec au moins 1 version utilisée sur cette page.');
-        echo html_writer::tag('p', '✅ Ce mode affiche uniquement les groupes de doublons qui sont actuellement utilisés dans des quiz ou ont des tentatives.');
-        echo html_writer::tag('p', '<strong>💡 Conseil</strong> : Utilisez les filtres "Usage = Inutilisées" pour identifier rapidement les versions à supprimer.');
-        echo html_writer::end_tag('div');
-        
-    } else {
-        // Mode normal : charger les questions avec pagination
-        $questions_with_stats = question_analyzer::get_all_questions_with_stats($include_duplicates, $per_page, $offset);
-    }
-    
-    // 🔍 v1.9.30 DEBUG : Afficher le nombre de questions chargées
-    debugging('Questions chargées : ' . count($questions_with_stats) . ' (page ' . $page . ', ' . $per_page . ' par page, offset ' . $offset . ') sur total BDD : ' . $total_questions, DEBUG_DEVELOPER);
+    // Charger les groupes de doublons (avec pagination)
+    $duplicate_groups = question_analyzer::get_duplicate_groups($groups_per_page, $offset, $used_only);
     
 } catch (Exception $e) {
     echo html_writer::start_tag('script');
@@ -1128,7 +1056,7 @@ if (loadingQuestions) {
     
     echo html_writer::start_tag('div', ['class' => 'alert alert-danger']);
     echo html_writer::tag('strong', '⚠️ Erreur : ');
-    echo 'Impossible de charger les questions. Cela peut être dû à une base de données trop volumineuse ou à un timeout. ';
+    echo 'Impossible de charger les groupes de doublons. Cela peut être dû à une base de données trop volumineuse ou à un timeout. ';
     echo html_writer::tag('p', 'Détails : ' . $e->getMessage(), ['style' => 'margin-top: 10px; font-size: 12px;']);
     echo html_writer::tag('p', 'Suggestions :', ['style' => 'margin-top: 10px; font-weight: bold;']);
     echo html_writer::start_tag('ul');
@@ -1151,264 +1079,86 @@ if (loadingQuestions) {
 ";
 echo html_writer::end_tag('script');
 
-echo html_writer::start_tag('div', ['class' => 'qd-table-wrapper']);
-echo html_writer::start_tag('table', ['class' => 'qd-table', 'id' => 'questions-table']);
+// Message si aucun groupe de doublons trouvé
+if (empty($duplicate_groups)) {
+    echo html_writer::start_tag('div', ['class' => 'alert alert-success', 'style' => 'margin: 30px 0; padding: 40px; text-align: center;']);
+    echo html_writer::tag('h3', '✅ ' . get_string('no_duplicate_groups_found', 'local_question_diagnostic'), ['style' => 'margin-top: 0; color: #28a745;']);
+    echo html_writer::tag('p', get_string('no_duplicate_groups_desc', 'local_question_diagnostic'), ['style' => 'font-size: 16px;']);
+    echo html_writer::end_tag('div');
+    echo $OUTPUT->footer();
+    exit;
+}
 
-// En-tête du tableau
+// 🆕 v1.9.45 : Afficher le compteur de groupes
+$showing_count_obj = new stdClass();
+$showing_count_obj->shown = count($duplicate_groups);
+$showing_count_obj->total = $total_groups;
+echo html_writer::start_tag('div', ['style' => 'margin-bottom: 15px; font-size: 14px; color: #666;']);
+echo '📊 ' . get_string('showing_groups', 'local_question_diagnostic', $showing_count_obj);
+echo html_writer::end_tag('div');
+
+echo html_writer::start_tag('div', ['class' => 'qd-table-wrapper']);
+echo html_writer::start_tag('table', ['class' => 'qd-table', 'id' => 'duplicate-groups-table']);
+
+// 🆕 v1.9.45 : En-tête du tableau de synthèse
 echo html_writer::start_tag('thead');
 echo html_writer::start_tag('tr');
-echo html_writer::tag('th', 'ID', ['class' => 'sortable col-id', 'data-column' => 'id']);
-echo html_writer::tag('th', 'Nom', ['class' => 'sortable col-name', 'data-column' => 'name']);
-echo html_writer::tag('th', 'Type', ['class' => 'sortable col-type', 'data-column' => 'type']);
-echo html_writer::tag('th', 'Catégorie', ['class' => 'sortable col-category', 'data-column' => 'category']);
-echo html_writer::tag('th', 'Cours', ['class' => 'sortable col-course', 'data-column' => 'course']);
-echo html_writer::tag('th', 'Module', ['class' => 'sortable col-module', 'data-column' => 'module', 'style' => 'display: none;']);
-echo html_writer::tag('th', 'Contexte', ['class' => 'sortable col-context', 'data-column' => 'context', 'style' => 'display: none;']);
-echo html_writer::tag('th', 'Créateur', ['class' => 'sortable col-creator', 'data-column' => 'creator', 'style' => 'display: none;']);
-echo html_writer::tag('th', 'Créée le', ['class' => 'sortable col-created', 'data-column' => 'created', 'style' => 'display: none;']);
-echo html_writer::tag('th', 'Modifiée le', ['class' => 'sortable col-modified', 'data-column' => 'modified', 'style' => 'display: none;']);
-echo html_writer::tag('th', 'Visible', ['class' => 'sortable col-visible', 'data-column' => 'visible', 'style' => 'display: none;']);
-echo html_writer::tag('th', 'Quiz', ['class' => 'sortable col-quizzes', 'data-column' => 'quizzes']);
-echo html_writer::tag('th', 'Tentatives', ['class' => 'sortable col-attempts', 'data-column' => 'attempts', 'style' => 'display: none;']);
-echo html_writer::tag('th', 'Doublons', ['class' => 'sortable col-duplicates', 'data-column' => 'duplicates']);
-echo html_writer::tag('th', 'Extrait', ['class' => 'col-excerpt', 'style' => 'display: none;']);
-echo html_writer::tag('th', 'Actions', ['class' => 'col-actions']);
+echo html_writer::tag('th', get_string('duplicate_group_name', 'local_question_diagnostic'));
+echo html_writer::tag('th', get_string('type', 'local_question_diagnostic'));
+echo html_writer::tag('th', get_string('duplicate_group_count', 'local_question_diagnostic'));
+echo html_writer::tag('th', get_string('duplicate_group_used', 'local_question_diagnostic'));
+echo html_writer::tag('th', get_string('duplicate_group_unused', 'local_question_diagnostic'));
+echo html_writer::tag('th', get_string('duplicate_group_details', 'local_question_diagnostic'));
 echo html_writer::end_tag('tr');
 echo html_writer::end_tag('thead');
 
-// Corps du tableau
+// 🆕 v1.9.45 : Corps du tableau de synthèse des groupes
 echo html_writer::start_tag('tbody');
 
-// 🆕 v1.9.12 : VÉRIFIER SI DES QUESTIONS SONT DISPONIBLES
-if (empty($questions_with_stats)) {
-    // Afficher un message si aucune question n'est trouvée
-    $colspan = 15; // Nombre de colonnes dans le tableau
+// Afficher chaque groupe de doublons
+foreach ($duplicate_groups as $group) {
     echo html_writer::start_tag('tr');
-    echo html_writer::start_tag('td', ['colspan' => $colspan, 'style' => 'text-align: center; padding: 40px;']);
-    echo html_writer::tag('h3', '⚠️ Aucune question trouvée', ['style' => 'color: #f0ad4e; margin-bottom: 15px;']);
-    echo html_writer::tag('p', 'Aucune question ne correspond aux critères actuels.');
-    echo html_writer::tag('p', '<strong>Causes possibles :</strong>');
-    echo html_writer::start_tag('ul', ['style' => 'text-align: left; display: inline-block; margin-top: 10px;']);
-    echo html_writer::tag('li', 'Votre base de données ne contient aucune question');
-    echo html_writer::tag('li', 'Les filtres actifs excluent toutes les questions');
-    echo html_writer::tag('li', 'Une erreur de chargement est survenue (vérifier les logs)');
-    echo html_writer::end_tag('ul');
-    echo html_writer::end_tag('td');
-    echo html_writer::end_tag('tr');
-} else {
-    // 🆕 v1.9.0 : VÉRIFICATION BATCH pour les boutons de suppression (performance optimisée)
-    // Extraire tous les IDs de questions
-    $question_ids = array_map(function($item) { return $item->question->id; }, $questions_with_stats);
-    // Vérifier en une seule fois si elles peuvent être supprimées
-    $deletability_map = question_analyzer::can_delete_questions_batch($question_ids);
-}
-
-foreach ($questions_with_stats as $item) {
-    $q = $item->question;
-    $s = $item->stats;
     
-    // Attributs data pour le filtrage et le tri
-    $row_attrs = [
-        'data-id' => $q->id,
-        'data-name' => format_string($q->name),
-        'data-type' => $q->qtype,
-        'data-category' => $s->category_name,
-        'data-course' => $s->course_name ?? '',
-        'data-module' => $s->module_name ?? '',
-        'data-context' => $s->context_name,
-        'data-creator' => $s->creator_name,
-        'data-created' => $s->created_date,
-        'data-modified' => $s->modified_date,
-        'data-visible' => $s->is_hidden ? '0' : '1',
-        'data-quizzes' => $s->used_in_quizzes,
-        'data-attempts' => $s->attempt_count,
-        'data-duplicates' => $s->duplicate_count,
-        'data-used' => $s->is_used ? '1' : '0',
-        'data-is-duplicate' => $s->is_duplicate ? '1' : '0',
-        'data-excerpt' => htmlspecialchars($s->questiontext_excerpt)
-    ];
-    
-    echo html_writer::start_tag('tr', $row_attrs);
-    
-    // ID
-    echo html_writer::tag('td', $q->id, ['class' => 'col-id']);
-    
-    // Nom
-    echo html_writer::start_tag('td', ['class' => 'col-name']);
-    echo html_writer::tag('strong', format_string($q->name));
+    // Colonne 1 : Intitulé de la question
+    echo html_writer::start_tag('td');
+    echo html_writer::tag('strong', format_string($group->question_name));
     echo html_writer::end_tag('td');
     
-    // Type
+    // Colonne 2 : Type
     echo html_writer::tag('td', html_writer::tag('span', 
-        ucfirst($q->qtype), 
+        ucfirst($group->qtype), 
         ['class' => 'badge badge-info']
-    ), ['class' => 'col-type']);
+    ));
     
-    // Catégorie
-    echo html_writer::start_tag('td', ['class' => 'col-category']);
-    $cat_url = new moodle_url('/question/edit.php', [
-        'courseid' => 0,
-        'cat' => $s->category_id . ',' . $s->context_id
+    // Colonne 3 : Nombre de doublons
+    echo html_writer::tag('td', $group->duplicate_count, [
+        'style' => 'text-align: center; font-weight: bold; color: #d9534f;'
     ]);
-    echo html_writer::link($cat_url, $s->category_name, ['target' => '_blank', 'title' => 'Voir la catégorie']);
-    echo html_writer::end_tag('td');
     
-    // Cours
-    echo html_writer::start_tag('td', ['class' => 'col-course']);
-    if (!empty($s->course_name)) {
-        echo html_writer::tag('span', '📚 ' . $s->course_name, [
-            'style' => 'font-size: 13px;',
-            'title' => $s->course_name
-        ]);
-    } else {
-        echo html_writer::tag('span', '-', ['style' => 'color: #999;']);
-    }
-    echo html_writer::end_tag('td');
+    // Colonne 4 : Versions utilisées
+    $used_style = $group->used_count > 0 ? 'color: #28a745; font-weight: bold;' : 'color: #999;';
+    echo html_writer::tag('td', $group->used_count, [
+        'style' => 'text-align: center; ' . $used_style
+    ]);
     
-    // Module
-    echo html_writer::start_tag('td', ['class' => 'col-module', 'style' => 'display: none;']);
-    if (!empty($s->module_name)) {
-        echo html_writer::tag('span', '📝 ' . $s->module_name, [
-            'style' => 'font-size: 13px;',
-            'title' => $s->module_name
-        ]);
-    } else {
-        echo html_writer::tag('span', '-', ['style' => 'color: #999;']);
-    }
-    echo html_writer::end_tag('td');
+    // Colonne 5 : Versions inutilisées
+    $unused_style = $group->unused_count > 0 ? 'color: #f0ad4e; font-weight: bold;' : 'color: #999;';
+    echo html_writer::tag('td', $group->unused_count, [
+        'style' => 'text-align: center; ' . $unused_style
+    ]);
     
-    // Contexte (avec info cours/module)
-    $context_display = $s->context_name;
-    $tooltip_parts = [];
-    if (!empty($s->course_name)) {
-        $tooltip_parts[] = '📚 Cours : ' . $s->course_name;
-    }
-    if (!empty($s->module_name)) {
-        $tooltip_parts[] = '📝 Module : ' . $s->module_name;
-    }
-    $tooltip = !empty($tooltip_parts) ? implode("\n", $tooltip_parts) : '';
-    
-    if ($tooltip) {
-        $context_html = html_writer::tag('span', $context_display, [
-            'title' => $tooltip,
-            'style' => 'cursor: help; border-bottom: 1px dotted #666;'
-        ]);
-    } else {
-        $context_html = $context_display;
-    }
-    echo html_writer::tag('td', $context_html, ['class' => 'col-context', 'style' => 'display: none;']);
-    
-    // Créateur
-    echo html_writer::tag('td', $s->creator_name, ['class' => 'col-creator', 'style' => 'display: none;']);
-    
-    // Date création
-    echo html_writer::tag('td', $s->created_formatted, ['class' => 'col-created', 'style' => 'display: none;']);
-    
-    // Date modification
-    echo html_writer::tag('td', $s->modified_formatted, ['class' => 'col-modified', 'style' => 'display: none;']);
-    
-    // Visible
-    echo html_writer::tag('td', 
-        $s->is_hidden ? '❌ Non' : '✅ Oui',
-        ['class' => 'col-visible', 'style' => 'display: none;']
-    );
-    
-    // Quiz
-    echo html_writer::start_tag('td', ['class' => 'col-quizzes']);
-    if ($s->used_in_quizzes > 0) {
-        echo html_writer::tag('span', $s->used_in_quizzes, [
-            'class' => 'qd-badge qd-badge-ok',
-            'title' => 'Utilisée dans ' . $s->used_in_quizzes . ' quiz'
-        ]);
-        
-        // Afficher la liste des quiz au survol
-        if (!empty($s->quiz_list)) {
-            $quiz_titles = array_map(function($quiz) {
-                return format_string($quiz->name);
-            }, $s->quiz_list);
-            echo html_writer::tag('span', ' ℹ️', [
-                'title' => implode(', ', $quiz_titles),
-                'style' => 'cursor: help;'
-            ]);
-        }
-    } else {
-        echo html_writer::tag('span', '0', ['class' => 'qd-badge qd-badge-empty']);
-    }
-    echo html_writer::end_tag('td');
-    
-    // Tentatives
-    echo html_writer::start_tag('td', ['class' => 'col-attempts', 'style' => 'display: none;']);
-    if ($s->attempt_count > 0) {
-        echo html_writer::tag('span', $s->attempt_count, ['class' => 'qd-badge qd-badge-ok']);
-    } else {
-        echo html_writer::tag('span', '0', ['class' => 'qd-badge qd-badge-empty']);
-    }
-    echo html_writer::end_tag('td');
-    
-    // Doublons
-    echo html_writer::start_tag('td', ['class' => 'col-duplicates']);
-    if ($s->duplicate_count > 0) {
-        echo html_writer::tag('button', $s->duplicate_count, [
-            'class' => 'qd-badge qd-badge-danger duplicate-btn',
-            'data-questionid' => $q->id,
-            'data-duplicateids' => json_encode($s->duplicate_ids),
-            'onclick' => 'showDuplicatesModal(' . $q->id . ', ' . json_encode(format_string($q->name)) . ', ' . json_encode($s->duplicate_ids) . ')',
-            'style' => 'cursor: pointer; border: none;',
-            'title' => 'Cliquer pour voir les doublons'
-        ]);
-    } else {
-        echo html_writer::tag('span', '0', ['class' => 'qd-badge qd-badge-ok']);
-    }
-    echo html_writer::end_tag('td');
-    
-    // Extrait
-    echo html_writer::tag('td', htmlspecialchars($s->questiontext_excerpt), ['class' => 'col-excerpt', 'style' => 'display: none; font-size: 12px; color: #666;']);
-    
-    // Actions
-    echo html_writer::start_tag('td', ['class' => 'col-actions']);
-    echo html_writer::start_tag('div', ['class' => 'qd-actions']);
-    
-    // Bouton voir
-    $questionbank_url = question_analyzer::get_question_bank_url($q);
-    if ($questionbank_url) {
-        echo html_writer::link(
-            $questionbank_url, 
-            '👁️ Voir',
-            [
-                'class' => 'qd-btn qd-btn-view',
-                'title' => 'Voir dans la banque de questions',
-                'target' => '_blank'
-            ]
-        );
-      }
-     
-     // 🆕 v1.9.0 : Bouton supprimer (OPTIMISÉ avec vérification batch)
-     $can_delete_check = isset($deletability_map[$q->id]) ? $deletability_map[$q->id] : null;
-     if ($can_delete_check && $can_delete_check->can_delete) {
-         $delete_url = new moodle_url('/local/question_diagnostic/actions/delete_question.php', [
-             'id' => $q->id,
-             'sesskey' => sesskey()
-         ]);
-         echo html_writer::link(
-             $delete_url,
-             '🗑️',
-             [
-                 'class' => 'qd-btn qd-btn-delete',
-                 'title' => 'Supprimer ce doublon inutilisé',
-                 'style' => 'background: #d9534f; color: white; padding: 5px 10px; border-radius: 3px; margin-left: 5px; text-decoration: none;'
-             ]
-         );
-     } else {
-         // Bouton désactivé avec tooltip expliquant pourquoi
-         $reason = $can_delete_check ? $can_delete_check->reason : 'Vérification impossible';
-         echo html_writer::tag('span', '🔒', [
-             'class' => 'qd-btn qd-btn-disabled',
-             'title' => 'Protection : ' . $reason,
-             'style' => 'background: #e0e0e0; color: #999; padding: 5px 10px; border-radius: 3px; cursor: not-allowed; margin-left: 5px; display: inline-block;'
-         ]);
-     }
-     
-     echo html_writer::end_tag('div');
+    // Colonne 6 : Détails (bouton œil)
+    echo html_writer::start_tag('td', ['style' => 'text-align: center;']);
+    $detail_url = new moodle_url('/local/question_diagnostic/question_group_detail.php', [
+        'id' => $group->representative_id,
+        'name' => $group->question_name,
+        'qtype' => $group->qtype
+    ]);
+    echo html_writer::link($detail_url, '👁️', [
+        'class' => 'btn btn-primary btn-sm',
+        'title' => get_string('duplicate_group_details', 'local_question_diagnostic'),
+        'style' => 'font-size: 18px; padding: 3px 10px;'
+    ]);
     echo html_writer::end_tag('td');
     
     echo html_writer::end_tag('tr');
@@ -1418,8 +1168,26 @@ echo html_writer::end_tag('tbody');
 echo html_writer::end_tag('table');
 echo html_writer::end_tag('div'); // fin qd-table-wrapper
 
+// 🆕 v1.9.45 : Bouton "Charger plus" si nécessaire
+if (count($duplicate_groups) < $total_groups) {
+    $next_show = $groups_per_page + 5;
+    $load_more_url = new moodle_url('/local/question_diagnostic/questions_cleanup.php', [
+        'loadstats' => $load_stats ? 1 : 0,
+        'loadusedduplicates' => $load_used_duplicates ? 1 : 0,
+        'show' => $next_show
+    ]);
+    
+    echo html_writer::start_tag('div', ['style' => 'text-align: center; margin: 30px 0;']);
+    echo html_writer::link(
+        $load_more_url,
+        get_string('load_more_groups', 'local_question_diagnostic'),
+        ['class' => 'btn btn-lg btn-primary']
+    );
+    echo html_writer::end_tag('div');
+}
+
 // ======================================================================
-// MODAL DES DOUBLONS
+// MODAL DES DOUBLONS (conservé pour compatibilité, mais non utilisé)
 // ======================================================================
 
 echo html_writer::start_tag('div', ['class' => 'qd-modal', 'id' => 'duplicates-modal']);

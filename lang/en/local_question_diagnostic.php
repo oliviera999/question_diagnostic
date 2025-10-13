@@ -246,3 +246,19 @@ $string['question_diagnostic:deletequestions'] = 'Delete questions';
 $string['question_diagnostic:export'] = 'Export data (CSV)';
 $string['question_diagnostic:configureplugin'] = 'Configure plugin';
 
+// 🆕 v1.9.45 : Duplicate groups summary table
+$string['duplicate_groups_table_title'] = 'Duplicate question groups';
+$string['duplicate_group_name'] = 'Question name';
+$string['duplicate_group_count'] = 'Number of duplicates';
+$string['duplicate_group_used'] = 'Used versions';
+$string['duplicate_group_unused'] = 'Unused versions';
+$string['duplicate_group_details'] = 'Details';
+$string['load_more_groups'] = 'Load 5 more groups';
+$string['showing_groups'] = 'Showing {$a->shown} group(s) of {$a->total}';
+$string['question_group_detail_title'] = 'Duplicate group details';
+$string['back_to_groups_list'] = 'Back to groups list';
+$string['no_duplicate_groups_found'] = 'No duplicate groups found';
+$string['no_duplicate_groups_desc'] = 'All your questions are unique. No duplicates detected.';
+$string['group_summary'] = 'Group summary';
+$string['all_versions_in_group'] = 'All versions of this question';
+

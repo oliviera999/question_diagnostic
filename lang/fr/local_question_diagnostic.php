@@ -246,3 +246,19 @@ $string['question_diagnostic:deletequestions'] = 'Supprimer des questions';
 $string['question_diagnostic:export'] = 'Exporter des données (CSV)';
 $string['question_diagnostic:configureplugin'] = 'Configurer le plugin';
 
+// 🆕 v1.9.45 : Tableau de synthèse des groupes de doublons
+$string['duplicate_groups_table_title'] = 'Groupes de questions en doublon';
+$string['duplicate_group_name'] = 'Intitulé de la question';
+$string['duplicate_group_count'] = 'Nombre de doublons';
+$string['duplicate_group_used'] = 'Versions utilisées';
+$string['duplicate_group_unused'] = 'Versions inutilisées';
+$string['duplicate_group_details'] = 'Détails';
+$string['load_more_groups'] = 'Charger 5 groupes supplémentaires';
+$string['showing_groups'] = 'Affichage de {$a->shown} groupe(s) sur {$a->total}';
+$string['question_group_detail_title'] = 'Détails du groupe de doublons';
+$string['back_to_groups_list'] = 'Retour à la liste des groupes';
+$string['no_duplicate_groups_found'] = 'Aucun groupe de doublons trouvé';
+$string['no_duplicate_groups_desc'] = 'Toutes vos questions sont uniques. Aucun doublon détecté.';
+$string['group_summary'] = 'Résumé du groupe';
+$string['all_versions_in_group'] = 'Toutes les versions de cette question';
+

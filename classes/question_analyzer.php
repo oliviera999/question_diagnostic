@@ -1534,5 +1534,159 @@ class question_analyzer {
         
         return $csv;
     }
+    
+    /**
+     * Récupère les groupes de questions en doublon
+     * 
+     * Un groupe de doublons = questions avec même nom ET même type
+     * 
+     * @param int $limit Nombre de groupes à retourner (0 = tous)
+     * @param int $offset Offset pour la pagination
+     * @param bool $used_only Si true, ne retourner que les groupes avec au moins 1 version utilisée
+     * @return array Tableau d'objets représentant chaque groupe de doublons
+     */
+    public static function get_duplicate_groups($limit = 0, $offset = 0, $used_only = false) {
+        global $DB;
+        
+        // 🎯 v1.9.45 : Nouvelle méthode pour récupérer les groupes de doublons
+        // Grouper les questions par nom + type et ne garder que ceux qui ont des doublons (COUNT > 1)
+        
+        // Étape 1 : Récupérer tous les groupes avec doublons (name + qtype + count)
+        $sql = "SELECT q.name, q.qtype, COUNT(*) as dup_count, MIN(q.id) as representative_id
+                FROM {question} q
+                GROUP BY q.name, q.qtype
+                HAVING COUNT(*) > 1
+                ORDER BY dup_count DESC";
+        
+        $all_groups = $DB->get_records_sql($sql);
+        
+        if (empty($all_groups)) {
+            return [];
+        }
+        
+        // Étape 2 : Pour chaque groupe, récupérer les détails
+        $groups = [];
+        $current_index = 0;
+        
+        foreach ($all_groups as $group) {
+            // Si on a un filtre "used_only", on doit vérifier si au moins 1 version est utilisée
+            // On le fera plus tard pour éviter trop de requêtes ici
+            
+            // Si on a atteint l'offset + limit, on peut arrêter (sauf si used_only=true car filtrage post-requête)
+            if (!$used_only && $limit > 0 && $current_index >= $offset + $limit) {
+                break;
+            }
+            
+            // Récupérer tous les IDs des questions de ce groupe
+            $question_ids = $DB->get_fieldset_select('question', 'id', 
+                'name = :name AND qtype = :qtype',
+                ['name' => $group->name, 'qtype' => $group->qtype]
+            );
+            
+            if (empty($question_ids)) {
+                continue;
+            }
+            
+            // Charger l'usage de toutes les questions de ce groupe en batch
+            $usage_map = self::get_questions_usage_by_ids($question_ids);
+            
+            // Compter combien sont utilisées vs inutilisées
+            $used_count = 0;
+            $unused_count = 0;
+            
+            foreach ($question_ids as $qid) {
+                if (isset($usage_map[$qid]) && isset($usage_map[$qid]['quiz_count']) && $usage_map[$qid]['quiz_count'] > 0) {
+                    $used_count++;
+                } else {
+                    $unused_count++;
+                }
+            }
+            
+            // Si filtre "used_only" et aucune version utilisée, on skip ce groupe
+            if ($used_only && $used_count == 0) {
+                continue;
+            }
+            
+            // Appliquer la pagination après le filtrage
+            if ($current_index < $offset) {
+                $current_index++;
+                continue;
+            }
+            
+            if ($limit > 0 && count($groups) >= $limit) {
+                break;
+            }
+            
+            // Créer l'objet groupe
+            $group_obj = (object)[
+                'question_name' => $group->name,
+                'qtype' => $group->qtype,
+                'duplicate_count' => $group->dup_count,
+                'representative_id' => $group->representative_id,
+                'all_question_ids' => $question_ids,
+                'used_count' => $used_count,
+                'unused_count' => $unused_count
+            ];
+            
+            $groups[] = $group_obj;
+            $current_index++;
+        }
+        
+        return $groups;
+    }
+    
+    /**
+     * Compte le nombre total de groupes de doublons
+     * 
+     * @param bool $used_only Si true, ne compter que les groupes avec au moins 1 version utilisée
+     * @return int Nombre de groupes de doublons
+     */
+    public static function count_duplicate_groups($used_only = false) {
+        global $DB;
+        
+        // 🎯 v1.9.45 : Compter le nombre total de groupes
+        $sql = "SELECT q.name, q.qtype, COUNT(*) as dup_count
+                FROM {question} q
+                GROUP BY q.name, q.qtype
+                HAVING COUNT(*) > 1";
+        
+        $all_groups = $DB->get_records_sql($sql);
+        
+        if (!$used_only) {
+            return count($all_groups);
+        }
+        
+        // Si filtre used_only, on doit compter manuellement (plus lent mais nécessaire)
+        $count = 0;
+        foreach ($all_groups as $group) {
+            // Récupérer les IDs des questions de ce groupe
+            $question_ids = $DB->get_fieldset_select('question', 'id',
+                'name = :name AND qtype = :qtype',
+                ['name' => $group->name, 'qtype' => $group->qtype]
+            );
+            
+            if (empty($question_ids)) {
+                continue;
+            }
+            
+            // Charger l'usage en batch
+            $usage_map = self::get_questions_usage_by_ids($question_ids);
+            
+            // Vérifier si au moins 1 est utilisée
+            $has_used = false;
+            foreach ($question_ids as $qid) {
+                if (isset($usage_map[$qid]) && isset($usage_map[$qid]['quiz_count']) && $usage_map[$qid]['quiz_count'] > 0) {
+                    $has_used = true;
+                    break;
+                }
+            }
+            
+            if ($has_used) {
+                $count++;
+            }
+        }
+        
+        return $count;
+    }
 }
 
