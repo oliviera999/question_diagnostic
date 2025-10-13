@@ -1349,19 +1349,10 @@ class question_analyzer {
             // ÉTAPE 2 : Vérifier l'usage de TOUTES les questions en une seule requête
             $usage_map = self::get_questions_usage_by_ids($questionids);
             
-            // ÉTAPE 3 : Trouver les doublons pour chaque question (groupé par nom+type)
-            // 🔧 v1.9.45 FIX CRITIQUE : Utiliser la MÊME logique que get_used_duplicates_questions
-            // Grouper par nom exact + type (pas de MD5 qui cache les variations)
-            $signature_map = [];
-            foreach ($questions as $q) {
-                // 🔧 v1.9.45 : Utiliser nom+type directement (pas de MD5)
-                // Cela garantit la cohérence avec les autres méthodes du plugin
-                $signature = $q->name . '|||' . $q->qtype;
-                if (!isset($signature_map[$signature])) {
-                    $signature_map[$signature] = [];
-                }
-                $signature_map[$signature][] = $q->id;
-            }
+            // ÉTAPE 3 : Trouver les doublons pour chaque question en cherchant dans TOUTE la base
+            // 🔧 v1.9.51 FIX CRITIQUE : Ne PAS se limiter aux questions en paramètre !
+            // Pour chaque question à vérifier, on doit chercher dans TOUTE la base de données
+            // pour voir s'il existe d'autres questions avec le même nom+type
             
             // ÉTAPE 4 : Analyser chaque question
             foreach ($questions as $q) {
@@ -1382,19 +1373,27 @@ class question_analyzer {
                 }
                 
                 // Vérification 2 : Question a des doublons ?
-                // 🔧 v1.9.45 FIX CRITIQUE : Utiliser la MÊME signature que ÉTAPE 3
-                $signature = $q->name . '|||' . $q->qtype;
-                $duplicate_ids = isset($signature_map[$signature]) ? $signature_map[$signature] : [];
+                // 🔧 v1.9.51 FIX CRITIQUE : Chercher TOUTES les questions avec ce nom+type dans la BASE
+                // (pas seulement parmi les questions passées en paramètre !)
+                $all_with_same_signature = $DB->get_records('question', [
+                    'name' => $q->name,
+                    'qtype' => $q->qtype
+                ]);
                 
-                // Enlever la question elle-même
-                $duplicate_ids = array_filter($duplicate_ids, function($id) use ($qid) {
-                    return $id != $qid;
-                });
+                // Compter combien il y en a (en excluant la question elle-même)
+                $duplicate_count = 0;
+                $duplicate_ids = [];
+                foreach ($all_with_same_signature as $other) {
+                    if ($other->id != $qid) {
+                        $duplicate_count++;
+                        $duplicate_ids[] = $other->id;
+                    }
+                }
                 
-                if (count($duplicate_ids) == 0) {
+                if ($duplicate_count == 0) {
                     $results[$qid]->reason = 'Question unique (pas de doublon)';
                     $results[$qid]->details['is_unique'] = true;
-                    $results[$qid]->details['debug_signature'] = $signature;
+                    $results[$qid]->details['debug_signature'] = $q->name . '|||' . $q->qtype;
                     $results[$qid]->details['debug_name'] = $q->name;
                     $results[$qid]->details['debug_type'] = $q->qtype;
                     continue;
@@ -1403,9 +1402,9 @@ class question_analyzer {
                 // Si on arrive ici : question inutilisée ET en doublon → SUPPRIMABLE
                 $results[$qid]->can_delete = true;
                 $results[$qid]->reason = 'Doublon inutilisé';
-                $results[$qid]->details['duplicate_count'] = count($duplicate_ids);
-                $results[$qid]->details['duplicate_ids'] = array_values($duplicate_ids);
-                $results[$qid]->details['debug_signature'] = $signature;
+                $results[$qid]->details['duplicate_count'] = $duplicate_count;
+                $results[$qid]->details['duplicate_ids'] = $duplicate_ids;
+                $results[$qid]->details['debug_signature'] = $q->name . '|||' . $q->qtype;
                 $results[$qid]->details['debug_name'] = $q->name;
                 $results[$qid]->details['debug_type'] = $q->qtype;
             }
