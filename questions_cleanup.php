@@ -39,6 +39,9 @@ $PAGE->requires->js('/local/question_diagnostic/scripts/questions.js', true);
 // Section d'en-tête Moodle standard.
 echo $OUTPUT->header();
 
+// Afficher le badge de version
+echo local_question_diagnostic_render_version_badge();
+
 // 🆕 v1.9.44 : Lien retour hiérarchique et bouton de purge de cache
 echo html_writer::start_tag('div', ['style' => 'margin-bottom: 20px; display: flex; gap: 10px; align-items: center;']);
 echo local_question_diagnostic_render_back_link('questions_cleanup.php');
@@ -1097,18 +1100,34 @@ echo html_writer::start_tag('div', ['style' => 'margin-bottom: 15px; font-size: 
 echo '📊 ' . get_string('showing_groups', 'local_question_diagnostic', $showing_count_obj);
 echo html_writer::end_tag('div');
 
+// 🆕 v1.9.49 : Bouton de nettoyage en masse (au-dessus du tableau)
+echo html_writer::start_tag('div', ['id' => 'bulk-cleanup-container', 'style' => 'margin-bottom: 15px; display: none;']);
+echo html_writer::tag('button', '🧹 Nettoyer la sélection', [
+    'id' => 'bulk-cleanup-btn',
+    'class' => 'btn btn-warning',
+    'onclick' => 'bulkCleanupGroups()',
+    'style' => 'margin-right: 10px;'
+]);
+echo html_writer::tag('span', '0 groupe(s) sélectionné(s)', [
+    'id' => 'selection-count-groups',
+    'style' => 'font-weight: bold; color: #666;'
+]);
+echo html_writer::end_tag('div');
+
 echo html_writer::start_tag('div', ['class' => 'qd-table-wrapper']);
 echo html_writer::start_tag('table', ['class' => 'qd-table', 'id' => 'duplicate-groups-table']);
 
-// 🆕 v1.9.45 : En-tête du tableau de synthèse
+// 🆕 v1.9.49 : En-tête du tableau de synthèse avec checkbox et actions
 echo html_writer::start_tag('thead');
 echo html_writer::start_tag('tr');
+echo html_writer::tag('th', '<input type="checkbox" id="select-all-groups" title="Tout sélectionner/désélectionner">', ['style' => 'width: 40px;']);
 echo html_writer::tag('th', get_string('duplicate_group_name', 'local_question_diagnostic'));
 echo html_writer::tag('th', get_string('type', 'local_question_diagnostic'));
 echo html_writer::tag('th', get_string('duplicate_group_count', 'local_question_diagnostic'));
 echo html_writer::tag('th', get_string('duplicate_group_used', 'local_question_diagnostic'));
 echo html_writer::tag('th', get_string('duplicate_group_unused', 'local_question_diagnostic'));
 echo html_writer::tag('th', get_string('duplicate_group_details', 'local_question_diagnostic'));
+echo html_writer::tag('th', get_string('actions', 'local_question_diagnostic'));
 echo html_writer::end_tag('tr');
 echo html_writer::end_tag('thead');
 
@@ -1117,7 +1136,20 @@ echo html_writer::start_tag('tbody');
 
 // Afficher chaque groupe de doublons
 foreach ($duplicate_groups as $group) {
-    echo html_writer::start_tag('tr');
+    // Identifier de manière unique ce groupe (nom + type encodé en base64 pour l'URL)
+    $group_id = base64_encode($group->question_name . '|' . $group->qtype);
+    
+    echo html_writer::start_tag('tr', ['data-group-id' => $group_id]);
+    
+    // Colonne 0 : Checkbox (seulement si des versions inutilisées existent)
+    echo html_writer::start_tag('td', ['style' => 'text-align: center;']);
+    if ($group->unused_count > 0) {
+        echo '<input type="checkbox" class="group-select-checkbox" value="' . $group_id . '" 
+                data-name="' . htmlspecialchars($group->question_name) . '" 
+                data-qtype="' . $group->qtype . '"
+                data-unused="' . $group->unused_count . '">';
+    }
+    echo html_writer::end_tag('td');
     
     // Colonne 1 : Intitulé de la question
     echo html_writer::start_tag('td');
@@ -1161,6 +1193,28 @@ foreach ($duplicate_groups as $group) {
     ]);
     echo html_writer::end_tag('td');
     
+    // Colonne 7 : Actions (bouton nettoyage)
+    echo html_writer::start_tag('td', ['style' => 'text-align: center; white-space: nowrap;']);
+    if ($group->unused_count > 0) {
+        // Bouton de nettoyage automatique
+        $cleanup_url = new moodle_url('/local/question_diagnostic/actions/cleanup_duplicate_groups.php', [
+            'name' => $group->question_name,
+            'qtype' => $group->qtype,
+            'sesskey' => sesskey()
+        ]);
+        echo html_writer::link($cleanup_url, '🧹 Nettoyer', [
+            'class' => 'btn btn-warning btn-sm',
+            'title' => 'Supprimer les ' . $group->unused_count . ' version(s) inutilisée(s)',
+            'style' => 'margin-right: 5px;'
+        ]);
+    } else {
+        echo html_writer::tag('span', '✓ Clean', [
+            'class' => 'badge badge-success',
+            'title' => 'Aucune version inutilisée'
+        ]);
+    }
+    echo html_writer::end_tag('td');
+    
     echo html_writer::end_tag('tr');
 }
 
@@ -1185,6 +1239,75 @@ if (count($duplicate_groups) < $total_groups) {
     );
     echo html_writer::end_tag('div');
 }
+
+// 🆕 v1.9.49 : JavaScript pour la gestion de la sélection des groupes
+echo html_writer::start_tag('script');
+echo "
+// Gestion sélection de tous les groupes
+document.getElementById('select-all-groups').addEventListener('change', function() {
+    var checkboxes = document.querySelectorAll('.group-select-checkbox');
+    checkboxes.forEach(function(cb) {
+        cb.checked = this.checked;
+    }.bind(this));
+    updateGroupSelectionCount();
+});
+
+// Gestion sélection individuelle
+document.querySelectorAll('.group-select-checkbox').forEach(function(cb) {
+    cb.addEventListener('change', updateGroupSelectionCount);
+});
+
+// Mettre à jour le compteur de sélection
+function updateGroupSelectionCount() {
+    var checked = document.querySelectorAll('.group-select-checkbox:checked');
+    var count = checked.length;
+    var totalUnused = 0;
+    checked.forEach(function(cb) {
+        totalUnused += parseInt(cb.getAttribute('data-unused'));
+    });
+    
+    document.getElementById('selection-count-groups').textContent = 
+        count + ' groupe(s) sélectionné(s) (' + totalUnused + ' version(s) à supprimer)';
+    document.getElementById('bulk-cleanup-container').style.display = count > 0 ? 'block' : 'none';
+}
+
+// Nettoyage en masse des groupes
+function bulkCleanupGroups() {
+    var checked = document.querySelectorAll('.group-select-checkbox:checked');
+    
+    if (checked.length === 0) {
+        alert('Aucun groupe sélectionné');
+        return;
+    }
+    
+    // Préparer les données des groupes
+    var groups = [];
+    var totalUnused = 0;
+    checked.forEach(function(cb) {
+        groups.push({
+            name: cb.getAttribute('data-name'),
+            qtype: cb.getAttribute('data-qtype'),
+            unused: parseInt(cb.getAttribute('data-unused'))
+        });
+        totalUnused += parseInt(cb.getAttribute('data-unused'));
+    });
+    
+    // Confirmation
+    var message = 'Êtes-vous sûr de vouloir nettoyer ' + checked.length + ' groupe(s) de doublons ?\\n\\n';
+    message += '⚠️ ATTENTION : Cette action va supprimer ' + totalUnused + ' version(s) inutilisée(s) !\\n\\n';
+    message += 'Les versions utilisées (dans des quiz) seront conservées.\\n\\n';
+    message += 'Cette action est IRRÉVERSIBLE !';
+    
+    if (confirm(message)) {
+        // Construire l'URL avec les groupes encodés
+        var groupsData = JSON.stringify(groups.map(function(g) { return g.name + '|' + g.qtype; }));
+        var url = '" . (new \moodle_url('/local/question_diagnostic/actions/cleanup_duplicate_groups.php'))->out(false) . "';
+        url += '?bulk=1&groups=' + encodeURIComponent(groupsData) + '&sesskey=" . sesskey() . "';
+        window.location.href = url;
+    }
+}
+";
+echo html_writer::end_tag('script');
 
 // ======================================================================
 // MODAL DES DOUBLONS (conservé pour compatibilité, mais non utilisé)

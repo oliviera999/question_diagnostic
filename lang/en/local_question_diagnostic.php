@@ -20,6 +20,10 @@ $string['pluginname'] = 'Question Category Management for Deletion';
 $string['managequestions'] = 'Manage categories to delete';
 $string['accessdenied'] = 'Access denied. You must be a site administrator.';
 
+// Version badge
+$string['version_label'] = 'Version';
+$string['version_tooltip'] = 'Question Diagnostic Plugin {$a->version} - Last update: {$a->date}';
+
 // Dashboard
 $string['dashboard'] = 'Dashboard';
 $string['totalcategories'] = 'Total categories';
@@ -261,4 +265,12 @@ $string['no_duplicate_groups_found'] = 'No duplicate groups found';
 $string['no_duplicate_groups_desc'] = 'All your questions are unique. No duplicates detected.';
 $string['group_summary'] = 'Group summary';
 $string['all_versions_in_group'] = 'All versions of this question';
+
+// 🆕 v1.9.49 : Automatic cleanup of duplicates
+$string['cleanup_group'] = 'Clean up';
+$string['cleanup_selection'] = 'Clean up selection';
+$string['cleanup_confirm_title'] = 'Cleanup confirmation';
+$string['cleanup_confirm_message'] = 'This action will delete {$a} unused version(s)';
+$string['cleanup_success'] = 'Cleanup completed: {$a->deleted} question(s) deleted, {$a->kept} version(s) kept';
+$string['cleanup_no_action'] = 'No questions to delete in the selected groups';
 

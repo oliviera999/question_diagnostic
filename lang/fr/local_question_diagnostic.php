@@ -20,6 +20,10 @@ $string['pluginname'] = 'Gestion des Catégories de Questions à Supprimer';
 $string['managequestions'] = 'Gérer les catégories à supprimer';
 $string['accessdenied'] = 'Accès refusé. Vous devez être administrateur du site.';
 
+// Version badge
+$string['version_label'] = 'Version';
+$string['version_tooltip'] = 'Plugin Question Diagnostic {$a->version} - Dernière mise à jour : {$a->date}';
+
 // Dashboard
 $string['dashboard'] = 'Tableau de bord';
 $string['totalcategories'] = 'Total catégories';
@@ -261,4 +265,12 @@ $string['no_duplicate_groups_found'] = 'Aucun groupe de doublons trouvé';
 $string['no_duplicate_groups_desc'] = 'Toutes vos questions sont uniques. Aucun doublon détecté.';
 $string['group_summary'] = 'Résumé du groupe';
 $string['all_versions_in_group'] = 'Toutes les versions de cette question';
+
+// 🆕 v1.9.49 : Nettoyage automatique des doublons
+$string['cleanup_group'] = 'Nettoyer';
+$string['cleanup_selection'] = 'Nettoyer la sélection';
+$string['cleanup_confirm_title'] = 'Confirmation du nettoyage';
+$string['cleanup_confirm_message'] = 'Cette action va supprimer {$a} version(s) inutilisée(s)';
+$string['cleanup_success'] = 'Nettoyage terminé : {$a->deleted} question(s) supprimée(s), {$a->kept} version(s) conservée(s)';
+$string['cleanup_no_action'] = 'Aucune question à supprimer dans les groupes sélectionnés';
 
