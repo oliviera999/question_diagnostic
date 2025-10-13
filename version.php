@@ -9,8 +9,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'local_question_diagnostic';
-$plugin->version = 2025101401;  // YYYYMMDDXX format (v1.10.0 - Gestion des fichiers orphelins)
+$plugin->version = 2025101402;  // YYYYMMDDXX format (v1.10.1 - Réparation automatique fichiers orphelins)
 $plugin->requires = 2022041900; // Moodle 4.0+ (architecture question_bank_entries requise)
 $plugin->maturity = MATURITY_STABLE;
-$plugin->release = 'v1.10.0';
+$plugin->release = 'v1.10.1';
 

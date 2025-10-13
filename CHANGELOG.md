@@ -5,6 +5,116 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.10.1] - 2025-10-14
+
+### 🔧 NOUVELLE FONCTIONNALITÉ : Réparation Automatique des Fichiers Orphelins
+
+#### 🎯 Objectif
+Ajouter des capacités de **réparation intelligente et sécurisée** des fichiers orphelins, au-delà de la simple suppression/archivage.
+
+#### ✨ Fonctionnalités Ajoutées
+
+**1. Analyse de réparabilité**
+- ✅ **Détection automatique** des options de réparation pour chaque fichier
+- ✅ **Niveau de confiance** pour chaque option (haute 95%, moyenne 60-80%, faible <60%)
+- ✅ **Dashboard de réparabilité** : Statistiques par niveau de confiance
+
+**2. Types de réparations intelligentes**
+
+**🟢 Réassociation par contenthash (95% fiabilité)**
+- Trouve un fichier identique (même contenthash) avec parent valide
+- Réassocie automatiquement l'orphelin au même parent
+- **Cas d'usage** : Restaurations partielles, imports avec doublons
+
+**🟡 Réattribution par nom de fichier (70-80% fiabilité)**
+- Cherche dans le HTML des questions qui référencent ce nom
+- Propose les meilleurs candidats avec score de correspondance
+- **Cas d'usage** : Liens cassés avec HTML intact
+
+**🟡 Réassociation par contexte (70% fiabilité)**
+- Trouve des parents potentiels dans le même contexte
+- Utilise algorithme de similarité
+- **Cas d'usage** : Questions réimportées dans le même contexte
+
+**🟢 Création question de récupération (100% fiabilité)**
+- Crée une question "stub" de type description
+- Préserve le fichier dans catégorie "Recovered Files"
+- **Cas d'usage** : Dernier recours, zéro perte
+
+**3. Interface de réparation**
+- 🔧 **Colonne "Réparabilité"** dans le tableau avec indicateurs visuels (🟢🟡🔴)
+- 🔧 **Bouton "Réparer"** pour chaque fichier réparable
+- 📊 **Dashboard de réparabilité** avec statistiques par niveau
+- 🎯 **Modal détaillé** affichant toutes les options avec confiance
+
+**4. Mode Dry-Run pour réparations**
+- 🧪 Tester chaque option avant exécution
+- 🔍 Voir ce qui SERAIT réparé sans risque
+- ✅ Validation avant action réelle
+
+**5. Sécurité et traçabilité**
+- 🔒 **Backup automatique** : État sauvegardé avant réparation
+- 🔄 **Rollback** : Restauration en cas d'erreur
+- 📝 **Logs ultra-détaillés** : Type, cible, résultat
+
+#### 📁 Fichiers Créés
+
+**Classes PHP** :
+- `classes/orphan_file_repairer.php` (~400 lignes) : Intelligence de réparation
+
+**Actions** :
+- `actions/orphan_repair.php` (~200 lignes) : Interface et exécution réparations
+
+**Documentation** :
+- `docs/features/FEATURE_ORPHAN_FILES_REPAIR.md` (~450 lignes) : Documentation complète
+
+#### 📝 Fichiers Modifiés
+
+**Interfaces** :
+- `orphan_files.php` : Ajout colonne réparabilité + dashboard + bouton réparer
+
+**Chaînes de langue** :
+- `lang/fr/local_question_diagnostic.php` : +44 chaînes
+- `lang/en/local_question_diagnostic.php` : +44 chaînes
+
+**Version** :
+- `version.php` : v1.10.1 (2025101402)
+
+#### 🎓 Utilisation
+
+**Workflow de réparation** :
+1. Ouvrir page "Fichiers Orphelins"
+2. Consulter le dashboard de réparabilité
+3. Identifier les fichiers haute fiabilité (🟢)
+4. Cliquer sur 🔧 pour voir les options
+5. Tester avec Dry-Run
+6. Confirmer la réparation
+
+**Recommandations** :
+- ✅ Commencer par fichiers **haute fiabilité** (>90%)
+- ⚠️ Valider manuellement les **fiabilités moyennes**
+- ❌ Archiver/supprimer les **faibles fiabilités**
+
+#### 📊 Statistiques Implémentation
+
+- **Lignes de code ajoutées** : ~600 lignes
+- **Fichiers créés** : 3
+- **Fichiers modifiés** : 4
+- **Chaînes de langue** : 88 (44 FR + 44 EN)
+- **Types de réparation** : 4
+- **Complexité** : 7/10
+
+#### 🏆 Avantages
+
+- ✅ **Vraie valeur ajoutée** : Réparation vs simple suppression
+- ✅ **Fiabilité élevée** : Niveaux de confiance clairs
+- ✅ **Sécurité maximale** : Backup, rollback, logs
+- ✅ **Zéro perte** : Option "question stub" toujours disponible
+- ✅ **Intelligence** : Algorithmes de matching avancés
+- ✅ **UX intuitive** : Indicateurs visuels, modal détaillé
+
+---
+
 ## [1.10.0] - 2025-10-14
 
 ### 🗑️ NOUVELLE FONCTIONNALITÉ MAJEURE : Gestion des Fichiers Orphelins

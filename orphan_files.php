@@ -9,8 +9,10 @@
 require_once(__DIR__ . '/../../config.php');
 require_once(__DIR__ . '/lib.php');
 require_once(__DIR__ . '/classes/orphan_file_detector.php');
+require_once(__DIR__ . '/classes/orphan_file_repairer.php');
 
 use local_question_diagnostic\orphan_file_detector;
+use local_question_diagnostic\orphan_file_repairer;
 
 // Charger les bibliothèques Moodle nécessaires.
 require_login();
@@ -109,6 +111,40 @@ echo html_writer::tag('div', get_string('orphan_files', 'local_question_diagnost
 echo html_writer::end_tag('div');
 
 echo html_writer::end_tag('div'); // fin dashboard
+
+// ======================================================================
+// 🆕 v1.10.1 : ANALYSE DE RÉPARABILITÉ
+// ======================================================================
+
+echo html_writer::tag('h3', '🔧 ' . get_string('repair_analysis', 'local_question_diagnostic'), ['style' => 'margin-top: 30px;']);
+
+// Analyser la réparabilité en masse
+$repairability_stats = orphan_file_repairer::analyze_bulk_repairability($orphan_files);
+
+echo html_writer::start_tag('div', ['class' => 'qd-dashboard', 'style' => 'margin: 20px 0;']);
+
+// Haute fiabilité
+echo html_writer::start_tag('div', ['class' => 'qd-card success']);
+echo html_writer::tag('div', '🟢 ' . get_string('repairability_high', 'local_question_diagnostic'), ['class' => 'qd-card-title']);
+echo html_writer::tag('div', $repairability_stats['high_confidence'], ['class' => 'qd-card-value']);
+echo html_writer::tag('div', get_string('repair_auto_recommended', 'local_question_diagnostic'), ['class' => 'qd-card-subtitle']);
+echo html_writer::end_tag('div');
+
+// Fiabilité moyenne
+echo html_writer::start_tag('div', ['class' => 'qd-card warning']);
+echo html_writer::tag('div', '🟡 ' . get_string('repairability_medium', 'local_question_diagnostic'), ['class' => 'qd-card-title']);
+echo html_writer::tag('div', $repairability_stats['medium_confidence'], ['class' => 'qd-card-value']);
+echo html_writer::tag('div', get_string('repair_manual_recommended', 'local_question_diagnostic'), ['class' => 'qd-card-subtitle']);
+echo html_writer::end_tag('div');
+
+// Faible fiabilité
+echo html_writer::start_tag('div', ['class' => 'qd-card']);
+echo html_writer::tag('div', '🔴 ' . get_string('repairability_low', 'local_question_diagnostic'), ['class' => 'qd-card-title']);
+echo html_writer::tag('div', $repairability_stats['low_confidence'], ['class' => 'qd-card-value']);
+echo html_writer::tag('div', get_string('repair_not_recommended', 'local_question_diagnostic'), ['class' => 'qd-card-subtitle']);
+echo html_writer::end_tag('div');
+
+echo html_writer::end_tag('div'); // fin dashboard réparabilité
 
 // ======================================================================
 // RÉPARTITION PAR COMPOSANT
@@ -231,6 +267,7 @@ if (empty($orphan_files)) {
     echo html_writer::tag('th', get_string('orphan_component', 'local_question_diagnostic'));
     echo html_writer::tag('th', get_string('orphan_filesize', 'local_question_diagnostic'));
     echo html_writer::tag('th', get_string('orphan_type', 'local_question_diagnostic'));
+    echo html_writer::tag('th', get_string('repairability', 'local_question_diagnostic')); // 🆕 v1.10.1
     echo html_writer::tag('th', get_string('orphan_reason', 'local_question_diagnostic'));
     echo html_writer::tag('th', get_string('orphan_age', 'local_question_diagnostic'));
     echo html_writer::tag('th', get_string('actions', 'local_question_diagnostic'));
@@ -293,6 +330,31 @@ if (empty($orphan_files)) {
             ['class' => 'badge ' . $type_badge_class]
         ));
         
+        // 🆕 v1.10.1 : Réparabilité
+        $repairability = orphan_file_repairer::get_repairability_level($file);
+        $repair_icon = '';
+        $repair_class = 'badge ';
+        $repair_text = '';
+        
+        if ($repairability === 'high') {
+            $repair_icon = '🟢';
+            $repair_class .= 'badge-success';
+            $repair_text = get_string('repairability_high', 'local_question_diagnostic');
+        } else if ($repairability === 'medium') {
+            $repair_icon = '🟡';
+            $repair_class .= 'badge-warning';
+            $repair_text = get_string('repairability_medium', 'local_question_diagnostic');
+        } else {
+            $repair_icon = '🔴';
+            $repair_class .= 'badge-secondary';
+            $repair_text = get_string('repairability_low', 'local_question_diagnostic');
+        }
+        
+        echo html_writer::tag('td', html_writer::tag('span', 
+            $repair_icon . ' ' . $repair_text, 
+            ['class' => $repair_class]
+        ));
+        
         // Raison
         echo html_writer::tag('td', htmlspecialchars($orphan->reason), ['style' => 'font-size: 11px;']);
         
@@ -301,7 +363,24 @@ if (empty($orphan_files)) {
         
         // Actions
         echo html_writer::start_tag('td');
-        echo html_writer::start_tag('div', ['class' => 'qd-actions', 'style' => 'display: flex; gap: 5px;']);
+        echo html_writer::start_tag('div', ['class' => 'qd-actions', 'style' => 'display: flex; gap: 5px; flex-wrap: wrap;']);
+        
+        // 🆕 v1.10.1 : Bouton réparer (si réparation possible)
+        if ($repairability !== 'low') {
+            $repair_url = new moodle_url('/local/question_diagnostic/actions/orphan_repair.php', [
+                'id' => $file->id,
+                'sesskey' => sesskey()
+            ]);
+            $repair_btn_class = $repairability === 'high' ? 'qd-btn-success' : 'qd-btn-warning';
+            echo html_writer::link(
+                $repair_url, 
+                '🔧',
+                [
+                    'class' => 'qd-btn ' . $repair_btn_class,
+                    'title' => get_string('repair_orphan', 'local_question_diagnostic')
+                ]
+            );
+        }
         
         // Bouton supprimer
         $delete_url = new moodle_url('/local/question_diagnostic/actions/orphan_delete.php', [
