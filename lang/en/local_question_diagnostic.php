@@ -274,3 +274,26 @@ $string['cleanup_confirm_message'] = 'This action will delete {$a} unused versio
 $string['cleanup_success'] = 'Cleanup completed: {$a->deleted} question(s) deleted, {$a->kept} version(s) kept';
 $string['cleanup_no_action'] = 'No questions to delete in the selected groups';
 
+// 🆕 v1.9.52 : Global duplicate cleanup
+$string['cleanup_all_duplicates'] = 'Global Duplicate Cleanup';
+$string['cleanup_all_duplicates_desc'] = 'Automatically delete ALL unused duplicates from the site';
+$string['cleanup_all_preview_title'] = 'Global cleanup preview';
+$string['cleanup_all_preview_desc'] = 'Here is a preview of what will be deleted during the global duplicate cleanup';
+$string['cleanup_all_stats_groups'] = 'Duplicate groups to clean';
+$string['cleanup_all_stats_to_delete'] = 'Questions to delete';
+$string['cleanup_all_stats_to_keep'] = 'Questions to keep';
+$string['cleanup_all_estimated_time'] = 'Estimated time';
+$string['cleanup_all_estimated_batches'] = 'Number of processing batches';
+$string['cleanup_all_download_csv'] = 'Download complete list (CSV)';
+$string['cleanup_all_confirm_button'] = 'Confirm and start cleanup';
+$string['cleanup_all_warning'] = '⚠️ WARNING: This action will delete {$a} question(s) IRREVERSIBLY!';
+$string['cleanup_all_progress_title'] = 'Cleanup in progress...';
+$string['cleanup_all_progress_batch'] = 'Processing batch {$a->current} of {$a->total}';
+$string['cleanup_all_progress_stats'] = 'Deleted: {$a->deleted} | Kept: {$a->kept}';
+$string['cleanup_all_complete_title'] = 'Global cleanup completed';
+$string['cleanup_all_complete_summary'] = 'Summary: {$a->deleted} question(s) deleted, {$a->kept} version(s) kept from {$a->groups} group(s) processed';
+$string['cleanup_all_by_type_title'] = 'Distribution by question type';
+$string['cleanup_all_security_rules'] = 'Applied security rules';
+$string['cleanup_all_no_duplicates'] = 'No duplicates to clean';
+$string['cleanup_all_no_duplicates_desc'] = 'Your database contains no duplicate questions to delete. All your questions are either unique or all versions are in use.';
+

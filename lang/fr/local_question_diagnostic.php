@@ -274,3 +274,26 @@ $string['cleanup_confirm_message'] = 'Cette action va supprimer {$a} version(s) 
 $string['cleanup_success'] = 'Nettoyage terminé : {$a->deleted} question(s) supprimée(s), {$a->kept} version(s) conservée(s)';
 $string['cleanup_no_action'] = 'Aucune question à supprimer dans les groupes sélectionnés';
 
+// 🆕 v1.9.52 : Nettoyage global des doublons
+$string['cleanup_all_duplicates'] = 'Nettoyage Global des Doublons';
+$string['cleanup_all_duplicates_desc'] = 'Supprimer automatiquement TOUS les doublons inutilisés du site';
+$string['cleanup_all_preview_title'] = 'Prévisualisation du nettoyage global';
+$string['cleanup_all_preview_desc'] = 'Voici un aperçu de ce qui sera supprimé lors du nettoyage global des doublons';
+$string['cleanup_all_stats_groups'] = 'Groupes de doublons à nettoyer';
+$string['cleanup_all_stats_to_delete'] = 'Questions à supprimer';
+$string['cleanup_all_stats_to_keep'] = 'Questions à conserver';
+$string['cleanup_all_estimated_time'] = 'Temps estimé';
+$string['cleanup_all_estimated_batches'] = 'Nombre de lots de traitement';
+$string['cleanup_all_download_csv'] = 'Télécharger la liste complète (CSV)';
+$string['cleanup_all_confirm_button'] = 'Confirmer et lancer le nettoyage';
+$string['cleanup_all_warning'] = '⚠️ ATTENTION : Cette action va supprimer {$a} question(s) de manière IRRÉVERSIBLE !';
+$string['cleanup_all_progress_title'] = 'Nettoyage en cours...';
+$string['cleanup_all_progress_batch'] = 'Traitement du lot {$a->current} sur {$a->total}';
+$string['cleanup_all_progress_stats'] = 'Supprimées : {$a->deleted} | Conservées : {$a->kept}';
+$string['cleanup_all_complete_title'] = 'Nettoyage global terminé';
+$string['cleanup_all_complete_summary'] = 'Résumé : {$a->deleted} question(s) supprimée(s), {$a->kept} version(s) conservée(s) sur {$a->groups} groupe(s) traité(s)';
+$string['cleanup_all_by_type_title'] = 'Répartition par type de question';
+$string['cleanup_all_security_rules'] = 'Règles de sécurité appliquées';
+$string['cleanup_all_no_duplicates'] = 'Aucun doublon à nettoyer';
+$string['cleanup_all_no_duplicates_desc'] = 'Votre base de données ne contient aucun doublon de questions à supprimer. Toutes vos questions sont soit uniques, soit toutes les versions sont utilisées.';
+

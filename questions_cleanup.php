@@ -961,6 +961,21 @@ if (!empty($globalstats->by_type) && $globalstats->total_questions > 0) {
 
 echo html_writer::start_tag('div', ['style' => 'margin: 30px 0 20px 0; display: flex; gap: 10px; flex-wrap: wrap;']);
 
+// 🆕 v1.9.52 : Bouton de nettoyage global des doublons
+$cleanup_all_url = new moodle_url('/local/question_diagnostic/actions/cleanup_all_duplicates.php', [
+    'preview' => 1,
+    'sesskey' => sesskey()
+]);
+echo html_writer::link(
+    $cleanup_all_url, 
+    '🧹 ' . get_string('cleanup_all_duplicates', 'local_question_diagnostic'), 
+    [
+        'class' => 'btn btn-warning btn-lg',
+        'title' => get_string('cleanup_all_duplicates_desc', 'local_question_diagnostic'),
+        'style' => 'font-weight: bold;'
+    ]
+);
+
 $exporturl = new moodle_url('/local/question_diagnostic/actions/export.php', [
     'type' => 'questions_csv',
     'sesskey' => sesskey()

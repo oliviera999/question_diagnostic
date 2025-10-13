@@ -1687,5 +1687,102 @@ class question_analyzer {
         
         return $count;
     }
+    
+    /**
+     * Génère les statistiques de prévisualisation pour le nettoyage global des doublons
+     * 
+     * 🆕 v1.9.52 : Pour le nettoyage global
+     * 
+     * Analyse TOUS les groupes de doublons et calcule :
+     * - Nombre total de groupes
+     * - Nombre de questions à supprimer
+     * - Nombre de questions à conserver
+     * - Répartition par type de question
+     * - Liste détaillée des questions à supprimer (pour export CSV)
+     * 
+     * @return object Statistiques de prévisualisation
+     */
+    public static function get_cleanup_preview_stats() {
+        global $DB;
+        
+        $stats = new \stdClass();
+        
+        // Récupérer TOUS les groupes de doublons (limit = 0)
+        $all_groups = self::get_duplicate_groups(0, 0, false);
+        
+        $stats->total_groups = count($all_groups);
+        $stats->total_questions_to_delete = 0;
+        $stats->total_questions_to_keep = 0;
+        $stats->by_type = []; // [qtype => ['to_delete' => N, 'to_keep' => M]]
+        $stats->questions_list = []; // Liste détaillée pour export CSV
+        
+        foreach ($all_groups as $group) {
+            // Analyser chaque groupe
+            $question_ids = $group->all_question_ids;
+            
+            if (empty($question_ids)) {
+                continue;
+            }
+            
+            $usage_map = self::get_questions_usage_by_ids($question_ids);
+            
+            // Récupérer les questions complètes pour détails
+            $questions = $DB->get_records_list('question', 'id', $question_ids, 'id ASC');
+            
+            $unused = [];
+            $used = [];
+            
+            foreach ($questions as $q) {
+                $quiz_count = isset($usage_map[$q->id]['quiz_count']) ? 
+                             $usage_map[$q->id]['quiz_count'] : 0;
+                
+                if ($quiz_count > 0) {
+                    $used[] = $q;
+                } else {
+                    $unused[] = $q;
+                }
+            }
+            
+            // Sécurité : Garder au moins 1 version si aucune utilisée
+            if (empty($used) && !empty($unused)) {
+                $oldest = array_shift($unused);
+                $used[] = $oldest;
+            }
+            
+            $group_to_delete = count($unused);
+            $group_to_keep = count($used);
+            
+            // Accumuler les totaux
+            $stats->total_questions_to_delete += $group_to_delete;
+            $stats->total_questions_to_keep += $group_to_keep;
+            
+            // Accumuler par type
+            if (!isset($stats->by_type[$group->qtype])) {
+                $stats->by_type[$group->qtype] = [
+                    'to_delete' => 0,
+                    'to_keep' => 0
+                ];
+            }
+            $stats->by_type[$group->qtype]['to_delete'] += $group_to_delete;
+            $stats->by_type[$group->qtype]['to_keep'] += $group_to_keep;
+            
+            // Liste détaillée pour CSV (seulement les questions à supprimer)
+            foreach ($unused as $q) {
+                $stats->questions_list[] = (object)[
+                    'id' => $q->id,
+                    'name' => $q->name,
+                    'qtype' => $q->qtype,
+                    'timecreated' => $q->timecreated,
+                    'action' => 'delete'
+                ];
+            }
+        }
+        
+        // Estimation du temps (environ 0.5s par groupe)
+        $stats->estimated_time_seconds = $stats->total_groups * 0.5;
+        $stats->estimated_batches = ceil($stats->total_groups / 10);
+        
+        return $stats;
+    }
 }
 
