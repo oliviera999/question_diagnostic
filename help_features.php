@@ -17,6 +17,7 @@
  */
 
 require_once(__DIR__ . '/../../config.php');
+require_once(__DIR__ . '/lib.php');
 
 require_login();
 
@@ -187,13 +188,9 @@ echo html_writer::tag('li', html_writer::link(
 echo html_writer::end_tag('ul');
 echo html_writer::end_div();
 
-// Bouton retour
+// 🆕 v1.9.44 : Lien retour hiérarchique (vers help.php)
 echo html_writer::start_div('', ['style' => 'margin: 30px 0; text-align: center;']);
-echo html_writer::link(
-    new moodle_url('/local/question_diagnostic/index.php'),
-    '← Retour au Dashboard',
-    ['class' => 'btn btn-secondary']
-);
+echo local_question_diagnostic_render_back_link('help_features.php');
 echo html_writer::end_div();
 
 echo $OUTPUT->footer();

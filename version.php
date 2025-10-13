@@ -9,8 +9,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'local_question_diagnostic';
-$plugin->version = 2025101305;  // YYYYMMDDXX format (v1.9.48 - Tableau de synthèse des groupes de doublons)
+$plugin->version = 2025101306;  // YYYYMMDDXX format (v1.9.49 - Fix fonction render_back_link non définie)
 $plugin->requires = 2022041900; // Moodle 4.0+ (architecture question_bank_entries requise)
 $plugin->maturity = MATURITY_STABLE;
-$plugin->release = 'v1.9.48';
+$plugin->release = 'v1.9.49';
 

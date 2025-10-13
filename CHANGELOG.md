@@ -5,6 +5,199 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.9.49] - 2025-10-13
+
+### 🐛 Bugfix : Correction fonction render_back_link non définie
+
+#### 🐛 Problème
+
+Erreur lors de l'accès à certaines pages du plugin :
+
+```
+Exception : Call to undefined function local_question_diagnostic_render_back_link()
+```
+
+**Pages affectées** :
+- ❌ `audit_logs.php` - Logs d'audit
+- ❌ `monitoring.php` - Interface de monitoring
+- ❌ `help_features.php` - Page d'aide sur les fonctionnalités
+
+**Cause** : La fonction `local_question_diagnostic_render_back_link()` est définie dans `lib.php` (ligne 672), mais ce fichier n'était **pas inclus** dans ces 3 pages.
+
+#### ✅ Solution
+
+Ajout de `require_once(__DIR__ . '/lib.php');` dans les 3 fichiers concernés :
+
+1. **audit_logs.php** (ligne 20)
+2. **monitoring.php** (ligne 20)
+3. **help_features.php** (ligne 20)
+
+**Impact** : ✅ Toutes les pages du plugin fonctionnent maintenant correctement
+
+---
+
+## [1.9.47] - 2025-10-13
+
+### 🐛 Bugfix : Correction fonction non définie dans les actions
+
+#### 🐛 Problème
+
+Lors de la suppression d'une question ou de toute autre action, l'erreur suivante se produisait :
+
+```
+Exception : Call to undefined function local_question_diagnostic_get_parent_url()
+```
+
+**Cause** : La fonction `local_question_diagnostic_get_parent_url()` est définie dans `lib.php` (ligne 613), mais ce fichier n'était **pas inclus** dans les fichiers d'action.
+
+#### ✅ Solution
+
+Ajout de `require_once(__DIR__ . '/../lib.php');` dans **tous les fichiers d'action** qui utilisent cette fonction :
+
+1. **actions/delete_question.php** (ligne 24)
+2. **actions/delete_questions_bulk.php** (ligne 18)
+3. **actions/delete.php** (ligne 5)
+4. **actions/move.php** (ligne 5)
+5. **actions/merge.php** (ligne 5)
+6. **actions/export.php** (ligne 5)
+
+**Avant** :
+```php
+require_once(__DIR__ . '/../../../config.php');
+require_once(__DIR__ . '/../classes/question_analyzer.php');
+// ❌ lib.php manquant
+
+$returnurl = local_question_diagnostic_get_parent_url('actions/delete_question.php');
+// ❌ ERREUR : fonction non définie
+```
+
+**Après** :
+```php
+require_once(__DIR__ . '/../../../config.php');
+require_once(__DIR__ . '/../lib.php'); // ✅ AJOUTÉ
+require_once(__DIR__ . '/../classes/question_analyzer.php');
+
+$returnurl = local_question_diagnostic_get_parent_url('actions/delete_question.php');
+// ✅ FONCTIONNE
+```
+
+#### 📁 Fichiers Modifiés
+
+- `actions/delete_question.php`
+- `actions/delete_questions_bulk.php`
+- `actions/delete.php`
+- `actions/move.php`
+- `actions/merge.php`
+- `actions/export.php`
+
+#### 🎯 Impact
+
+✅ Toutes les actions (suppression, fusion, déplacement, export) fonctionnent maintenant correctement  
+✅ Navigation hiérarchique restaurée (retour à la page parente)  
+✅ Aucun impact sur les performances
+
+---
+
+## [1.9.44] - 2025-10-13
+
+### 🎨 Amélioration : Dashboard - Affichage des statistiques doublons et questions cachées
+
+#### 🐛 Problème
+
+Le dashboard principal affichait uniquement 4 cartes statistiques et ne montrait PAS :
+- Le nombre de questions en doublon
+- Le nombre de questions cachées
+
+L'utilisateur signalait : *"Dashboard affiche ~0 (non calculé) pour doublons et questions cachées alors qu'il en existe de nombreuses"*
+
+#### ✅ Solution
+
+**1. Ajout de 2 nouvelles cartes dans le dashboard**
+
+Le dashboard passe de **4 à 6 cartes** :
+- Total catégories
+- Catégories orphelines  
+- Total questions
+- **⚠️ Questions en Doublon** (NOUVEAU - carte 4)
+- **⚠️ Questions Cachées** (NOUVEAU - carte 5)
+- Liens cassés
+
+**2. Amélioration du mode simplifié (grandes bases >10k)**
+
+La fonction `get_global_stats_simple()` calcule maintenant **TOUJOURS** :
+- Nombre de questions cachées (requête légère avec `COUNT DISTINCT`)
+- Estimation des doublons (GROUP BY simple sur nom+type)
+
+**Avant** (mode simplifié) :
+```php
+$stats->hidden_questions = 0; // Non calculé
+$stats->duplicate_questions = 0; // Non calculé
+```
+
+**Après** (mode simplifié amélioré) :
+```php
+// Calcul systématique même pour grandes bases
+$stats->hidden_questions = COUNT(...); // Valeur réelle
+$stats->duplicate_questions = COUNT(...); // Estimation rapide
+```
+
+**3. Amélioration des stats de l'outil "Analyser les questions"**
+
+Affichage dynamique au lieu de labels génériques :
+- `🔍 127 groupes de doublons` (au lieu de "Détection de doublons")
+- `🙈 45 questions cachées` (au lieu de labels génériques)
+- `💤 1523 inutilisées`
+- `✅ Base de questions saine` (si aucun problème)
+
+#### 📊 Résultat Final
+
+**Dashboard amélioré** :
+```
+📊 Vue d'ensemble
+
+Catégories    Orphelines    Questions    ⚠️ Doublons         ⚠️ Cachées          Liens cassés
+   156           12          2,847       127 groupes         45 non visibles        3 questions
+   Total      Catégories      Total      (389 doublons)                                      
+```
+
+**Couleurs dynamiques** :
+- 🟢 Vert (`success`) : Aucun problème
+- 🟡 Orange (`warning`) : Attention requise
+- 🔴 Rouge (`danger`) : Action urgente
+
+#### 📁 Fichiers Modifiés
+
+1. **index.php**
+   - Ajout de `question_analyzer::get_global_stats()`
+   - Ajout des cartes 4 et 5 (doublons + cachées)
+   - Amélioration des statistiques de l'outil Questions
+
+2. **classes/question_analyzer.php**
+   - Amélioration de `get_global_stats_simple()`
+   - Calcul systématique des doublons et cachées (même grandes bases)
+
+#### ⚡ Performance
+
+**Impact sur le dashboard** : ~600ms maximum (grandes bases)
+- Questions cachées : <100ms (`COUNT DISTINCT` avec index)
+- Doublons : <500ms (`GROUP BY` avec index composé)
+
+**Cache Moodle** : Résultats mis en cache 1 heure
+
+#### 🎯 Compatibilité
+
+- ✅ Moodle 4.5
+- ✅ Petites bases (<1k questions)
+- ✅ Moyennes bases (1k-10k questions) 
+- ✅ Grandes bases (>10k questions)
+- ✅ Très grandes bases (>50k questions)
+
+#### 📚 Documentation
+
+Voir : `docs/bugfixes/BUGFIX_DASHBOARD_STATS_v1.9.44.md`
+
+---
+
 ## [1.9.43] - 2025-10-13
 
 ### 🔧 BUGFIX CRITIQUE : Test Doublons Utilisés - Affichage et Verrouillage

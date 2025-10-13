@@ -17,6 +17,7 @@
  */
 
 require_once(__DIR__ . '/../../config.php');
+require_once(__DIR__ . '/lib.php');
 require_once(__DIR__ . '/classes/audit_logger.php');
 
 use local_question_diagnostic\audit_logger;
@@ -34,13 +35,9 @@ $PAGE->set_heading('📋 Logs d\'Audit - Traçabilité des Modifications');
 
 echo $OUTPUT->header();
 
-// Lien retour
+// 🆕 v1.9.44 : Lien retour hiérarchique
 echo html_writer::start_tag('div', ['style' => 'margin-bottom: 20px;']);
-echo html_writer::link(
-    new moodle_url('/local/question_diagnostic/index.php'),
-    '← Retour au Dashboard',
-    ['class' => 'btn btn-secondary']
-);
+echo local_question_diagnostic_render_back_link('audit_logs.php');
 echo html_writer::end_tag('div');
 
 // Introduction

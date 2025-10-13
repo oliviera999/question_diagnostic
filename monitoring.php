@@ -17,6 +17,7 @@
  */
 
 require_once(__DIR__ . '/../../config.php');
+require_once(__DIR__ . '/lib.php');
 require_once(__DIR__ . '/classes/category_manager.php');
 require_once(__DIR__ . '/classes/question_analyzer.php');
 require_once(__DIR__ . '/classes/question_link_checker.php');
@@ -46,13 +47,9 @@ if ($refresh) {
 
 echo $OUTPUT->header();
 
-// Boutons d'action
+// 🆕 v1.9.44 : Boutons d'action avec lien retour hiérarchique
 echo html_writer::start_div('', ['style' => 'margin-bottom: 20px; display: flex; gap: 10px;']);
-echo html_writer::link(
-    new moodle_url('/local/question_diagnostic/index.php'),
-    '← Retour au Dashboard',
-    ['class' => 'btn btn-secondary']
-);
+echo local_question_diagnostic_render_back_link('monitoring.php');
 
 $refresh_url = new moodle_url('/local/question_diagnostic/monitoring.php', ['refresh' => $refresh ? 0 : 1]);
 $refresh_text = $refresh ? '⏸️ Désactiver auto-refresh' : '🔄 Activer auto-refresh (30s)';

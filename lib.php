@@ -579,3 +579,151 @@ function local_question_diagnostic_require_capability_or_die($permission) {
     }
 }
 
+// ============================================================================
+// 🆕 v1.9.44 : Fonctions de navigation hiérarchique
+// ============================================================================
+
+/**
+ * Obtient l'URL de la page parente dans la hiérarchie de navigation
+ * 
+ * 🆕 v1.9.44 : Hiérarchie de navigation logique
+ * 
+ * Hiérarchie :
+ * - index.php (racine)
+ *   ├── categories.php
+ *   │   ├── actions/delete.php
+ *   │   ├── actions/merge.php
+ *   │   ├── actions/move.php
+ *   │   └── actions/export.php
+ *   ├── broken_links.php
+ *   ├── questions_cleanup.php
+ *   │   ├── actions/delete_question.php
+ *   │   └── actions/delete_questions_bulk.php
+ *   ├── help.php
+ *   │   ├── help_features.php
+ *   │   └── help_database_impact.php
+ *   ├── audit_logs.php
+ *   ├── monitoring.php
+ *   ├── orphan_entries.php
+ *   └── test.php
+ *
+ * @param string $current_page Nom du fichier actuel (ex: 'categories.php', 'actions/delete.php')
+ * @return moodle_url URL de la page parente
+ */
+function local_question_diagnostic_get_parent_url($current_page) {
+    // Normaliser le chemin (remplacer backslash par slash)
+    $current_page = str_replace('\\', '/', $current_page);
+    
+    // Définir la hiérarchie
+    $hierarchy = [
+        // Actions catégories → categories.php
+        'actions/delete.php' => 'categories.php',
+        'actions/merge.php' => 'categories.php',
+        'actions/move.php' => 'categories.php',
+        'actions/export.php' => 'categories.php',
+        
+        // Actions questions → questions_cleanup.php
+        'actions/delete_question.php' => 'questions_cleanup.php',
+        'actions/delete_questions_bulk.php' => 'questions_cleanup.php',
+        
+        // Pages d'aide → help.php
+        'help_features.php' => 'help.php',
+        'help_database_impact.php' => 'help.php',
+        
+        // Pages principales → index.php
+        'categories.php' => 'index.php',
+        'broken_links.php' => 'index.php',
+        'questions_cleanup.php' => 'index.php',
+        'help.php' => 'index.php',
+        'audit_logs.php' => 'index.php',
+        'monitoring.php' => 'index.php',
+        'orphan_entries.php' => 'index.php',
+        'test.php' => 'index.php',
+        'debug_categories.php' => 'index.php',
+        'quick_check_categories.php' => 'index.php',
+        'check_default_categories.php' => 'index.php',
+        'diagnose_dd_files.php' => 'index.php',
+        
+        // index.php n'a pas de parent (racine)
+        'index.php' => null,
+    ];
+    
+    // Trouver le parent
+    $parent = isset($hierarchy[$current_page]) ? $hierarchy[$current_page] : 'index.php';
+    
+    if ($parent === null) {
+        // Page racine, retourner vers le tableau de bord Moodle
+        return new moodle_url('/my/');
+    }
+    
+    return new moodle_url('/local/question_diagnostic/' . $parent);
+}
+
+/**
+ * Génère le HTML du lien de retour vers la page parente
+ * 
+ * 🆕 v1.9.44 : Hiérarchie de navigation logique
+ * 
+ * ⚠️ IMPORTANT : Pour utiliser cette fonction, le fichier appelant DOIT inclure lib.php :
+ * 
+ * ```php
+ * require_once(__DIR__ . '/lib.php');
+ * ```
+ * 
+ * ⚠️ FICHIERS UTILISANT CETTE FONCTION (v1.9.49) :
+ * - index.php ✅
+ * - categories.php ✅
+ * - questions_cleanup.php ✅
+ * - broken_links.php ✅
+ * - audit_logs.php ✅
+ * - monitoring.php ✅
+ * - orphan_entries.php ✅
+ * - help_features.php ✅
+ * - help_database_impact.php ✅
+ * 
+ * 🔧 Si vous ajoutez un nouvel appel à cette fonction dans un nouveau fichier,
+ * pensez à inclure lib.php ET à mettre à jour cette liste !
+ * 
+ * 🐛 Bugfix : v1.9.49 - Correction inclusion manquante dans audit_logs, monitoring, help_features
+ *
+ * @param string $current_page Nom du fichier actuel
+ * @param string $custom_text Texte personnalisé pour le lien (optionnel)
+ * @param array $extra_params Paramètres supplémentaires à conserver dans l'URL (ex: ['page' => 2])
+ * @return string HTML du lien de retour
+ */
+function local_question_diagnostic_render_back_link($current_page, $custom_text = null, $extra_params = []) {
+    $parent_url = local_question_diagnostic_get_parent_url($current_page);
+    
+    // Ajouter les paramètres supplémentaires si fournis
+    if (!empty($extra_params)) {
+        foreach ($extra_params as $key => $value) {
+            $parent_url->param($key, $value);
+        }
+    }
+    
+    // Déterminer le texte du lien
+    if ($custom_text === null) {
+        // Texte par défaut basé sur la page parente
+        $parent_file = basename($parent_url->get_path());
+        
+        $default_texts = [
+            'index.php' => get_string('backtomenu', 'local_question_diagnostic'),
+            'categories.php' => '← Retour aux catégories',
+            'questions_cleanup.php' => '← Retour aux questions',
+            'help.php' => '← Retour au centre d\'aide',
+            'my' => '← Retour au tableau de bord',
+        ];
+        
+        // Cas spécial pour /my/ (tableau de bord)
+        if (strpos($parent_url->get_path(), '/my/') !== false) {
+            $text = $default_texts['my'];
+        } else {
+            $text = isset($default_texts[$parent_file]) ? $default_texts[$parent_file] : '← Retour';
+        }
+    } else {
+        $text = $custom_text;
+    }
+    
+    return html_writer::link($parent_url, $text, ['class' => 'btn btn-secondary']);
+}
+
