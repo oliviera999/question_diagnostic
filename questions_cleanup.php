@@ -402,6 +402,24 @@ if ($randomtest_used && confirm_sesskey()) {
         'qtype' => $random_question->qtype
     ]);
     
+    // 🔧 v1.9.43 FIX : Calculer le VRAI nombre de versions utilisées AVANT l'affichage
+    // Charger les stats de toutes les questions du groupe pour déterminer combien sont utilisées
+    $group_question_ids_preview = array_map(function($q) { return $q->id; }, $all_questions);
+    $group_usage_map_preview = question_analyzer::get_questions_usage_by_ids($group_question_ids_preview);
+    
+    $used_count_preview = 0;
+    foreach ($all_questions as $q) {
+        $quiz_count = 0;
+        if (isset($group_usage_map_preview[$q->id]) && is_array($group_usage_map_preview[$q->id])) {
+            $quiz_count = isset($group_usage_map_preview[$q->id]['quiz_count']) ? $group_usage_map_preview[$q->id]['quiz_count'] : 0;
+        }
+        if ($quiz_count > 0) {
+            $used_count_preview++;
+        }
+    }
+    
+    $unused_count_preview = count($all_questions) - $used_count_preview;
+    
     echo html_writer::start_tag('div', ['class' => 'alert alert-success', 'style' => 'margin: 20px 0;']);
     echo html_writer::tag('h3', '🎯 Groupe de Doublons Utilisés Trouvé !', ['style' => 'margin-top: 0;']);
     echo html_writer::tag('p', '✅ Trouvé après avoir testé <strong>' . $tested_count . ' question(s) utilisée(s) dans des quiz</strong>');
@@ -409,8 +427,7 @@ if ($randomtest_used && confirm_sesskey()) {
     echo html_writer::tag('p', '<strong>Question sélectionnée ID :</strong> ' . $random_question->id . ' (Cette question est UTILISÉE dans au moins un quiz)');
     echo html_writer::tag('p', '<strong>Nom :</strong> ' . format_string($random_question->name));
     echo html_writer::tag('p', '<strong>Type :</strong> ' . $random_question->qtype);
-    $duplicate_count = count($all_questions) - 1; // -1 pour exclure la question elle-même
-    echo html_writer::tag('p', '<strong>Nombre de versions totales :</strong> ' . count($all_questions) . ' (1 utilisée dans quiz + ' . $duplicate_count . ' doublon(s))');
+    echo html_writer::tag('p', '<strong>Nombre de versions totales :</strong> ' . count($all_questions) . ' (' . $used_count_preview . ' utilisée(s) dans quiz + ' . $unused_count_preview . ' doublon(s) inutilisé(s))');
     echo html_writer::end_tag('div');
     
     // Tableau détaillé
@@ -453,12 +470,13 @@ if ($randomtest_used && confirm_sesskey()) {
     echo html_writer::start_tag('tbody');
     
     // 🆕 v1.9.1 : OPTIMISATION - Charger les stats de toutes les questions du groupe en batch
-    $group_question_ids = array_map(function($q) { return $q->id; }, $all_questions);
-    $group_usage_map = question_analyzer::get_questions_usage_by_ids($group_question_ids);
+    // 🔧 v1.9.43 OPTIMISATION : Réutiliser les données déjà chargées pour l'en-tête
+    $group_question_ids = $group_question_ids_preview;
+    $group_usage_map = $group_usage_map_preview;
     
     // 🆕 v1.9.6 : Vérifier la supprimabilité de toutes les questions du groupe en batch
-    $group_question_ids_for_delete = array_map(function($q) { return $q->id; }, $all_questions);
-    $deletability_map = question_analyzer::can_delete_questions_batch($group_question_ids_for_delete);
+    // 🔧 v1.9.43 OPTIMISATION : Réutiliser $group_question_ids au lieu de recréer un tableau
+    $deletability_map = question_analyzer::can_delete_questions_batch($group_question_ids);
     
     foreach ($all_questions as $q) {
         $stats = question_analyzer::get_question_stats($q);

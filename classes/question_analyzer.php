@@ -1341,19 +1341,16 @@ class question_analyzer {
                 $qid = $q->id;
                 
                 // Vérification 1 : Question utilisée ?
-                if (isset($usage_map[$qid])) {
-                    $usage = $usage_map[$qid];
-                    if (!empty($usage)) {
-                        $quiz_count = 0;
-                        foreach ($usage as $u) {
-                            $quiz_count++;
-                        }
-                        
-                        if ($quiz_count > 0) {
-                            $results[$qid]->reason = 'Question utilisée dans ' . $quiz_count . ' quiz';
-                            $results[$qid]->details['quiz_count'] = $quiz_count;
-                            continue;
-                        }
+                // 🔧 v1.9.43 FIX CRITIQUE : Utiliser la clé 'quiz_count' directement au lieu d'itérer sur l'array
+                // L'ancien code itérait sur les clés de l'array associatif (['quiz_count', 'quiz_list', ...])
+                // ce qui comptait toujours 4 même pour les questions inutilisées !
+                if (isset($usage_map[$qid]) && is_array($usage_map[$qid])) {
+                    $quiz_count = isset($usage_map[$qid]['quiz_count']) ? $usage_map[$qid]['quiz_count'] : 0;
+                    
+                    if ($quiz_count > 0) {
+                        $results[$qid]->reason = 'Question utilisée dans ' . $quiz_count . ' quiz';
+                        $results[$qid]->details['quiz_count'] = $quiz_count;
+                        continue;
                     }
                 }
                 

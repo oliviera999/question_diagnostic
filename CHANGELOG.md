@@ -5,6 +5,144 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.9.43] - 2025-10-13
+
+### 🔧 BUGFIX CRITIQUE : Test Doublons Utilisés - Affichage et Verrouillage
+
+#### Problème 1 : Affichage incorrect du nombre de versions utilisées
+
+**Symptôme** :
+```
+Nombre de versions totales : 33 (1 utilisée dans quiz + 32 doublon(s))
+```
+Alors qu'en réalité, il y avait **11 versions utilisées** et **22 inutilisées**.
+
+**Cause** : Affichage statique hardcodé qui supposait qu'une seule version était utilisée (`questions_cleanup.php`, ligne 413).
+
+#### Problème 2 : 🚨 Logique de verrouillage complètement cassée
+
+**Symptôme** :
+- Questions inutilisées affichées comme 🔒 PROTÉGÉES
+- Impossibilité de supprimer des doublons pourtant inutilisés
+- Checkboxes désactivées à tort
+
+**Cause** : La fonction `can_delete_questions_batch()` itérait incorrectement sur un array associatif :
+```php
+// ❌ CODE INCORRECT
+$usage = $usage_map[$qid]; // ['quiz_count' => 0, 'quiz_list' => [], ...]
+foreach ($usage as $u) {
+    $quiz_count++; // Comptait les CLÉS au lieu des quiz !
+}
+// Résultat : quiz_count = 4 (nombre de clés) même si aucun quiz !
+```
+
+**Impact** : Toutes les questions avec doublons étaient verrouillées, même si inutilisées.
+
+#### Problème 3 : Incohérence entre en-tête et résumé
+
+L'en-tête disait "1 utilisée" mais le résumé détaillé disait "11 utilisées".
+
+---
+
+### ✅ Corrections Appliquées
+
+#### 1. Correction de `can_delete_questions_batch()` 
+
+**Fichier** : `classes/question_analyzer.php` (lignes 1344-1355)
+
+```php
+// ✅ CODE CORRIGÉ v1.9.43
+if (isset($usage_map[$qid]) && is_array($usage_map[$qid])) {
+    $quiz_count = isset($usage_map[$qid]['quiz_count']) ? 
+                  $usage_map[$qid]['quiz_count'] : 0;
+    
+    if ($quiz_count > 0) {
+        $results[$qid]->reason = 'Question utilisée dans ' . $quiz_count . ' quiz';
+        continue;
+    }
+}
+```
+
+**Résultat** :
+- `$quiz_count` contient le **vrai** nombre de quiz (0, 1, 2, etc.)
+- Questions inutilisées ne sont plus verrouillées à tort
+- Checkboxes s'affichent correctement
+
+#### 2. Correction de l'affichage de l'en-tête
+
+**Fichier** : `questions_cleanup.php` (lignes 405-430)
+
+Ajout d'un **calcul dynamique** avant l'affichage :
+```php
+// 🔧 v1.9.43 : Calculer le VRAI nombre de versions utilisées
+$group_usage_map_preview = question_analyzer::get_questions_usage_by_ids($group_question_ids_preview);
+
+$used_count_preview = 0;
+foreach ($all_questions as $q) {
+    $quiz_count = isset($group_usage_map_preview[$q->id]['quiz_count']) ? 
+                  $group_usage_map_preview[$q->id]['quiz_count'] : 0;
+    if ($quiz_count > 0) {
+        $used_count_preview++;
+    }
+}
+
+$unused_count_preview = count($all_questions) - $used_count_preview;
+```
+
+**Nouvel affichage** :
+```
+Nombre de versions totales : 33 (11 utilisée(s) dans quiz + 22 doublon(s) inutilisé(s))
+```
+
+#### 3. Optimisation : Réutilisation des données
+
+**Fichier** : `questions_cleanup.php` (lignes 472-479)
+
+```php
+// 🔧 v1.9.43 OPTIMISATION : Réutiliser les données déjà chargées
+$group_question_ids = $group_question_ids_preview;
+$group_usage_map = $group_usage_map_preview;
+```
+
+**Gain** : Une seule requête SQL au lieu de deux.
+
+---
+
+### 📊 Résultat
+
+| Avant (v1.9.42) | Après (v1.9.43) |
+|-----------------|-----------------|
+| En-tête : "1 utilisée + 32 doublons" | En-tête : "11 utilisées + 22 inutilisées" |
+| Résumé : "11 utilisées" ❌ INCOHÉRENT | Résumé : "11 utilisées" ✅ COHÉRENT |
+| Toutes questions verrouillées 🔒 | Seulement 11 verrouillées, 22 supprimables ☑️ |
+| Impossible de supprimer doublons | 22 doublons supprimables en masse |
+
+---
+
+### 📝 Fichiers Modifiés
+
+1. **`classes/question_analyzer.php`**
+   - Ligne 1344-1355 : Correction logique de verrouillage
+   - Commentaires explicatifs du bug
+
+2. **`questions_cleanup.php`**
+   - Lignes 405-430 : Calcul dynamique nombre de versions utilisées
+   - Lignes 472-479 : Optimisation réutilisation données
+
+3. **`docs/bugfixes/BUGFIX_DUPLICATE_TEST_DISPLAY_v1.9.43.md`**
+   - Documentation complète du bugfix
+
+---
+
+### 🎯 Impact
+
+- **Utilisabilité** : Les utilisateurs peuvent maintenant supprimer les doublons inutilisés
+- **Confiance** : Affichage cohérent et transparent
+- **Performance** : Une seule requête SQL au lieu de deux
+- **Sécurité** : Questions utilisées restent protégées
+
+---
+
 ## [1.9.42] - 2025-10-11
 
 ### 🧪 OPTION E : Tests & Qualité + CI/CD Automation
