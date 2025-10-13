@@ -266,7 +266,8 @@ if (empty($broken_questions)) {
                 'courseid' => 0,
                 'cat' => $category->id . ',' . $category->contextid
             ]);
-            echo html_writer::link($cat_url, format_string($category->name), ['target' => '_blank']);
+            $cat_name = format_string($category->name) . ' <span style="color: #666; font-size: 11px;">(ID: ' . $category->id . ')</span>';
+            echo html_writer::link($cat_url, $cat_name, ['target' => '_blank']);
         } else {
             echo '-';
         }

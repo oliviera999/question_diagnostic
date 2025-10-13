@@ -214,7 +214,12 @@ foreach ($all_questions as $q) {
     echo html_writer::tag('td', $q->id . ($representative_id && $q->id == $representative_id ? ' 🎯' : ''));
     echo html_writer::tag('td', format_string($q->name));
     echo html_writer::tag('td', $q->qtype);
-    echo html_writer::tag('td', isset($stats->category_name) ? $stats->category_name : 'N/A');
+    // Afficher nom de catégorie + ID
+    $category_display = isset($stats->category_name) ? $stats->category_name : 'N/A';
+    if (isset($stats->category_id) && $stats->category_id > 0) {
+        $category_display .= ' <span style="color: #666; font-size: 11px;">(ID: ' . $stats->category_id . ')</span>';
+    }
+    echo html_writer::tag('td', $category_display);
     echo html_writer::tag('td', isset($stats->context_name) ? $stats->context_name : '-', ['style' => 'font-size: 12px;']);
     echo html_writer::tag('td', isset($stats->course_name) ? '📚 ' . $stats->course_name : '-');
     
