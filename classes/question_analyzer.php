@@ -1053,11 +1053,38 @@ class question_analyzer {
             $stats->unused_questions = $total_questions;
         }
         
-        // Approximations pour stats moins critiques
-        $stats->visible_questions = $total_questions; // Approximation
-        $stats->hidden_questions = 0; // Non calculé (nécessite JOIN avec question_versions)
-        $stats->duplicate_questions = 0; // Non calculé
-        $stats->total_duplicates = 0; // Non calculé
+        // Questions cachées (calcul léger même pour grandes bases)
+        try {
+            $stats->hidden_questions = (int)$DB->count_records_sql("
+                SELECT COUNT(DISTINCT qv.questionid)
+                FROM {question_versions} qv
+                WHERE qv.status = 'hidden'
+            ");
+            $stats->visible_questions = $total_questions - $stats->hidden_questions;
+        } catch (\Exception $e) {
+            debugging('Error calculating hidden questions in simple mode: ' . $e->getMessage(), DEBUG_DEVELOPER);
+            $stats->visible_questions = $total_questions; // Approximation
+            $stats->hidden_questions = 0;
+        }
+        
+        // Estimation rapide des doublons (GROUP BY simple, pas de calcul de similarité)
+        try {
+            $exact_name_dupes = $DB->get_records_sql("
+                SELECT name, qtype, COUNT(*) as count
+                FROM {question}
+                GROUP BY name, qtype
+                HAVING COUNT(*) > 1
+            ");
+            $stats->duplicate_questions = count($exact_name_dupes);
+            $stats->total_duplicates = array_sum(array_map(function($d) { 
+                return $d->count; 
+            }, $exact_name_dupes));
+        } catch (\Exception $e) {
+            debugging('Error calculating duplicates in simple mode: ' . $e->getMessage(), DEBUG_DEVELOPER);
+            $stats->duplicate_questions = 0;
+            $stats->total_duplicates = 0;
+        }
+        
         $stats->questions_with_broken_links = 0; // Non calculé (trop lourd)
         
         // Indicateur pour l'interface
@@ -1322,14 +1349,14 @@ class question_analyzer {
             // ÉTAPE 2 : Vérifier l'usage de TOUTES les questions en une seule requête
             $usage_map = self::get_questions_usage_by_ids($questionids);
             
-            // ÉTAPE 3 : Trouver les doublons pour chaque question (groupé par signature)
-            // 🔧 v1.9.23 FIX : Utiliser nom+type UNIQUEMENT (pas le texte complet)
-            // Raison : Le texte peut avoir de légères différences (espaces, HTML) mais c'est quand même un doublon
-            // Créer un map de signatures → liste de questions
+            // ÉTAPE 3 : Trouver les doublons pour chaque question (groupé par nom+type)
+            // 🔧 v1.9.45 FIX CRITIQUE : Utiliser la MÊME logique que get_used_duplicates_questions
+            // Grouper par nom exact + type (pas de MD5 qui cache les variations)
             $signature_map = [];
             foreach ($questions as $q) {
-                // Utiliser UNIQUEMENT nom + type (comme dans la page Test Doublons)
-                $signature = md5($q->name . '|' . $q->qtype);
+                // 🔧 v1.9.45 : Utiliser nom+type directement (pas de MD5)
+                // Cela garantit la cohérence avec les autres méthodes du plugin
+                $signature = $q->name . '|||' . $q->qtype;
                 if (!isset($signature_map[$signature])) {
                     $signature_map[$signature] = [];
                 }
@@ -1355,9 +1382,9 @@ class question_analyzer {
                 }
                 
                 // Vérification 2 : Question a des doublons ?
-                // 🔧 v1.9.23 FIX : Utiliser nom+type UNIQUEMENT (cohérence avec page Test Doublons)
-                $signature = md5($q->name . '|' . $q->qtype);
-                $duplicate_ids = $signature_map[$signature];
+                // 🔧 v1.9.45 FIX CRITIQUE : Utiliser la MÊME signature que ÉTAPE 3
+                $signature = $q->name . '|||' . $q->qtype;
+                $duplicate_ids = isset($signature_map[$signature]) ? $signature_map[$signature] : [];
                 
                 // Enlever la question elle-même
                 $duplicate_ids = array_filter($duplicate_ids, function($id) use ($qid) {
@@ -1367,6 +1394,9 @@ class question_analyzer {
                 if (count($duplicate_ids) == 0) {
                     $results[$qid]->reason = 'Question unique (pas de doublon)';
                     $results[$qid]->details['is_unique'] = true;
+                    $results[$qid]->details['debug_signature'] = $signature;
+                    $results[$qid]->details['debug_name'] = $q->name;
+                    $results[$qid]->details['debug_type'] = $q->qtype;
                     continue;
                 }
                 
@@ -1375,6 +1405,9 @@ class question_analyzer {
                 $results[$qid]->reason = 'Doublon inutilisé';
                 $results[$qid]->details['duplicate_count'] = count($duplicate_ids);
                 $results[$qid]->details['duplicate_ids'] = array_values($duplicate_ids);
+                $results[$qid]->details['debug_signature'] = $signature;
+                $results[$qid]->details['debug_name'] = $q->name;
+                $results[$qid]->details['debug_type'] = $q->qtype;
             }
             
         } catch (\Exception $e) {

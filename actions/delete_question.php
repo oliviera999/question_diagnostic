@@ -36,7 +36,10 @@ if (!is_siteadmin()) {
 $questionid = optional_param('id', 0, PARAM_INT);
 $questionids_param = optional_param('ids', '', PARAM_TEXT);
 $confirm = optional_param('confirm', 0, PARAM_INT);
-$returnurl = new moodle_url('/local/question_diagnostic/questions_cleanup.php', ['loadstats' => 1, 'show' => 50]);
+// 🆕 v1.9.44 : URL de retour hiérarchique avec paramètres
+$returnurl = local_question_diagnostic_get_parent_url('actions/delete_question.php');
+$returnurl->param('loadstats', 1);
+$returnurl->param('show', 50);
 
 // Déterminer si c'est une suppression unique ou en masse
 $question_ids = [];
@@ -96,8 +99,39 @@ if (empty($can_delete)) {
         }
         echo html_writer::end_tag('ul');
     } else {
+        $first_qid = key($cannot_delete);
         $first_reason = reset($cannot_delete);
+        $check = $deletability_map[$first_qid];
+        
         echo html_writer::tag('p', '<strong>' . get_string('reason', 'local_question_diagnostic') . '</strong> : ' . $first_reason, ['style' => 'font-size: 16px;']);
+        
+        // 🆕 v1.9.45 : Afficher les informations de débogage pour toutes les erreurs
+        if ($CFG->debugdisplay && isset($check->details)) {
+            echo html_writer::start_tag('div', ['style' => 'margin-top: 20px; padding: 15px; background: #fff3cd; border: 1px solid #ffc107; border-radius: 4px;']);
+            echo html_writer::tag('h4', '🔍 Informations de Débogage', ['style' => 'margin-top: 0; color: #856404;']);
+            
+            if (isset($check->details['debug_name'])) {
+                echo html_writer::tag('p', '<strong>Nom :</strong> ' . s($check->details['debug_name']));
+            }
+            if (isset($check->details['debug_type'])) {
+                echo html_writer::tag('p', '<strong>Type :</strong> ' . s($check->details['debug_type']));
+            }
+            if (isset($check->details['debug_signature'])) {
+                echo html_writer::tag('p', '<strong>Signature :</strong> ' . s($check->details['debug_signature']));
+            }
+            if (isset($check->details['quiz_count'])) {
+                echo html_writer::tag('p', '<strong>Quiz count :</strong> ' . $check->details['quiz_count']);
+            }
+            if (isset($check->details['is_unique'])) {
+                echo html_writer::tag('p', '<strong>Est unique :</strong> ' . ($check->details['is_unique'] ? 'Oui' : 'Non'));
+            }
+            if (isset($check->details['duplicate_count'])) {
+                echo html_writer::tag('p', '<strong>Nombre de doublons :</strong> ' . $check->details['duplicate_count']);
+            }
+            
+            echo html_writer::tag('p', '<em style="font-size: 12px;">Mode débogage activé. Utilisez ces informations pour diagnostiquer le problème.</em>');
+            echo html_writer::end_tag('div');
+        }
     }
     echo html_writer::end_tag('div');
     
@@ -128,6 +162,17 @@ if (empty($can_delete)) {
         echo html_writer::tag('p', 'Cette question n\'a <strong>aucun doublon</strong> dans votre base de données. ');
         echo html_writer::tag('p', 'La suppression de questions uniques est <strong>interdite par sécurité</strong> pour éviter la perte de contenu pédagogique.');
         echo html_writer::end_tag('div');
+        
+        // 🆕 v1.9.45 : Informations de débogage détaillées
+        if ($CFG->debugdisplay) {
+            echo html_writer::start_tag('div', ['class' => 'alert alert-warning', 'style' => 'margin-top: 15px;']);
+            echo html_writer::tag('h4', '🔍 Informations de Débogage', ['style' => 'margin-top: 0;']);
+            echo html_writer::tag('p', '<strong>Nom de la question :</strong> ' . s($check->details['debug_name']));
+            echo html_writer::tag('p', '<strong>Type de la question :</strong> ' . s($check->details['debug_type']));
+            echo html_writer::tag('p', '<strong>Signature de détection :</strong> ' . s($check->details['debug_signature']));
+            echo html_writer::tag('p', '<em>Aucune autre question avec ce nom exact et ce type n\'a été trouvée.</em>');
+            echo html_writer::end_tag('div');
+        }
     }
     
     // Règles de protection
@@ -213,6 +258,18 @@ if (!$confirm) {
         echo html_writer::tag('p', 'Cette question a <strong>' . $check->details['duplicate_count'] . ' doublon(s)</strong> dans la base de données.');
         echo html_writer::tag('p', 'Les autres versions de cette question seront conservées.');
         echo html_writer::end_tag('div');
+        
+        // 🆕 v1.9.45 : Informations de débogage détaillées
+        if ($CFG->debugdisplay) {
+            echo html_writer::start_tag('div', ['class' => 'alert alert-secondary', 'style' => 'margin-top: 15px;']);
+            echo html_writer::tag('h4', '🔍 Informations de Débogage', ['style' => 'margin-top: 0;']);
+            echo html_writer::tag('p', '<strong>Nom de la question :</strong> ' . s($check->details['debug_name']));
+            echo html_writer::tag('p', '<strong>Type de la question :</strong> ' . s($check->details['debug_type']));
+            echo html_writer::tag('p', '<strong>Signature de détection :</strong> ' . s($check->details['debug_signature']));
+            echo html_writer::tag('p', '<strong>IDs des doublons :</strong> ' . implode(', ', $check->details['duplicate_ids']));
+            echo html_writer::tag('p', '<em>Mode débogage activé. Utilisez ces informations pour signaler un problème si nécessaire.</em>');
+            echo html_writer::end_tag('div');
+        }
     }
     
     // AVERTISSEMENT IRRÉVERSIBLE
