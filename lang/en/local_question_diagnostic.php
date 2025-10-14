@@ -473,3 +473,36 @@ $string['cleanup_all_complete_summary'] = '{$a->deleted} category(ies) deleted';
 $string['total_categories'] = 'Total categories';
 $string['backtocategories'] = 'Back to categories';
 
+// Olution duplicates (v1.10.4)
+$string['olution_duplicates_title'] = 'Automatic Move to Olution';
+$string['olution_duplicates_heading'] = 'Course → Olution Duplicates Management';
+$string['olution_not_found'] = 'The "Olution" category was not found';
+$string['olution_not_found_help'] = 'To use this feature, you must first create a question category named "Olution" at the system level (context: System).';
+$string['olution_total_duplicates'] = 'Duplicates detected';
+$string['olution_movable_questions'] = 'Movable questions';
+$string['olution_unmovable_questions'] = 'No match';
+$string['olution_subcategories_count'] = 'Olution subcategories';
+$string['olution_no_duplicates_found'] = 'No duplicates detected between course categories and Olution';
+$string['olution_move_all_button'] = 'Move all questions ({$a})';
+$string['olution_duplicates_list'] = 'List of detected duplicates';
+$string['course_category'] = 'Course category';
+$string['olution_target_category'] = 'Target Olution category';
+$string['similarity'] = 'Similarity';
+$string['no_match'] = 'No match';
+$string['confirm_move_to_olution'] = 'Confirm move to Olution';
+$string['move_details'] = 'Move details';
+$string['from_category'] = 'From category';
+$string['to_category'] = 'To category';
+$string['move_warning'] = 'This action will move the question from its current category to the corresponding Olution category. This operation is reversible (you can move it again manually if needed).';
+$string['move_success'] = 'Question successfully moved to Olution';
+$string['move_error'] = 'Error during move';
+$string['confirm_move_all_to_olution'] = 'Confirm bulk move to Olution';
+$string['move_all_details'] = 'Bulk move details';
+$string['total_questions_to_move'] = 'Number of questions to move';
+$string['affected_categories'] = 'Affected source categories';
+$string['move_all_warning'] = 'This action will move ALL detected duplicate questions to their corresponding Olution categories. Although this operation is reversible (manual move), it potentially affects a large number of questions. Make sure you have reviewed the list of duplicates before proceeding.';
+$string['no_movable_questions'] = 'No movable questions found';
+$string['move_batch_result'] = '{$a->success} question(s) successfully moved, {$a->failed} error(s)';
+$string['invalid_parameters'] = 'Invalid parameters';
+$string['invalid_action'] = 'Invalid action';
+

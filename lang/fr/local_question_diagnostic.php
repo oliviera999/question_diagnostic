@@ -473,3 +473,36 @@ $string['cleanup_all_complete_summary'] = '{$a->deleted} catégorie(s) supprimé
 $string['total_categories'] = 'Total catégories';
 $string['backtocategories'] = 'Retour aux catégories';
 
+// Olution duplicates (v1.10.4)
+$string['olution_duplicates_title'] = 'Déplacement automatique vers Olution';
+$string['olution_duplicates_heading'] = 'Gestion des doublons Cours → Olution';
+$string['olution_not_found'] = 'La catégorie "Olution" n\'a pas été trouvée';
+$string['olution_not_found_help'] = 'Pour utiliser cette fonctionnalité, vous devez d\'abord créer une catégorie de questions nommée "Olution" au niveau système (contexte : Système).';
+$string['olution_total_duplicates'] = 'Doublons détectés';
+$string['olution_movable_questions'] = 'Questions déplaçables';
+$string['olution_unmovable_questions'] = 'Sans correspondance';
+$string['olution_subcategories_count'] = 'Sous-catégories Olution';
+$string['olution_no_duplicates_found'] = 'Aucun doublon détecté entre les catégories de cours et Olution';
+$string['olution_move_all_button'] = 'Déplacer toutes les questions ({$a})';
+$string['olution_duplicates_list'] = 'Liste des doublons détectés';
+$string['course_category'] = 'Catégorie du cours';
+$string['olution_target_category'] = 'Catégorie Olution cible';
+$string['similarity'] = 'Similarité';
+$string['no_match'] = 'Pas de correspondance';
+$string['confirm_move_to_olution'] = 'Confirmer le déplacement vers Olution';
+$string['move_details'] = 'Détails du déplacement';
+$string['from_category'] = 'De la catégorie';
+$string['to_category'] = 'Vers la catégorie';
+$string['move_warning'] = 'Cette action va déplacer la question de sa catégorie actuelle vers la catégorie Olution correspondante. Cette opération est réversible (vous pouvez la déplacer à nouveau manuellement si nécessaire).';
+$string['move_success'] = 'Question déplacée avec succès vers Olution';
+$string['move_error'] = 'Erreur lors du déplacement';
+$string['confirm_move_all_to_olution'] = 'Confirmer le déplacement global vers Olution';
+$string['move_all_details'] = 'Détails du déplacement global';
+$string['total_questions_to_move'] = 'Nombre de questions à déplacer';
+$string['affected_categories'] = 'Catégories sources concernées';
+$string['move_all_warning'] = 'Cette action va déplacer TOUTES les questions en doublon détectées vers leurs catégories Olution correspondantes. Bien que cette opération soit réversible (déplacement manuel), elle affecte potentiellement un grand nombre de questions. Assurez-vous d\'avoir vérifié la liste des doublons avant de continuer.';
+$string['no_movable_questions'] = 'Aucune question déplaçable trouvée';
+$string['move_batch_result'] = '{$a->success} question(s) déplacée(s) avec succès, {$a->failed} erreur(s)';
+$string['invalid_parameters'] = 'Paramètres invalides';
+$string['invalid_action'] = 'Action invalide';
+

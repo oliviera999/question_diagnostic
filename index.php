@@ -516,7 +516,53 @@ echo html_writer::end_tag('div'); // fin qd-tool-content
 echo html_writer::end_tag('div'); // fin qd-tool-card
 
 // ======================================================================
-// OPTION 7 : Page de test
+// 🆕 v1.10.4 : OPTION 7 : Doublons Cours → Olution
+// ======================================================================
+
+require_once(__DIR__ . '/classes/olution_manager.php');
+use local_question_diagnostic\olution_manager;
+
+$olution_stats = olution_manager::get_duplicate_stats();
+
+echo html_writer::start_tag('div', ['class' => 'qd-tool-card']);
+
+echo html_writer::start_tag('div', ['class' => 'qd-tool-icon']);
+echo '🔄';
+echo html_writer::end_tag('div');
+
+echo html_writer::start_tag('div', ['class' => 'qd-tool-content']);
+
+echo html_writer::tag('h4', get_string('olution_duplicates_title', 'local_question_diagnostic'), ['class' => 'qd-tool-title']);
+
+echo html_writer::tag('p', 
+    'Détecte et déplace automatiquement les questions en doublon depuis les catégories de cours vers les catégories correspondantes dans "Olution" (catégorie système).',
+    ['class' => 'qd-tool-description']
+);
+
+// Statistiques spécifiques
+echo html_writer::start_tag('div', ['class' => 'qd-tool-stats']);
+if ($olution_stats->olution_exists) {
+    echo html_writer::tag('span', '📊 ' . $olution_stats->total_duplicates . ' doublons détectés', ['class' => 'qd-tool-stat-item']);
+    if ($olution_stats->movable_questions > 0) {
+        echo html_writer::tag('span', '✅ ' . $olution_stats->movable_questions . ' déplaçables', ['class' => 'qd-tool-stat-item qd-stat-success']);
+    }
+    if ($olution_stats->unmovable_questions > 0) {
+        echo html_writer::tag('span', '⚠️ ' . $olution_stats->unmovable_questions . ' sans correspondance', ['class' => 'qd-tool-stat-item qd-stat-warning']);
+    }
+} else {
+    echo html_writer::tag('span', '⚠️ Catégorie Olution non trouvée', ['class' => 'qd-tool-stat-item qd-stat-warning']);
+}
+echo html_writer::end_tag('div');
+
+$olution_url = new moodle_url('/local/question_diagnostic/olution_duplicates.php');
+echo html_writer::link($olution_url, 'Gérer les doublons Olution →', ['class' => 'qd-tool-button']);
+
+echo html_writer::end_tag('div'); // fin qd-tool-content
+
+echo html_writer::end_tag('div'); // fin qd-tool-card
+
+// ======================================================================
+// OPTION 8 : Page de test
 // ======================================================================
 
 echo html_writer::start_tag('div', ['class' => 'qd-tool-card']);

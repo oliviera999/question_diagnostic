@@ -779,3 +779,93 @@ function local_question_diagnostic_render_back_link($current_page, $custom_text 
     return html_writer::link($parent_url, $text, ['class' => 'btn btn-secondary']);
 }
 
+/**
+ * Trouve la catégorie racine "Olution" au niveau système
+ * 
+ * 🆕 v1.10.4 : Fonction pour identifier la catégorie Olution
+ * 
+ * @return object|false Objet catégorie Olution ou false si non trouvée
+ */
+function local_question_diagnostic_find_olution_category() {
+    global $DB;
+    
+    try {
+        // Récupérer le contexte système
+        $systemcontext = context_system::instance();
+        
+        // Chercher une catégorie nommée "Olution" au niveau système
+        $olution = $DB->get_record('question_categories', [
+            'contextid' => $systemcontext->id,
+            'parent' => 0,
+            'name' => 'Olution'
+        ]);
+        
+        return $olution ?: false;
+        
+    } catch (Exception $e) {
+        debugging('Error finding Olution category: ' . $e->getMessage(), DEBUG_DEVELOPER);
+        return false;
+    }
+}
+
+/**
+ * Récupère toutes les sous-catégories d'Olution
+ * 
+ * 🆕 v1.10.4 : Récupère la structure complète d'Olution
+ * 
+ * @return array Tableau associatif [nom_categorie => objet_categorie]
+ */
+function local_question_diagnostic_get_olution_subcategories() {
+    global $DB;
+    
+    try {
+        $olution = local_question_diagnostic_find_olution_category();
+        
+        if (!$olution) {
+            return [];
+        }
+        
+        // Récupérer toutes les sous-catégories directes d'Olution
+        $subcategories = $DB->get_records('question_categories', ['parent' => $olution->id]);
+        
+        // Créer un index par nom pour recherche rapide
+        $indexed = [];
+        foreach ($subcategories as $cat) {
+            $indexed[$cat->name] = $cat;
+        }
+        
+        return $indexed;
+        
+    } catch (Exception $e) {
+        debugging('Error getting Olution subcategories: ' . $e->getMessage(), DEBUG_DEVELOPER);
+        return [];
+    }
+}
+
+/**
+ * Trouve une catégorie Olution correspondante par nom
+ * 
+ * 🆕 v1.10.4 : Recherche une catégorie dans Olution par nom
+ * 
+ * @param string $category_name Nom de la catégorie à chercher
+ * @return object|false Objet catégorie ou false si non trouvée
+ */
+function local_question_diagnostic_find_olution_category_by_name($category_name) {
+    $olution_cats = local_question_diagnostic_get_olution_subcategories();
+    
+    // Recherche exacte par nom
+    if (isset($olution_cats[$category_name])) {
+        return $olution_cats[$category_name];
+    }
+    
+    // Recherche insensible à la casse
+    $category_name_lower = strtolower(trim($category_name));
+    foreach ($olution_cats as $name => $cat) {
+        if (strtolower(trim($name)) === $category_name_lower) {
+            return $cat;
+        }
+    }
+    
+    return false;
+}
+

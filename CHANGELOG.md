@@ -5,6 +5,177 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.10.4] - 2025-10-14
+
+### 🆕 NOUVELLE FONCTIONNALITÉ : Déplacement automatique vers Olution
+
+#### 🎯 Description
+
+Nouvelle fonctionnalité majeure permettant de détecter et déplacer automatiquement les questions en doublon depuis les catégories de cours vers la catégorie système "Olution".
+
+#### ✨ Fonctionnalités
+
+**Détection intelligente des doublons :**
+- Comparaison par nom + type + contenu (similarité ≥ 90%)
+- Correspondance automatique des catégories par nom
+- Statistiques détaillées (doublons détectés, déplaçables, sans correspondance)
+
+**Interface de gestion :**
+- Page dédiée : `olution_duplicates.php`
+- Tableau avec pagination (50 résultats par page)
+- Actions individuelles ou en masse
+- Filtrage automatique des questions sans correspondance
+
+**Opérations sécurisées :**
+- Page de confirmation AVANT tout déplacement
+- Transactions SQL avec rollback automatique
+- Logs d'audit pour traçabilité
+- Purge automatique des caches après modifications
+
+#### 📁 Fichiers Créés
+
+**Nouveaux fichiers :**
+- `olution_duplicates.php` : Page principale de gestion
+- `classes/olution_manager.php` : Logique métier et détection
+- `actions/move_to_olution.php` : Actions de déplacement avec confirmation
+- `FEATURE_OLUTION_DUPLICATES_v1.10.4.md` : Documentation complète
+
+**Fichiers modifiés :**
+- `lib.php` : Ajout de 3 fonctions utilitaires Olution
+- `index.php` : Nouvelle carte "Doublons Cours → Olution" au dashboard
+- `lang/fr/local_question_diagnostic.php` : 32 nouvelles chaînes FR
+- `lang/en/local_question_diagnostic.php` : 32 nouvelles chaînes EN
+- `CHANGELOG.md` : Mise à jour
+
+#### 🔧 Fonctions Ajoutées
+
+**Dans `lib.php` :**
+```php
+local_question_diagnostic_find_olution_category()
+local_question_diagnostic_get_olution_subcategories()
+local_question_diagnostic_find_olution_category_by_name($category_name)
+```
+
+**Dans `classes/olution_manager.php` :**
+```php
+find_course_to_olution_duplicates($limit, $offset)
+count_course_to_olution_duplicates()
+get_duplicate_stats()
+move_question_to_olution($questionid, $target_category_id)
+move_questions_batch($move_operations)
+```
+
+#### 🔒 Sécurité
+
+- Accès réservé administrateurs (`is_siteadmin()`)
+- Protection CSRF (`require_sesskey()`)
+- Validation contexte SYSTEM pour catégorie cible
+- Transactions SQL avec rollback
+- Logs d'audit complets
+
+#### 🎨 Interface Dashboard
+
+Nouvelle carte affichant :
+- 📊 Nombre de doublons détectés
+- ✅ Questions déplaçables
+- ⚠️ Questions sans correspondance
+- Lien direct vers la page de gestion
+
+#### 📖 Documentation
+
+Voir `FEATURE_OLUTION_DUPLICATES_v1.10.4.md` pour :
+- Guide d'utilisation complet
+- Prérequis et configuration
+- Exemples de cas d'usage
+- Limitations connues
+- Tests recommandés
+
+#### 🧪 Tests
+
+**Tests à effectuer :**
+1. Créer catégorie "Olution" au niveau système
+2. Créer sous-catégories correspondant aux noms des catégories cours
+3. Créer questions en doublon (même nom + type + contenu similaire)
+4. Tester détection via interface
+5. Tester déplacement individuel et en masse
+6. Vérifier logs d'audit
+7. Confirmer que questions déplacées fonctionnent dans les quiz
+
+#### ⚠️ Compatibilité
+
+- **Moodle** : 4.5+ (compatible avec nouvelle architecture Question Bank)
+- **PHP** : 7.4+
+- **Tables utilisées** : `question_bank_entries`, `question_versions`, `question_categories`
+
+#### 💡 Cas d'Usage
+
+1. **Nettoyage après import** : Supprimer doublons créés lors d'import de cours
+2. **Centralisation** : Migrer questions vers banque centrale Olution
+3. **Migration progressive** : Déplacer questions une par une avec contrôle
+
+---
+
+## [1.10.3] - 2025-10-14
+
+### 🔧 AMÉLIORATION CRITIQUE : Protection Conditionnelle des Catégories "Default for"
+
+#### 🎯 Problème Résolu
+
+Auparavant, **TOUTES** les catégories "Default for..." / "Par défaut pour..." étaient protégées de manière systématique, empêchant la suppression même des catégories orphelines.
+
+#### ✨ Nouvelle Logique de Protection Intelligente
+
+**Protection conditionnelle basée sur le contexte :**
+
+✅ **PROTÉGÉES** : Catégories "Default for" avec **contexte valide**
+- "Default for Cours Actif" → **PROTÉGÉE** (cours existe)
+- "Default for Quiz XYZ" → **PROTÉGÉE** (module actif)
+- **Message** : "Liée à un contexte actif, ne doit pas être supprimée"
+
+❌ **SUPPRIMABLES** : Catégories "Default for" avec **contexte orphelin**
+- "Default for [Cours supprimé]" → **SUPPRIMABLE** (contexte invalide)
+- "Default for Context ID: 999" → **SUPPRIMABLE** (contexte n'existe plus)
+- **Permet le nettoyage** des catégories par défaut devenues inutiles
+
+#### 📝 Modifications Techniques
+
+**Fichier modifié** : `classes/category_manager.php`
+
+**3 fonctions mises à jour :**
+1. `get_all_categories_with_stats()` (ligne 156-163)
+2. `get_category_stats()` (ligne 321-328)
+3. `delete_category()` (ligne 412-427)
+
+**Nouvelle condition de protection :**
+```php
+if ((stripos($cat->name, 'Default for') !== false) 
+    && $context_valid) {  // ← Ajout de la vérification du contexte
+    $is_protected = true;
+    $protection_reason = 'Catégorie par défaut Moodle (contexte actif)';
+}
+```
+
+#### 🎯 Impact Utilisateur
+
+**Dashboard des catégories :**
+- Les catégories "Default for" orphelines **n'apparaissent plus** comme protégées
+- Colonne "🗑️ Supprimable" affiche maintenant **"✅ OUI"** pour les orphelines
+- Filtre "Sans questions ni sous-catégories (supprimables)" **inclut** les "Default" orphelines
+
+**Sécurité conservée :**
+- Les catégories "Default for" liées à des cours/quiz actifs restent **100% protégées**
+- Aucun risque de casser la structure Moodle
+- Message d'avertissement explicite si tentative de suppression d'une catégorie protégée
+
+#### ✅ Avantages
+
+1. **Nettoyage intelligent** : Suppression possible des "Default for" obsolètes
+2. **Protection maintenue** : Les catégories actives restent intouchables
+3. **Transparence** : Message clair expliquant pourquoi une catégorie est/n'est pas supprimable
+4. **Cohérence** : Aligne la logique avec les autres catégories orphelines
+
+---
+
 ## [1.10.1] - 2025-10-14
 
 ### 🔧 NOUVELLE FONCTIONNALITÉ : Réparation Automatique des Fichiers Orphelins
