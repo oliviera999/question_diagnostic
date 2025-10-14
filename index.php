@@ -260,10 +260,28 @@ echo html_writer::tag('p',
 
 // Statistiques spécifiques
 try {
-    $hidden_questions_count = count(question_analyzer::get_hidden_questions(true, 100));
+    // Compter TOUTES les questions cachées (false = inclure soft delete)
+    $all_hidden = question_analyzer::get_hidden_questions(false, 0);
+    $hidden_questions_count = count($all_hidden);
+    
     if ($hidden_questions_count > 0) {
+        // Calculer combien sont rendables visibles
+        $hidden_ids = array_map(function($q) { return $q->id; }, $all_hidden);
+        $usage = question_analyzer::get_questions_usage_by_ids($hidden_ids);
+        
+        $unhideable = 0;
+        foreach ($all_hidden as $q) {
+            $quiz_count = isset($usage[$q->id]['quiz_count']) ? $usage[$q->id]['quiz_count'] : 0;
+            if ($quiz_count == 0) {
+                $unhideable++;
+            }
+        }
+        
         echo html_writer::start_tag('div', ['class' => 'qd-tool-stats']);
-        echo html_writer::tag('span', '🔒 ' . $hidden_questions_count . '+ questions cachées', ['class' => 'qd-tool-stat-item qd-stat-warning']);
+        echo html_writer::tag('span', '🔒 ' . $hidden_questions_count . ' questions cachées', ['class' => 'qd-tool-stat-item qd-stat-warning']);
+        if ($unhideable > 0) {
+            echo html_writer::tag('span', '👁️ ' . $unhideable . ' rendables visibles', ['class' => 'qd-tool-stat-item qd-stat-success']);
+        }
         echo html_writer::end_tag('div');
     }
 } catch (Exception $e) {
