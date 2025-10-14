@@ -473,11 +473,14 @@ $string['cleanup_all_complete_summary'] = '{$a->deleted} catégorie(s) supprimé
 $string['total_categories'] = 'Total catégories';
 $string['backtocategories'] = 'Retour aux catégories';
 
-// Olution duplicates (v1.10.4)
+// Olution duplicates (v1.10.4+)
 $string['olution_duplicates_title'] = 'Déplacement automatique vers Olution';
 $string['olution_duplicates_heading'] = 'Gestion des doublons Cours → Olution';
-$string['olution_not_found'] = 'La catégorie "Olution" n\'a pas été trouvée';
-$string['olution_not_found_help'] = 'Pour utiliser cette fonctionnalité, vous devez d\'abord créer une catégorie de questions nommée "Olution" au niveau système (contexte : Système).';
+$string['olution_not_found'] = 'Aucune catégorie système de questions partagées n\'a été trouvée';
+$string['olution_not_found_help'] = 'Pour utiliser cette fonctionnalité, créez une catégorie de questions au niveau système (contexte : Système) avec :<br>
+• Un nom contenant "Olution" (ex: "Olution", "Questions Olution", "Banque Olution")<br>
+• OU une description contenant "olution", "banque centrale" ou "questions partagées"<br>
+<br>Le système détectera automatiquement cette catégorie comme catégorie principale de questions partagées.';
 $string['olution_total_duplicates'] = 'Doublons détectés';
 $string['olution_movable_questions'] = 'Questions déplaçables';
 $string['olution_unmovable_questions'] = 'Sans correspondance';

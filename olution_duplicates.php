@@ -67,6 +67,13 @@ if (!$olution) {
     exit;
 }
 
+// Afficher quelle catégorie a été trouvée
+echo html_writer::start_div('alert alert-info mb-3');
+echo html_writer::tag('strong', '✅ Catégorie système détectée : ');
+echo html_writer::tag('span', format_string($olution->name));
+echo html_writer::tag('small', ' (ID: ' . $olution->id . ')', ['class' => 'text-muted ml-2']);
+echo html_writer::end_div();
+
 // Récupérer les statistiques
 $stats = olution_manager::get_duplicate_stats();
 

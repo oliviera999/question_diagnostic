@@ -473,11 +473,14 @@ $string['cleanup_all_complete_summary'] = '{$a->deleted} category(ies) deleted';
 $string['total_categories'] = 'Total categories';
 $string['backtocategories'] = 'Back to categories';
 
-// Olution duplicates (v1.10.4)
+// Olution duplicates (v1.10.4+)
 $string['olution_duplicates_title'] = 'Automatic Move to Olution';
 $string['olution_duplicates_heading'] = 'Course → Olution Duplicates Management';
-$string['olution_not_found'] = 'The "Olution" category was not found';
-$string['olution_not_found_help'] = 'To use this feature, you must first create a question category named "Olution" at the system level (context: System).';
+$string['olution_not_found'] = 'No system-level shared questions category was found';
+$string['olution_not_found_help'] = 'To use this feature, create a question category at the system level (context: System) with:<br>
+• A name containing "Olution" (e.g., "Olution", "Olution Questions", "Olution Bank")<br>
+• OR a description containing "olution", "central bank", or "shared questions"<br>
+<br>The system will automatically detect this category as the main shared questions category.';
 $string['olution_total_duplicates'] = 'Duplicates detected';
 $string['olution_movable_questions'] = 'Movable questions';
 $string['olution_unmovable_questions'] = 'No match';

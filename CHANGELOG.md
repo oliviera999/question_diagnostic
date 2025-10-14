@@ -5,6 +5,79 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.10.5] - 2025-10-14
+
+### 🧠 AMÉLIORATION : Recherche intelligente de la catégorie Olution
+
+#### 🎯 Problème résolu
+
+Dans v1.10.4, le système cherchait UNIQUEMENT une catégorie nommée exactement "Olution" (case-sensitive), ce qui limitait la flexibilité.
+
+#### ✨ Solution : Détection automatique multi-stratégies
+
+Le système utilise maintenant **4 stratégies progressives** pour trouver automatiquement la catégorie de questions partagées :
+
+**Stratégie 1 : Nom exact**
+- Cherche : "Olution" (case-sensitive)
+- Exemple : ✅ "Olution"
+
+**Stratégie 2 : Nom flexible (case-insensitive)**
+- Cherche : %olution% dans le nom
+- Exemples : ✅ "olution", "Questions Olution", "Banque Olution", "OLUTION"
+
+**Stratégie 3 : Description contenant "olution"**
+- Cherche : %olution% dans le nom OU la description
+- Exemple : ✅ Nom: "Banque" + Description: "Catégorie olution"
+
+**Stratégie 4 : Mots-clés intelligents**
+- Cherche : "banque centrale", "questions partagées", "partagé"
+- Exemple : ✅ Nom: "QCM" + Description: "Banque centrale de questions"
+
+#### 📁 Fichiers modifiés
+
+- **`lib.php`** : Fonction `local_question_diagnostic_find_olution_category()` complètement refactorisée
+- **`olution_duplicates.php`** : Affichage du nom de la catégorie détectée
+- **`lang/fr/local_question_diagnostic.php`** : Message d'aide amélioré
+- **`lang/en/local_question_diagnostic.php`** : Message d'aide amélioré
+- **`version.php`** : Version incrémentée à v1.10.5
+- **`FEATURE_SMART_OLUTION_DETECTION_v1.10.5.md`** : Documentation complète
+
+#### 🎨 Interface améliorée
+
+**Indication visuelle ajoutée :**
+```
+✅ Catégorie système détectée : Olution (ID: 123)
+```
+
+**Message d'aide amélioré :**
+- Explique les différentes façons de nommer la catégorie
+- Liste les mots-clés acceptés
+- Indique que la détection est automatique
+
+#### ✅ Avantages
+
+- ✅ **Flexibilité** : Accepte différents noms et casses
+- ✅ **Automatique** : Trouve lui-même la catégorie appropriée
+- ✅ **Multi-critères** : Nom ET description
+- ✅ **Intelligent** : Utilise des mots-clés sémantiques
+- ✅ **Rétrocompatible** : Fonctionne toujours avec "Olution" exact
+
+#### 📖 Documentation
+
+Voir `FEATURE_SMART_OLUTION_DETECTION_v1.10.5.md` pour :
+- Liste complète des exemples de noms acceptés
+- Guide de configuration
+- Tests recommandés
+- Mode debug
+
+#### 🔄 Migration depuis v1.10.4
+
+✅ **Aucune action requise** - fonctionnement transparent
+- Si vous aviez "Olution" : continue de fonctionner
+- Si vous aviez un autre nom : sera détecté automatiquement
+
+---
+
 ## [1.10.4] - 2025-10-14
 
 ### 🆕 NOUVELLE FONCTIONNALITÉ : Déplacement automatique vers Olution

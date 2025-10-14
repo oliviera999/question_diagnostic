@@ -783,6 +783,12 @@ function local_question_diagnostic_render_back_link($current_page, $custom_text 
  * Trouve la catégorie racine "Olution" au niveau système
  * 
  * 🆕 v1.10.4 : Fonction pour identifier la catégorie Olution
+ * 🔧 v1.10.5 : Recherche intelligente et flexible
+ * 
+ * Stratégie de recherche (dans l'ordre) :
+ * 1. Nom exact "Olution" (case-sensitive)
+ * 2. Nom contenant "olution" (case-insensitive)
+ * 3. Première catégorie racine système avec "olution" dans le nom ou description
  * 
  * @return object|false Objet catégorie Olution ou false si non trouvée
  */
@@ -793,14 +799,80 @@ function local_question_diagnostic_find_olution_category() {
         // Récupérer le contexte système
         $systemcontext = context_system::instance();
         
-        // Chercher une catégorie nommée "Olution" au niveau système
+        // Stratégie 1 : Chercher nom exact "Olution" (case-sensitive)
         $olution = $DB->get_record('question_categories', [
             'contextid' => $systemcontext->id,
             'parent' => 0,
             'name' => 'Olution'
         ]);
         
-        return $olution ?: false;
+        if ($olution) {
+            return $olution;
+        }
+        
+        // Stratégie 2 : Chercher nom contenant "olution" (case-insensitive)
+        $sql = "SELECT *
+                FROM {question_categories}
+                WHERE contextid = :contextid
+                AND parent = 0
+                AND " . $DB->sql_like('name', ':pattern', false, false);
+        
+        $olution = $DB->get_record_sql($sql, [
+            'contextid' => $systemcontext->id,
+            'pattern' => '%olution%'
+        ]);
+        
+        if ($olution) {
+            debugging('Olution category found with flexible search: ' . $olution->name, DEBUG_DEVELOPER);
+            return $olution;
+        }
+        
+        // Stratégie 3 : Chercher dans la description aussi
+        $sql = "SELECT *
+                FROM {question_categories}
+                WHERE contextid = :contextid
+                AND parent = 0
+                AND (" . $DB->sql_like('name', ':pattern1', false, false) . "
+                     OR " . $DB->sql_like('info', ':pattern2', false, false) . ")
+                ORDER BY name ASC
+                LIMIT 1";
+        
+        $olution = $DB->get_record_sql($sql, [
+            'contextid' => $systemcontext->id,
+            'pattern1' => '%olution%',
+            'pattern2' => '%olution%'
+        ]);
+        
+        if ($olution) {
+            debugging('Olution category found via description: ' . $olution->name, DEBUG_DEVELOPER);
+            return $olution;
+        }
+        
+        // Stratégie 4 : Chercher toute catégorie système racine marquée spécialement
+        // (avec un mot-clé dans la description comme "banque centrale" ou "questions partagées")
+        $sql = "SELECT *
+                FROM {question_categories}
+                WHERE contextid = :contextid
+                AND parent = 0
+                AND (" . $DB->sql_like('info', ':pattern1', false, false) . "
+                     OR " . $DB->sql_like('info', ':pattern2', false, false) . "
+                     OR " . $DB->sql_like('name', ':pattern3', false, false) . ")
+                ORDER BY name ASC
+                LIMIT 1";
+        
+        $olution = $DB->get_record_sql($sql, [
+            'contextid' => $systemcontext->id,
+            'pattern1' => '%banque%centrale%',
+            'pattern2' => '%questions%partagées%',
+            'pattern3' => '%partagé%'
+        ]);
+        
+        if ($olution) {
+            debugging('Olution category found via keywords: ' . $olution->name, DEBUG_DEVELOPER);
+            return $olution;
+        }
+        
+        return false;
         
     } catch (Exception $e) {
         debugging('Error finding Olution category: ' . $e->getMessage(), DEBUG_DEVELOPER);
