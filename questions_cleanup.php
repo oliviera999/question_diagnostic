@@ -494,6 +494,7 @@ if ($randomtest_used && confirm_sesskey()) {
     echo html_writer::tag('th', '📊 Quiz ▲▼', ['class' => 'sortable', 'data-column' => 'quiz', 'style' => 'cursor: pointer;', 'title' => 'Nombre de quiz utilisant cette question']);
     echo html_writer::tag('th', '🔢 Util. ▲▼', ['class' => 'sortable', 'data-column' => 'usages', 'style' => 'cursor: pointer;', 'title' => 'Nombre total d\'utilisations (dans différents quiz)']);
     echo html_writer::tag('th', 'Statut ▲▼', ['class' => 'sortable', 'data-column' => 'status', 'style' => 'cursor: pointer;']);
+    echo html_writer::tag('th', '🗑️ Supprimable ▲▼', ['class' => 'sortable', 'data-column' => 'deletable', 'style' => 'cursor: pointer;', 'title' => 'Peut-on supprimer cette question ?']);
     echo html_writer::tag('th', 'Créée le ▲▼', ['class' => 'sortable', 'data-column' => 'created', 'style' => 'cursor: pointer;']);
     echo html_writer::tag('th', 'Actions');
     echo html_writer::end_tag('tr');
@@ -553,6 +554,7 @@ if ($randomtest_used && confirm_sesskey()) {
             'data-quiz' => $quiz_count,
             'data-usages' => $total_usages,
             'data-status' => $is_used ? '1' : '0',
+            'data-deletable' => ($can_delete_check && $can_delete_check->can_delete) ? '1' : '0',
             'data-created' => $q->timecreated
         ];
         
@@ -610,6 +612,46 @@ if ($randomtest_used && confirm_sesskey()) {
         ]);
         
         echo html_writer::tag('td', $is_used ? '✅ Utilisée' : '⚠️ Inutilisée');
+        
+        // 🆕 Colonne "Supprimable" avec raisons détaillées
+        echo html_writer::start_tag('td');
+        
+        if ($can_delete_check && $can_delete_check->can_delete) {
+            // SUPPRIMABLE
+            echo html_writer::tag('span', '✅ OUI', [
+                'class' => 'qd-badge',
+                'style' => 'background: #28a745; color: white; font-weight: bold;'
+            ]);
+            echo '<br><small style="color: #666; display: block; margin-top: 3px;">' . $can_delete_check->reason . '</small>';
+        } else {
+            // NON SUPPRIMABLE
+            $reason = $can_delete_check ? $can_delete_check->reason : 'Vérification impossible';
+            
+            echo html_writer::tag('span', '❌ NON', [
+                'class' => 'qd-badge',
+                'style' => 'background: #dc3545; color: white; font-weight: bold;'
+            ]);
+            
+            // Afficher la raison avec icône
+            $reason_display = $reason;
+            $reason_color = '#dc3545';
+            
+            if (strpos($reason, 'utilisée dans') !== false) {
+                $reason_display = '📊 ' . $reason;
+                $reason_color = '#f0ad4e';
+            } else if (strpos($reason, 'cachée') !== false) {
+                $reason_display = '👁️ ' . $reason;
+                $reason_color = '#6c757d';
+            } else if (strpos($reason, 'unique') !== false) {
+                $reason_display = '🔒 ' . $reason;
+                $reason_color = '#5bc0de';
+            }
+            
+            echo '<br><small style="color: ' . $reason_color . '; display: block; margin-top: 3px; font-weight: 500;">' . $reason_display . '</small>';
+        }
+        
+        echo html_writer::end_tag('td');
+        
         echo html_writer::tag('td', userdate($q->timecreated, '%d/%m/%Y %H:%M'));
         
         // Actions

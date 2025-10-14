@@ -340,6 +340,7 @@ echo html_writer::tag('th', 'Parent', ['class' => 'sortable', 'data-column' => '
 echo html_writer::tag('th', 'Questions', ['class' => 'sortable', 'data-column' => 'questions']);
 echo html_writer::tag('th', 'Sous-cat.', ['class' => 'sortable', 'data-column' => 'subcategories']);
 echo html_writer::tag('th', 'Statut', ['class' => 'sortable', 'data-column' => 'status']);
+echo html_writer::tag('th', '🗑️ Supprimable', ['class' => 'sortable', 'data-column' => 'deletable', 'title' => 'Peut-on supprimer cette catégorie ?']);
 echo html_writer::tag('th', 'Actions');
 echo html_writer::end_tag('tr');
 echo html_writer::end_tag('thead');
@@ -365,6 +366,7 @@ foreach ($categories_with_stats as $item) {
     }
     
     // Attributs data pour le filtrage et le tri
+    $can_delete = $stats->is_empty && !$stats->is_protected;
     $row_attrs = [
         'data-id' => $cat->id,
         'data-name' => format_string($cat->name),
@@ -377,7 +379,8 @@ foreach ($categories_with_stats as $item) {
         'data-orphan' => $stats->is_orphan ? '1' : '0',
         'data-duplicate' => (isset($stats->is_duplicate) && $stats->is_duplicate) ? '1' : '0',
         'data-protected' => $stats->is_protected ? '1' : '0',  // ⚠️ Ajouter pour filtrage
-        'data-status' => $status_priority  // Pour le tri par statut
+        'data-status' => $status_priority,  // Pour le tri par statut
+        'data-deletable' => $can_delete ? '1' : '0'  // Pour le tri par supprimabilité
     ];
     
     // Débug : forcer les attributs si nécessaire
@@ -476,6 +479,50 @@ foreach ($categories_with_stats as $item) {
     if (!$stats->is_empty && !$stats->is_orphan && !$stats->is_protected && (!isset($stats->is_duplicate) || !$stats->is_duplicate)) {
         echo html_writer::tag('span', 'OK', ['class' => 'qd-badge qd-badge-ok']);
     }
+    echo html_writer::end_tag('td');
+    
+    // 🆕 Colonne "Supprimable" avec raisons détaillées
+    echo html_writer::start_tag('td');
+    
+    // Déterminer si supprimable
+    $can_delete = $stats->is_empty && !$stats->is_protected;
+    
+    if ($can_delete) {
+        // SUPPRIMABLE
+        echo html_writer::tag('span', '✅ OUI', [
+            'class' => 'qd-badge',
+            'style' => 'background: #28a745; color: white; font-weight: bold;'
+        ]);
+    } else {
+        // NON SUPPRIMABLE - Afficher la raison principale
+        echo html_writer::tag('span', '❌ NON', [
+            'class' => 'qd-badge',
+            'style' => 'background: #dc3545; color: white; font-weight: bold;'
+        ]);
+        
+        // Afficher les raisons détaillées
+        echo '<br>';
+        $reasons = [];
+        
+        if ($stats->is_protected) {
+            $reasons[] = html_writer::tag('small', '🛡️ ' . $stats->protection_reason, [
+                'style' => 'display: block; color: #5bc0de; margin-top: 3px;'
+            ]);
+        }
+        if ($stats->total_questions > 0) {
+            $reasons[] = html_writer::tag('small', '📚 ' . $stats->total_questions . ' question(s)', [
+                'style' => 'display: block; color: #f0ad4e; margin-top: 3px;'
+            ]);
+        }
+        if ($stats->subcategories > 0) {
+            $reasons[] = html_writer::tag('small', '📂 ' . $stats->subcategories . ' sous-catégorie(s)', [
+                'style' => 'display: block; color: #f0ad4e; margin-top: 3px;'
+            ]);
+        }
+        
+        echo implode('', $reasons);
+    }
+    
     echo html_writer::end_tag('td');
     
     // Actions

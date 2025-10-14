@@ -235,6 +235,18 @@ $string['question_protected'] = 'Question protégée';
 $string['question_hidden_protected'] = 'Question cachée protégée';
 $string['question_hidden_info'] = 'Cette question est masquée dans la banque de questions. Les questions cachées sont protégées contre la suppression pour éviter toute perte accidentelle de contenu pédagogique.';
 
+// 🆕 v1.10.5 : Colonne Supprimable
+$string['deletable'] = 'Supprimable';
+$string['deletable_yes'] = 'OUI';
+$string['deletable_no'] = 'NON';
+$string['deletable_reason_category_questions'] = '{$a} question(s)';
+$string['deletable_reason_category_subcategories'] = '{$a} sous-catégorie(s)';
+$string['deletable_reason_category_protected'] = 'Catégorie protégée';
+$string['deletable_reason_question_used'] = 'Question utilisée dans {$a} quiz';
+$string['deletable_reason_question_hidden'] = 'Question cachée (protégée)';
+$string['deletable_reason_question_unique'] = 'Question unique (pas de doublon)';
+$string['deletable_reason_question_duplicate_unused'] = 'Doublon inutilisé';
+
 // 🆕 v1.9.40 : Tâche planifiée
 $string['task_scan_broken_links'] = 'Scan automatique des liens cassés';
 

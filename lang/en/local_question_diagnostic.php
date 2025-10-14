@@ -235,6 +235,18 @@ $string['question_protected'] = 'Protected question';
 $string['question_hidden_protected'] = 'Hidden question protected';
 $string['question_hidden_info'] = 'This question is hidden in the question bank. Hidden questions are protected against deletion to prevent accidental loss of educational content.';
 
+// 🆕 v1.10.5 : Deletable column
+$string['deletable'] = 'Deletable';
+$string['deletable_yes'] = 'YES';
+$string['deletable_no'] = 'NO';
+$string['deletable_reason_category_questions'] = '{$a} question(s)';
+$string['deletable_reason_category_subcategories'] = '{$a} subcategory(ies)';
+$string['deletable_reason_category_protected'] = 'Protected category';
+$string['deletable_reason_question_used'] = 'Question used in {$a} quiz(zes)';
+$string['deletable_reason_question_hidden'] = 'Hidden question (protected)';
+$string['deletable_reason_question_unique'] = 'Unique question (no duplicate)';
+$string['deletable_reason_question_duplicate_unused'] = 'Unused duplicate';
+
 // 🆕 v1.9.40 : Scheduled task
 $string['task_scan_broken_links'] = 'Automated broken links scan';
 
