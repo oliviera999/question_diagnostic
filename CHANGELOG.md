@@ -5,6 +5,92 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.10.8] - 2025-10-14
+
+### 🐛 CORRECTIONS MULTIPLES : Détection fonctionnelle + Comptage cours
+
+#### Bugs corrigés
+
+**1. Erreur PHP : html_writer::tag('br')**
+- `html_writer::tag()` nécessite 2 arguments minimum
+- Remplacé par `html_writer::empty_tag('br')` 
+- 5 occurrences corrigées dans olution_duplicates.php
+
+**2. Comptage négatif de cours : "-1 cours"**
+- Calcul incorrect : `$courses_count - 1` donnait -1 quand aucun cours
+- Corrigé : affiche le nombre réel sans soustraire 1
+
+**3. Aucun doublon détecté (problème CRITIQUE)**
+- La fonction `find_course_to_olution_duplicates()` était incomplète
+- Référence à variable inexistante `$olution_question_cats`
+- Logique de détection non fonctionnelle
+
+**4. Chaîne manquante : [[olution_courses_count]]**
+- Ajout de 4 nouvelles chaînes de traduction
+
+#### ✨ Améliorations implémentées
+
+**Détection de doublons refaite complètement :**
+```php
+1. Indexer TOUTES les questions des cours Olution (par signature nom+type)
+2. Parcourir TOUS les cours (incluant ceux dans Olution pour doublons internes)
+3. Pour chaque question : chercher dans l'index
+4. Calculer similarité du contenu (≥ 90%)
+5. Trouver catégorie cible correspondante par nom
+```
+
+**Nouvelles fonctionnalités :**
+- Détecte doublons ENTRE cours hors Olution → cours Olution
+- Détecte AUSSI doublons ENTRE les cours d'Olution eux-mêmes
+- Flag `is_internal_olution` pour distinguer les deux cas
+- Logs de debug détaillés avec emojis
+
+**Interface améliorée :**
+- Affiche "X cours" au lieu de "X-1 cours"
+- Colonnes: "Cours source / Catégorie" et "Cours Olution cible / Catégorie"
+- Support multi-correspondances (si plusieurs catégories cibles possibles)
+
+#### 📁 Fichiers modifiés
+
+- **`classes/olution_manager.php`** : Logique complètement réécrite et fonctionnelle
+- **`olution_duplicates.php`** : Fix html_writer + comptage cours
+- **`index.php`** : Statistiques dashboard mises à jour
+- **`lang/fr/local_question_diagnostic.php`** : 4 nouvelles chaînes
+- **`lang/en/local_question_diagnostic.php`** : 4 nouvelles chaînes
+- **`version.php`** : v1.10.8
+
+#### 🔧 Nouvelles chaînes
+
+```php
+'olution_courses_count' => 'Cours dans Olution'
+'source_course_and_category' => 'Cours source / Catégorie'
+'olution_target' => 'Cours Olution cible / Catégorie'
+'affected_courses' => 'Cours sources concernés'
+'from_course_category' => 'Cours source / Catégorie'
+'to_course_category' => 'Cours Olution cible / Catégorie'
+```
+
+#### 🧪 Debug et logs
+
+En mode debug, affiche maintenant :
+```
+✅ Olution course category found: olution (ID: 78)
+📊 Found X courses in Olution
+📊 Indexed Y unique question signatures in Olution
+📊 Total duplicates found: Z
+```
+
+#### ✅ Résultat
+
+La fonctionnalité détecte maintenant **réellement** les doublons et peut les déplacer :
+- ✅ Trouve la catégorie de cours Olution
+- ✅ Indexe les questions des cours Olution
+- ✅ Détecte les doublons (internes et externes)
+- ✅ Affiche les statistiques correctement
+- ✅ Permet le déplacement vers catégories correspondantes
+
+---
+
 ## [1.10.7] - 2025-10-14
 
 ### 🔧 CORRECTION MAJEURE : Olution est une catégorie de COURS

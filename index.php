@@ -542,15 +542,15 @@ echo html_writer::tag('p',
 // Statistiques spécifiques
 echo html_writer::start_tag('div', ['class' => 'qd-tool-stats']);
 if ($olution_stats->olution_exists) {
-    echo html_writer::tag('span', '📊 ' . $olution_stats->total_duplicates . ' doublons détectés', ['class' => 'qd-tool-stat-item']);
+    echo html_writer::tag('span', '📚 ' . $olution_stats->olution_courses_count . ' cours Olution', ['class' => 'qd-tool-stat-item']);
+    if ($olution_stats->total_duplicates > 0) {
+        echo html_writer::tag('span', '📊 ' . $olution_stats->total_duplicates . ' doublons détectés', ['class' => 'qd-tool-stat-item qd-stat-warning']);
+    }
     if ($olution_stats->movable_questions > 0) {
         echo html_writer::tag('span', '✅ ' . $olution_stats->movable_questions . ' déplaçables', ['class' => 'qd-tool-stat-item qd-stat-success']);
     }
-    if ($olution_stats->unmovable_questions > 0) {
-        echo html_writer::tag('span', '⚠️ ' . $olution_stats->unmovable_questions . ' sans correspondance', ['class' => 'qd-tool-stat-item qd-stat-warning']);
-    }
 } else {
-    echo html_writer::tag('span', '⚠️ Catégorie Olution non trouvée', ['class' => 'qd-tool-stat-item qd-stat-warning']);
+    echo html_writer::tag('span', '⚠️ Catégorie de cours Olution non trouvée', ['class' => 'qd-tool-stat-item qd-stat-warning']);
 }
 echo html_writer::end_tag('div');
 

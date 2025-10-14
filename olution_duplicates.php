@@ -74,7 +74,8 @@ echo html_writer::tag('span', format_string($olution->name));
 echo html_writer::tag('small', ' (ID: ' . $olution->id . ')', ['class' => 'text-muted ml-2']);
 echo html_writer::empty_tag('br');
 $courses_count = $DB->count_records('course', ['category' => $olution->id]);
-echo html_writer::tag('small', 'Cette catégorie contient ' . ($courses_count - 1) . ' cours', ['class' => 'text-muted']);
+// Ne pas soustraire 1, afficher le total réel
+echo html_writer::tag('small', 'Cette catégorie contient ' . $courses_count . ' cours', ['class' => 'text-muted']);
 echo html_writer::end_div();
 
 // Récupérer les statistiques
