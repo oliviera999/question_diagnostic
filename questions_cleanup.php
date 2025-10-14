@@ -1122,14 +1122,16 @@ try {
     // Calculer l'offset (0 pour la première page)
     $offset = 0;
     
-    // Déterminer le mode : used_only pour mode "Doublons utilisés"
+    // 🆕 v1.9.53 : Déterminer le mode - Par défaut, cibler UNIQUEMENT les groupes avec questions supprimables
+    // Cela évite de scanner des groupes qui ne peuvent pas être modifiés
     $used_only = $load_used_duplicates ? true : false;
+    $deletable_only = true; // 🆕 v1.9.53 : OPTIMISATION - Ne charger que les groupes modifiables
     
-    // Compter le nombre total de groupes de doublons
-    $total_groups = question_analyzer::count_duplicate_groups($used_only);
+    // Compter le nombre total de groupes de doublons (uniquement ceux avec versions supprimables)
+    $total_groups = question_analyzer::count_duplicate_groups($used_only, $deletable_only);
     
-    // Charger les groupes de doublons (avec pagination)
-    $duplicate_groups = question_analyzer::get_duplicate_groups($groups_per_page, $offset, $used_only);
+    // Charger les groupes de doublons (avec pagination et filtrage sur les supprimables)
+    $duplicate_groups = question_analyzer::get_duplicate_groups($groups_per_page, $offset, $used_only, $deletable_only);
     
 } catch (Exception $e) {
     echo html_writer::start_tag('script');
@@ -1177,11 +1179,18 @@ if (empty($duplicate_groups)) {
 }
 
 // 🆕 v1.9.45 : Afficher le compteur de groupes
+// 🆕 v1.9.53 : Message optimisé pour indiquer qu'on affiche uniquement les groupes modifiables
 $showing_count_obj = new stdClass();
 $showing_count_obj->shown = count($duplicate_groups);
 $showing_count_obj->total = $total_groups;
 echo html_writer::start_tag('div', ['style' => 'margin-bottom: 15px; font-size: 14px; color: #666;']);
 echo '📊 ' . get_string('showing_groups', 'local_question_diagnostic', $showing_count_obj);
+echo html_writer::end_tag('div');
+
+// 🆕 v1.9.53 : Message d'information sur le filtrage optimisé
+echo html_writer::start_tag('div', ['class' => 'alert alert-info', 'style' => 'margin-bottom: 15px; padding: 10px;']);
+echo '⚡ <strong>Mode optimisé activé :</strong> Seuls les groupes contenant au moins 1 version <strong>supprimable</strong> sont affichés. ';
+echo 'Les groupes où toutes les versions sont utilisées ou protégées sont automatiquement masqués pour accélérer l\'affichage.';
 echo html_writer::end_tag('div');
 
 // 🆕 v1.9.49 : Bouton de nettoyage en masse (au-dessus du tableau)
@@ -1202,6 +1211,7 @@ echo html_writer::start_tag('div', ['class' => 'qd-table-wrapper']);
 echo html_writer::start_tag('table', ['class' => 'qd-table', 'id' => 'duplicate-groups-table']);
 
 // 🆕 v1.9.49 : En-tête du tableau de synthèse avec checkbox et actions
+// 🆕 v1.9.53 : Ajout colonne "Suppressibles"
 echo html_writer::start_tag('thead');
 echo html_writer::start_tag('tr');
 echo html_writer::tag('th', '<input type="checkbox" id="select-all-groups" title="Tout sélectionner/désélectionner">', ['style' => 'width: 40px;']);
@@ -1210,6 +1220,7 @@ echo html_writer::tag('th', get_string('type', 'local_question_diagnostic'));
 echo html_writer::tag('th', get_string('duplicate_group_count', 'local_question_diagnostic'));
 echo html_writer::tag('th', get_string('duplicate_group_used', 'local_question_diagnostic'));
 echo html_writer::tag('th', get_string('duplicate_group_unused', 'local_question_diagnostic'));
+echo html_writer::tag('th', '🗑️ Suppressibles', ['title' => 'Nombre de versions réellement supprimables (doublons inutilisés et non protégés)']);
 echo html_writer::tag('th', get_string('duplicate_group_details', 'local_question_diagnostic'));
 echo html_writer::tag('th', get_string('actions', 'local_question_diagnostic'));
 echo html_writer::end_tag('tr');
@@ -1225,13 +1236,14 @@ foreach ($duplicate_groups as $group) {
     
     echo html_writer::start_tag('tr', ['data-group-id' => $group_id]);
     
-    // Colonne 0 : Checkbox (seulement si des versions inutilisées existent)
+    // 🆕 v1.9.53 : Colonne 0 : Checkbox (seulement si des versions SUPPRIMABLES existent)
     echo html_writer::start_tag('td', ['style' => 'text-align: center;']);
-    if ($group->unused_count > 0) {
+    $deletable_count = isset($group->deletable_count) ? $group->deletable_count : 0;
+    if ($deletable_count > 0) {
         echo '<input type="checkbox" class="group-select-checkbox" value="' . $group_id . '" 
                 data-name="' . htmlspecialchars($group->question_name) . '" 
                 data-qtype="' . $group->qtype . '"
-                data-unused="' . $group->unused_count . '">';
+                data-deletable="' . $deletable_count . '">';
     }
     echo html_writer::end_tag('td');
     
@@ -1263,7 +1275,15 @@ foreach ($duplicate_groups as $group) {
         'style' => 'text-align: center; ' . $unused_style
     ]);
     
-    // Colonne 6 : Détails (bouton œil)
+    // 🆕 v1.9.53 : Colonne 6 : Versions suppressibles (vraiment supprimables)
+    $deletable_count = isset($group->deletable_count) ? $group->deletable_count : 0;
+    $deletable_style = $deletable_count > 0 ? 'color: #d9534f; font-weight: bold;' : 'color: #999;';
+    echo html_writer::tag('td', $deletable_count, [
+        'style' => 'text-align: center; ' . $deletable_style,
+        'title' => $deletable_count > 0 ? $deletable_count . ' version(s) peuvent être supprimées en toute sécurité' : 'Aucune version supprimable'
+    ]);
+    
+    // Colonne 7 : Détails (bouton œil)
     echo html_writer::start_tag('td', ['style' => 'text-align: center;']);
     $detail_url = new moodle_url('/local/question_diagnostic/question_group_detail.php', [
         'id' => $group->representative_id,
@@ -1277,9 +1297,9 @@ foreach ($duplicate_groups as $group) {
     ]);
     echo html_writer::end_tag('td');
     
-    // Colonne 7 : Actions (bouton nettoyage)
+    // 🆕 v1.9.53 : Colonne 8 : Actions (bouton nettoyage uniquement si versions SUPPRIMABLES)
     echo html_writer::start_tag('td', ['style' => 'text-align: center; white-space: nowrap;']);
-    if ($group->unused_count > 0) {
+    if ($deletable_count > 0) {
         // Bouton de nettoyage automatique
         $cleanup_url = new moodle_url('/local/question_diagnostic/actions/cleanup_duplicate_groups.php', [
             'name' => $group->question_name,
@@ -1288,13 +1308,13 @@ foreach ($duplicate_groups as $group) {
         ]);
         echo html_writer::link($cleanup_url, '🧹 Nettoyer', [
             'class' => 'btn btn-warning btn-sm',
-            'title' => 'Supprimer les ' . $group->unused_count . ' version(s) inutilisée(s)',
+            'title' => 'Supprimer les ' . $deletable_count . ' version(s) supprimable(s)',
             'style' => 'margin-right: 5px;'
         ]);
     } else {
         echo html_writer::tag('span', '✓ Clean', [
             'class' => 'badge badge-success',
-            'title' => 'Aucune version inutilisée'
+            'title' => 'Aucune version supprimable (toutes utilisées ou protégées)'
         ]);
     }
     echo html_writer::end_tag('td');
@@ -1341,21 +1361,21 @@ document.querySelectorAll('.group-select-checkbox').forEach(function(cb) {
     cb.addEventListener('change', updateGroupSelectionCount);
 });
 
-// Mettre à jour le compteur de sélection
+// 🆕 v1.9.53 : Mettre à jour le compteur de sélection (utilise data-deletable)
 function updateGroupSelectionCount() {
     var checked = document.querySelectorAll('.group-select-checkbox:checked');
     var count = checked.length;
-    var totalUnused = 0;
+    var totalDeletable = 0;
     checked.forEach(function(cb) {
-        totalUnused += parseInt(cb.getAttribute('data-unused'));
+        totalDeletable += parseInt(cb.getAttribute('data-deletable'));
     });
     
     document.getElementById('selection-count-groups').textContent = 
-        count + ' groupe(s) sélectionné(s) (' + totalUnused + ' version(s) à supprimer)';
+        count + ' groupe(s) sélectionné(s) (' + totalDeletable + ' version(s) à supprimer)';
     document.getElementById('bulk-cleanup-container').style.display = count > 0 ? 'block' : 'none';
 }
 
-// Nettoyage en masse des groupes
+// 🆕 v1.9.53 : Nettoyage en masse des groupes (utilise data-deletable)
 function bulkCleanupGroups() {
     var checked = document.querySelectorAll('.group-select-checkbox:checked');
     
@@ -1366,20 +1386,20 @@ function bulkCleanupGroups() {
     
     // Préparer les données des groupes
     var groups = [];
-    var totalUnused = 0;
+    var totalDeletable = 0;
     checked.forEach(function(cb) {
         groups.push({
             name: cb.getAttribute('data-name'),
             qtype: cb.getAttribute('data-qtype'),
-            unused: parseInt(cb.getAttribute('data-unused'))
+            deletable: parseInt(cb.getAttribute('data-deletable'))
         });
-        totalUnused += parseInt(cb.getAttribute('data-unused'));
+        totalDeletable += parseInt(cb.getAttribute('data-deletable'));
     });
     
     // Confirmation
     var message = 'Êtes-vous sûr de vouloir nettoyer ' + checked.length + ' groupe(s) de doublons ?\\n\\n';
-    message += '⚠️ ATTENTION : Cette action va supprimer ' + totalUnused + ' version(s) inutilisée(s) !\\n\\n';
-    message += 'Les versions utilisées (dans des quiz) seront conservées.\\n\\n';
+    message += '⚠️ ATTENTION : Cette action va supprimer ' + totalDeletable + ' version(s) supprimable(s) !\\n\\n';
+    message += '✅ Les versions utilisées (dans des quiz) et protégées seront conservées.\\n\\n';
     message += 'Cette action est IRRÉVERSIBLE !';
     
     if (confirm(message)) {

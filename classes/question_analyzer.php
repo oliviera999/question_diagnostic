@@ -1568,15 +1568,19 @@ class question_analyzer {
      * 
      * Un groupe de doublons = questions avec même nom ET même type
      * 
+     * 🆕 v1.9.53 : OPTIMISATION - Prioriser les groupes avec questions supprimables
+     * 
      * @param int $limit Nombre de groupes à retourner (0 = tous)
      * @param int $offset Offset pour la pagination
      * @param bool $used_only Si true, ne retourner que les groupes avec au moins 1 version utilisée
+     * @param bool $deletable_only Si true, ne retourner que les groupes avec au moins 1 version supprimable (priorise le nettoyage)
      * @return array Tableau d'objets représentant chaque groupe de doublons
      */
-    public static function get_duplicate_groups($limit = 0, $offset = 0, $used_only = false) {
+    public static function get_duplicate_groups($limit = 0, $offset = 0, $used_only = false, $deletable_only = false) {
         global $DB;
         
         // 🎯 v1.9.45 : Nouvelle méthode pour récupérer les groupes de doublons
+        // 🆕 v1.9.53 : OPTIMISATION - Filtrage et priorisation des groupes supprimables
         // Grouper les questions par nom + type et ne garder que ceux qui ont des doublons (COUNT > 1)
         
         // Étape 1 : Récupérer tous les groupes avec doublons (name + qtype + count)
@@ -1592,19 +1596,15 @@ class question_analyzer {
             return [];
         }
         
+        // 🆕 v1.9.53 : Si deletable_only = true, on va trier les groupes
+        // pour mettre en priorité ceux qui ont le plus de versions supprimables
+        $groups_with_priority = [];
+        
         // Étape 2 : Pour chaque groupe, récupérer les détails
         $groups = [];
         $current_index = 0;
         
         foreach ($all_groups as $group) {
-            // Si on a un filtre "used_only", on doit vérifier si au moins 1 version est utilisée
-            // On le fera plus tard pour éviter trop de requêtes ici
-            
-            // Si on a atteint l'offset + limit, on peut arrêter (sauf si used_only=true car filtrage post-requête)
-            if (!$used_only && $limit > 0 && $current_index >= $offset + $limit) {
-                break;
-            }
-            
             // Récupérer tous les IDs des questions de ce groupe
             $question_ids = $DB->get_fieldset_select('question', 'id', 
                 'name = :name AND qtype = :qtype',
@@ -1618,31 +1618,40 @@ class question_analyzer {
             // Charger l'usage de toutes les questions de ce groupe en batch
             $usage_map = self::get_questions_usage_by_ids($question_ids);
             
-            // Compter combien sont utilisées vs inutilisées
+            // 🆕 v1.9.53 : Vérifier la supprimabilité si demandé
+            $deletability_map = [];
+            if ($deletable_only) {
+                $deletability_map = self::can_delete_questions_batch($question_ids);
+            }
+            
+            // Compter combien sont utilisées vs inutilisées vs supprimables
             $used_count = 0;
             $unused_count = 0;
+            $deletable_count = 0; // 🆕 v1.9.53
             
             foreach ($question_ids as $qid) {
-                if (isset($usage_map[$qid]) && isset($usage_map[$qid]['quiz_count']) && $usage_map[$qid]['quiz_count'] > 0) {
+                $is_used = isset($usage_map[$qid]) && isset($usage_map[$qid]['quiz_count']) && $usage_map[$qid]['quiz_count'] > 0;
+                
+                if ($is_used) {
                     $used_count++;
                 } else {
                     $unused_count++;
                 }
+                
+                // 🆕 v1.9.53 : Compter les questions réellement supprimables
+                if ($deletable_only && isset($deletability_map[$qid]) && $deletability_map[$qid]->can_delete) {
+                    $deletable_count++;
+                }
+            }
+            
+            // 🆕 v1.9.53 : Si deletable_only et aucune version supprimable, on skip ce groupe
+            if ($deletable_only && $deletable_count == 0) {
+                continue;
             }
             
             // Si filtre "used_only" et aucune version utilisée, on skip ce groupe
             if ($used_only && $used_count == 0) {
                 continue;
-            }
-            
-            // Appliquer la pagination après le filtrage
-            if ($current_index < $offset) {
-                $current_index++;
-                continue;
-            }
-            
-            if ($limit > 0 && count($groups) >= $limit) {
-                break;
             }
             
             // Créer l'objet groupe
@@ -1653,12 +1662,30 @@ class question_analyzer {
                 'representative_id' => $group->representative_id,
                 'all_question_ids' => $question_ids,
                 'used_count' => $used_count,
-                'unused_count' => $unused_count
+                'unused_count' => $unused_count,
+                'deletable_count' => $deletable_count, // 🆕 v1.9.53
+                'priority_score' => $deletable_count // 🆕 v1.9.53 : Score pour tri
             ];
             
-            $groups[] = $group_obj;
-            $current_index++;
+            $groups_with_priority[] = $group_obj;
         }
+        
+        // 🆕 v1.9.53 : Trier les groupes par nombre de versions supprimables (décroissant)
+        // Les groupes avec le plus de doublons supprimables apparaissent en premier
+        if ($deletable_only) {
+            usort($groups_with_priority, function($a, $b) {
+                // Priorité 1 : Nombre de versions supprimables (décroissant)
+                if ($a->deletable_count != $b->deletable_count) {
+                    return $b->deletable_count - $a->deletable_count;
+                }
+                // Priorité 2 : Nombre total de doublons (décroissant)
+                return $b->duplicate_count - $a->duplicate_count;
+            });
+        }
+        
+        // Appliquer la pagination
+        $total = count($groups_with_priority);
+        $groups = array_slice($groups_with_priority, $offset, $limit > 0 ? $limit : null);
         
         return $groups;
     }
@@ -1666,10 +1693,13 @@ class question_analyzer {
     /**
      * Compte le nombre total de groupes de doublons
      * 
+     * 🆕 v1.9.53 : Support du paramètre deletable_only
+     * 
      * @param bool $used_only Si true, ne compter que les groupes avec au moins 1 version utilisée
+     * @param bool $deletable_only Si true, ne compter que les groupes avec au moins 1 version supprimable
      * @return int Nombre de groupes de doublons
      */
-    public static function count_duplicate_groups($used_only = false) {
+    public static function count_duplicate_groups($used_only = false, $deletable_only = false) {
         global $DB;
         
         // 🎯 v1.9.45 : Compter le nombre total de groupes
@@ -1680,11 +1710,12 @@ class question_analyzer {
         
         $all_groups = $DB->get_records_sql($sql);
         
-        if (!$used_only) {
+        // Si aucun filtre, retourner le total
+        if (!$used_only && !$deletable_only) {
             return count($all_groups);
         }
         
-        // Si filtre used_only, on doit compter manuellement (plus lent mais nécessaire)
+        // Si filtre actif, on doit compter manuellement (plus lent mais nécessaire)
         $count = 0;
         foreach ($all_groups as $group) {
             // Récupérer les IDs des questions de ce groupe
@@ -1700,16 +1731,43 @@ class question_analyzer {
             // Charger l'usage en batch
             $usage_map = self::get_questions_usage_by_ids($question_ids);
             
-            // Vérifier si au moins 1 est utilisée
+            // 🆕 v1.9.53 : Charger la supprimabilité si demandé
+            $deletability_map = [];
+            if ($deletable_only) {
+                $deletability_map = self::can_delete_questions_batch($question_ids);
+            }
+            
+            // Vérifier les conditions
             $has_used = false;
+            $has_deletable = false;
+            
             foreach ($question_ids as $qid) {
+                // Vérifier si utilisée
                 if (isset($usage_map[$qid]) && isset($usage_map[$qid]['quiz_count']) && $usage_map[$qid]['quiz_count'] > 0) {
                     $has_used = true;
+                }
+                
+                // 🆕 v1.9.53 : Vérifier si supprimable
+                if ($deletable_only && isset($deletability_map[$qid]) && $deletability_map[$qid]->can_delete) {
+                    $has_deletable = true;
+                }
+                
+                // Si on a trouvé ce qu'on cherche, on peut arrêter
+                if ((!$used_only || $has_used) && (!$deletable_only || $has_deletable)) {
                     break;
                 }
             }
             
-            if ($has_used) {
+            // Appliquer les filtres
+            $include = true;
+            if ($used_only && !$has_used) {
+                $include = false;
+            }
+            if ($deletable_only && !$has_deletable) {
+                $include = false;
+            }
+            
+            if ($include) {
                 $count++;
             }
         }
