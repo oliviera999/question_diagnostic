@@ -301,6 +301,54 @@ echo html_writer::end_tag('div'); // fin qd-tool-content
 echo html_writer::end_tag('div'); // fin qd-tool-card
 
 // ======================================================================
+// 🆕 v1.10.1 : OPTION 3b : Questions inutilisées
+// ======================================================================
+
+echo html_writer::start_tag('div', ['class' => 'qd-tool-card']);
+
+echo html_writer::start_tag('div', ['class' => 'qd-tool-icon']);
+echo '🗑️';
+echo html_writer::end_tag('div');
+
+echo html_writer::start_tag('div', ['class' => 'qd-tool-content']);
+
+echo html_writer::tag('h4', get_string('tool_unused_questions_title', 'local_question_diagnostic'), ['class' => 'qd-tool-title']);
+
+echo html_writer::tag('p', 
+    get_string('tool_unused_questions_desc', 'local_question_diagnostic'),
+    ['class' => 'qd-tool-description']
+);
+
+// Statistiques spécifiques
+echo html_writer::start_tag('div', ['class' => 'qd-tool-stats']);
+echo html_writer::tag('span', '📊 ' . $question_stats->total_questions . ' questions', ['class' => 'qd-tool-stat-item']);
+
+if ($question_stats->unused_questions > 0) {
+    echo html_writer::tag('span', 
+        '💤 ' . $question_stats->unused_questions . ' inutilisées', 
+        ['class' => 'qd-tool-stat-item qd-stat-warning']
+    );
+    
+    // Calculer le pourcentage
+    $percentage = round(($question_stats->unused_questions / $question_stats->total_questions) * 100, 1);
+    echo html_writer::tag('span', 
+        '📈 ' . $percentage . '% du total', 
+        ['class' => 'qd-tool-stat-item qd-stat-info']
+    );
+} else {
+    echo html_writer::tag('span', '✅ Toutes les questions sont utilisées', ['class' => 'qd-tool-stat-item qd-stat-success']);
+}
+
+echo html_writer::end_tag('div');
+
+$unused_url = new moodle_url('/local/question_diagnostic/unused_questions.php');
+echo html_writer::link($unused_url, 'Voir les questions inutilisées →', ['class' => 'qd-tool-button']);
+
+echo html_writer::end_tag('div'); // fin qd-tool-content
+
+echo html_writer::end_tag('div'); // fin qd-tool-card
+
+// ======================================================================
 // 🆕 v1.9.39 : OPTION 4 : Logs d'Audit
 // ======================================================================
 

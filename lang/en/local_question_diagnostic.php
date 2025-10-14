@@ -402,3 +402,17 @@ $string['repair_auto_recommended'] = 'Automatic repair recommended';
 $string['repair_manual_recommended'] = 'Manual validation recommended';
 $string['repair_not_recommended'] = 'Archiving or deletion recommended';
 
+// 🆕 v1.10.1: Unused questions page
+$string['unused_questions'] = 'Unused questions';
+$string['unused_questions_title'] = 'Unused questions';
+$string['unused_questions_heading'] = 'Unused questions management';
+$string['unused_questions_info'] = 'This page displays all questions that are not used in quizzes and have no associated attempts. These questions can potentially be deleted to clean up your database.';
+$string['unused_questions_list'] = 'List of unused questions';
+$string['no_unused_questions'] = 'No unused questions found';
+$string['no_unused_questions_desc'] = 'All your questions are used in at least one quiz or have attempts. Congratulations! Your question bank is perfectly optimized.';
+$string['export_unused_csv'] = 'Export unused questions to CSV';
+$string['load_more_questions'] = 'Load 50 more questions';
+$string['statistics'] = 'Statistics';
+$string['tool_unused_questions_title'] = 'Unused questions';
+$string['tool_unused_questions_desc'] = 'View and manage all questions that are not used in quizzes. Identify obsolete questions, delete them in bulk, or export them for archiving.';
+

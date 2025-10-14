@@ -1872,5 +1872,95 @@ class question_analyzer {
         
         return $stats;
     }
+    
+    /**
+     * Récupère les questions inutilisées (avec limite et pagination)
+     * 🆕 v1.10.1 : Nouvelle méthode pour la page des questions inutilisées
+     *
+     * @param int $limit Limite du nombre de questions (défaut: 50)
+     * @param int $offset Offset pour la pagination (défaut: 0)
+     * @return array Tableau des questions inutilisées
+     */
+    public static function get_unused_questions($limit = 50, $offset = 0) {
+        global $DB, $CFG;
+
+        try {
+            // 🔧 v1.10.1 : Détecter l'architecture Moodle (Moodle 4.5+ utilise question_references)
+            $columns = $DB->get_columns('quiz_slots');
+            
+            // Construire la requête pour trouver les questions utilisées
+            if (isset($columns['questionbankentryid'])) {
+                // Moodle 4.1-4.4 : utilise questionbankentryid
+                $used_questions_sql = "SELECT DISTINCT qv.questionid
+                                     FROM {quiz_slots} qs
+                                     INNER JOIN {question_bank_entries} qbe ON qbe.id = qs.questionbankentryid
+                                     INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id";
+            } else if (isset($columns['questionid'])) {
+                // Moodle 4.0 : utilise questionid directement
+                $used_questions_sql = "SELECT DISTINCT qs.questionid
+                                     FROM {quiz_slots} qs";
+            } else {
+                // Moodle 4.5+ : utilise question_references
+                $used_questions_sql = "SELECT DISTINCT qv.questionid
+                                     FROM {quiz_slots} qs
+                                     INNER JOIN {question_references} qr ON qr.itemid = qs.id 
+                                         AND qr.component = 'mod_quiz' 
+                                         AND qr.questionarea = 'slot'
+                                     INNER JOIN {question_bank_entries} qbe ON qbe.id = qr.questionbankentryid
+                                     INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id 
+                                         AND qv.version = (
+                                             SELECT MAX(v.version)
+                                             FROM {question_versions} v
+                                             WHERE v.questionbankentryid = qbe.id
+                                         )";
+            }
+            
+            // Ajouter les questions utilisées dans les tentatives
+            $used_in_attempts_sql = "SELECT DISTINCT qa.questionid
+                                    FROM {question_attempts} qa";
+            
+            // Récupérer les IDs des questions utilisées
+            $used_in_quizzes = $DB->get_fieldset_sql($used_questions_sql);
+            $used_in_attempts = $DB->get_fieldset_sql($used_in_attempts_sql);
+            
+            // Fusionner et dédupliquer
+            $used_question_ids = array_unique(array_merge($used_in_quizzes, $used_in_attempts));
+            
+            // Si aucune question utilisée, retourner toutes les questions (avec limite)
+            if (empty($used_question_ids)) {
+                return $DB->get_records('question', null, 'id DESC', '*', $offset, $limit);
+            }
+            
+            // Récupérer les questions NON utilisées (avec limite et offset)
+            // Utiliser NOT IN avec chunking pour éviter les problèmes de taille SQL
+            // Pour de grosses bases, on utilise une subquery
+            $unused_sql = "SELECT * 
+                          FROM {question} q
+                          WHERE q.id NOT IN ($used_questions_sql)
+                          AND q.id NOT IN ($used_in_attempts_sql)
+                          ORDER BY q.id DESC";
+            
+            // Utiliser get_records_sql avec limit et offset
+            $unused_questions = $DB->get_records_sql($unused_sql, [], $offset, $limit);
+            
+            return $unused_questions;
+            
+        } catch (\Exception $e) {
+            debugging('Erreur lors de la récupération des questions inutilisées : ' . $e->getMessage(), DEBUG_DEVELOPER);
+            
+            // Fallback : Retourner toutes les questions et filtrer côté PHP (moins optimal)
+            $all_questions = $DB->get_records('question', null, 'id DESC', '*', $offset, $limit);
+            $unused = [];
+            
+            foreach ($all_questions as $question) {
+                $usage = self::get_question_usage($question->id);
+                if (!$usage['is_used']) {
+                    $unused[] = $question;
+                }
+            }
+            
+            return $unused;
+        }
+    }
 }
 

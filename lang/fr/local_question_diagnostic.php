@@ -402,3 +402,17 @@ $string['repair_auto_recommended'] = 'Réparation automatique recommandée';
 $string['repair_manual_recommended'] = 'Validation manuelle recommandée';
 $string['repair_not_recommended'] = 'Archivage ou suppression recommandé';
 
+// 🆕 v1.10.1 : Page des questions inutilisées
+$string['unused_questions'] = 'Questions inutilisées';
+$string['unused_questions_title'] = 'Questions inutilisées';
+$string['unused_questions_heading'] = 'Gestion des questions inutilisées';
+$string['unused_questions_info'] = 'Cette page affiche toutes les questions qui ne sont pas utilisées dans des quiz et qui n\'ont aucune tentative associée. Ces questions peuvent potentiellement être supprimées pour nettoyer votre base de données.';
+$string['unused_questions_list'] = 'Liste des questions inutilisées';
+$string['no_unused_questions'] = 'Aucune question inutilisée trouvée';
+$string['no_unused_questions_desc'] = 'Toutes vos questions sont utilisées dans au moins un quiz ou possèdent des tentatives. Félicitations ! Votre banque de questions est parfaitement optimisée.';
+$string['export_unused_csv'] = 'Exporter les questions inutilisées en CSV';
+$string['load_more_questions'] = 'Charger 50 questions supplémentaires';
+$string['statistics'] = 'Statistiques';
+$string['tool_unused_questions_title'] = 'Questions inutilisées';
+$string['tool_unused_questions_desc'] = 'Visualisez et gérez toutes les questions qui ne sont pas utilisées dans des quiz. Identifiez les questions obsolètes, supprimez-les en masse ou exportez-les pour archivage.';
+
