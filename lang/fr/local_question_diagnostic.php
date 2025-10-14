@@ -86,6 +86,15 @@ $string['tool_categories_desc'] = 'Gérez les catégories de questions : détect
 $string['tool_links_title'] = 'Vérification des Liens';
 $string['tool_links_desc'] = 'Détectez les questions avec des liens cassés vers des images ou fichiers manquants dans moodledata. Supporte tous les types de questions, y compris les plugins tiers comme "drag and drop sur image".';
 
+// Outil 3 : Rendre les questions cachées visibles
+$string['tool_unhide_title'] = 'Rendre les Questions Visibles';
+$string['tool_unhide_desc'] = 'Rendez toutes les questions cachées visibles en une seule fois. Seules les questions cachées manuellement (non utilisées) seront affectées. Les questions supprimées (soft delete) utilisées dans des quiz seront protégées.';
+$string['unhide_questions'] = 'Rendre les questions visibles';
+$string['unhide_questions_title'] = 'Gestion des Questions Cachées';
+$string['unhide_questions_intro'] = 'Cette page vous permet de rendre toutes les questions cachées visibles en une seule fois. Seules les questions cachées manuellement (non utilisées dans des quiz) seront affectées. Les questions supprimées (soft delete) mais encore référencées dans des quiz seront automatiquement exclues pour préserver l\'intégrité des tentatives existantes.';
+$string['total_hidden_questions'] = 'Questions Cachées';
+$string['manually_hidden_only'] = 'Cachées manuellement (non utilisées)';
+
 // Liens cassés
 $string['brokenlinks'] = 'Vérification des liens dans les questions';
 $string['brokenlinks_heading'] = 'Outil de Diagnostic - Questions avec liens cassés';

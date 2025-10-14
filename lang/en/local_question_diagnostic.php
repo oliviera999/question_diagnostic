@@ -86,6 +86,15 @@ $string['tool_categories_desc'] = 'Manage question categories: detect and fix or
 $string['tool_links_title'] = 'Link Verification';
 $string['tool_links_desc'] = 'Detect questions with broken links to missing images or files in moodledata. Supports all question types, including third-party plugins like "drag and drop on image".';
 
+// Tool 3: Unhide questions
+$string['tool_unhide_title'] = 'Unhide Questions';
+$string['tool_unhide_desc'] = 'Make all hidden questions visible at once. Only manually hidden (unused) questions will be affected. Deleted questions (soft delete) used in quizzes will be protected.';
+$string['unhide_questions'] = 'Unhide questions';
+$string['unhide_questions_title'] = 'Hidden Questions Management';
+$string['unhide_questions_intro'] = 'This page allows you to make all hidden questions visible at once. Only manually hidden questions (not used in quizzes) will be affected. Deleted questions (soft delete) still referenced in quizzes will be automatically excluded to preserve existing attempt integrity.';
+$string['total_hidden_questions'] = 'Hidden Questions';
+$string['manually_hidden_only'] = 'Manually hidden (unused)';
+
 // Broken links
 $string['brokenlinks'] = 'Question link verification';
 $string['brokenlinks_heading'] = 'Diagnostic Tool - Questions with broken links';

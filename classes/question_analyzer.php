@@ -1580,6 +1580,130 @@ class question_analyzer {
     }
     
     /**
+     * Récupère toutes les questions cachées (status = 'hidden')
+     * 
+     * 🆕 v1.9.58 : Nouvelle méthode pour gérer les questions cachées en masse
+     * 
+     * @param bool $exclude_used Si true, exclut les questions utilisées (soft delete)
+     * @param int $limit Limite du nombre de résultats (0 = toutes)
+     * @return array Tableau d'objets question avec infos supplémentaires
+     */
+    public static function get_hidden_questions($exclude_used = true, $limit = 0) {
+        global $DB;
+        
+        try {
+            // Récupérer les IDs des questions cachées
+            $sql = "SELECT DISTINCT qv.questionid
+                    FROM {question_versions} qv
+                    WHERE qv.status = 'hidden'
+                    ORDER BY qv.questionid DESC";
+            
+            $hidden_question_ids = $DB->get_fieldset_sql($sql, [], 0, $limit > 0 ? $limit : 0);
+            
+            if (empty($hidden_question_ids)) {
+                return [];
+            }
+            
+            // Récupérer les détails des questions
+            list($insql, $params) = $DB->get_in_or_equal($hidden_question_ids);
+            $questions = $DB->get_records_select('question', "id $insql", $params);
+            
+            // Si on exclut les questions utilisées, charger les infos d'usage
+            if ($exclude_used) {
+                $usage_map = self::get_questions_usage_by_ids($hidden_question_ids);
+                
+                // Filtrer les questions non utilisées
+                $filtered_questions = [];
+                foreach ($questions as $q) {
+                    $is_used = false;
+                    if (isset($usage_map[$q->id]) && is_array($usage_map[$q->id])) {
+                        $quiz_count = isset($usage_map[$q->id]['quiz_count']) ? $usage_map[$q->id]['quiz_count'] : 0;
+                        $is_used = ($quiz_count > 0);
+                    }
+                    
+                    if (!$is_used) {
+                        $filtered_questions[] = $q;
+                    }
+                }
+                return $filtered_questions;
+            }
+            
+            return array_values($questions);
+            
+        } catch (\Exception $e) {
+            debugging('Error in get_hidden_questions: ' . $e->getMessage(), DEBUG_DEVELOPER);
+            return [];
+        }
+    }
+    
+    /**
+     * Rend une question visible (change status de 'hidden' à 'ready')
+     * 
+     * 🆕 v1.9.58 : Nouvelle méthode pour rendre une question visible
+     * 
+     * @param int $questionid ID de la question
+     * @return bool|string True si succès, message d'erreur sinon
+     */
+    public static function unhide_question($questionid) {
+        global $DB;
+        
+        try {
+            // Vérifier que la question existe
+            $question = $DB->get_record('question', ['id' => $questionid]);
+            if (!$question) {
+                return 'Question non trouvée (ID: ' . $questionid . ')';
+            }
+            
+            // Mettre à jour le statut dans question_versions
+            $sql = "UPDATE {question_versions}
+                    SET status = 'ready'
+                    WHERE questionid = :questionid
+                    AND status = 'hidden'";
+            
+            $result = $DB->execute($sql, ['questionid' => $questionid]);
+            
+            if ($result) {
+                return true;
+            } else {
+                return 'Aucune modification effectuée (la question n\'était peut-être pas cachée)';
+            }
+            
+        } catch (\Exception $e) {
+            return 'Erreur lors du changement de statut : ' . $e->getMessage();
+        }
+    }
+    
+    /**
+     * Rend plusieurs questions visibles en masse
+     * 
+     * 🆕 v1.9.58 : Opération en masse pour rendre visibles
+     * 
+     * @param array $questionids Tableau d'IDs de questions
+     * @return array ['success' => int, 'failed' => int, 'errors' => array]
+     */
+    public static function unhide_questions_batch($questionids) {
+        $success = 0;
+        $failed = 0;
+        $errors = [];
+        
+        foreach ($questionids as $qid) {
+            $result = self::unhide_question($qid);
+            if ($result === true) {
+                $success++;
+            } else {
+                $failed++;
+                $errors[] = "Question $qid: $result";
+            }
+        }
+        
+        return [
+            'success' => $success,
+            'failed' => $failed,
+            'errors' => $errors
+        ];
+    }
+    
+    /**
      * Supprime une question en toute sécurité (avec vérifications)
      * Utilise l'API Moodle pour supprimer proprement
      *
