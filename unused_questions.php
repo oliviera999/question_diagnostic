@@ -267,6 +267,13 @@ echo html_writer::end_tag('div');
 try {
     $unused_questions = question_analyzer::get_unused_questions($show_limit);
     $total_unused = $globalstats->unused_questions;
+    
+    // 🆕 v1.9.55 : Récupérer les infos de versions (statut caché + nombre de versions) pour toutes les questions
+    $question_ids = array_map(function($item) { return $item->question->id; }, $unused_questions);
+    $version_info_map = [];
+    if (!empty($question_ids)) {
+        $version_info_map = question_analyzer::get_questions_version_info_batch($question_ids);
+    }
 } catch (Exception $e) {
     echo html_writer::start_tag('script');
     echo "document.getElementById('loading-unused-questions').style.display = 'none';";
@@ -325,6 +332,8 @@ echo html_writer::tag('th', '<input type="checkbox" id="select-all-unused" title
 echo html_writer::tag('th', 'ID ▲▼', ['class' => 'sortable col-id', 'data-column' => 'id', 'style' => 'cursor: pointer;']);
 echo html_writer::tag('th', 'Nom ▲▼', ['class' => 'sortable col-name', 'data-column' => 'name', 'style' => 'cursor: pointer;']);
 echo html_writer::tag('th', 'Type ▲▼', ['class' => 'sortable col-type', 'data-column' => 'type', 'style' => 'cursor: pointer;']);
+echo html_writer::tag('th', get_string('question_hidden_status', 'local_question_diagnostic') . ' ▲▼', ['class' => 'sortable col-visibility', 'data-column' => 'visibility', 'style' => 'cursor: pointer;', 'title' => 'Statut de visibilité de la question']);
+echo html_writer::tag('th', get_string('question_version_count', 'local_question_diagnostic') . ' ▲▼', ['class' => 'sortable col-versions', 'data-column' => 'versions', 'style' => 'cursor: pointer;', 'title' => get_string('question_version_count_tooltip', 'local_question_diagnostic')]);
 echo html_writer::tag('th', 'Catégorie ▲▼', ['class' => 'sortable col-category', 'data-column' => 'category', 'style' => 'cursor: pointer;']);
 echo html_writer::tag('th', 'Cours ▲▼', ['class' => 'sortable col-course', 'data-column' => 'course', 'style' => 'cursor: pointer;']);
 echo html_writer::tag('th', 'Contexte ▲▼', ['class' => 'sortable col-context', 'data-column' => 'context', 'style' => 'cursor: pointer; display: none;']);
@@ -350,6 +359,13 @@ foreach ($unused_questions as $question) {
     // Vérifier si supprimable
     $can_delete_check = isset($deletability_map[$question->id]) ? $deletability_map[$question->id] : null;
     
+    // 🆕 v1.9.55 : Récupérer les infos de versions pour cette question
+    $version_info = isset($version_info_map[$question->id]) ? $version_info_map[$question->id] : (object)[
+        'is_hidden' => false,
+        'version_count' => 0,
+        'status' => 'unknown'
+    ];
+    
     // Extraire le texte de la question (sans HTML)
     $excerpt = substr(strip_tags($question->questiontext), 0, 150);
     if (strlen(strip_tags($question->questiontext)) > 150) {
@@ -365,7 +381,7 @@ foreach ($unused_questions as $question) {
         }
     }
     
-    // Visibilité
+    // Visibilité (utiliser l'ancienne valeur comme fallback)
     $is_hidden = isset($question->hidden) && $question->hidden == 1;
     $visible_text = $is_hidden ? '🙈 Cachée' : '✅ Visible';
     
@@ -375,6 +391,8 @@ foreach ($unused_questions as $question) {
         'data-id' => $question->id,
         'data-name' => format_string($question->name),
         'data-type' => $question->qtype,
+        'data-visibility' => $version_info->is_hidden ? '0' : '1', // 🆕 v1.9.55
+        'data-versions' => $version_info->version_count, // 🆕 v1.9.55
         'data-category' => isset($stats->category_name) ? $stats->category_name : 'N/A',
         'data-course' => isset($stats->course_name) ? strip_tags($stats->course_name) : '-',
         'data-context' => isset($stats->context_name) ? strip_tags($stats->context_name) : '-',
@@ -397,6 +415,31 @@ foreach ($unused_questions as $question) {
     echo html_writer::tag('td', $question->id, ['class' => 'col-id']);
     echo html_writer::tag('td', format_string($question->name), ['class' => 'col-name']);
     echo html_writer::tag('td', $question->qtype, ['class' => 'col-type']);
+    
+    // 🆕 v1.9.55 : Colonne Visibilité (cachée/visible)
+    $visibility_text = $version_info->is_hidden 
+        ? get_string('question_hidden', 'local_question_diagnostic') 
+        : get_string('question_visible', 'local_question_diagnostic');
+    $visibility_style = $version_info->is_hidden 
+        ? 'color: #d9534f; font-weight: bold;' 
+        : 'color: #5cb85c;';
+    echo html_writer::tag('td', $visibility_text, [
+        'class' => 'col-visibility',
+        'style' => $visibility_style . ' text-align: center;',
+        'title' => 'Statut: ' . $version_info->status
+    ]);
+    
+    // 🆕 v1.9.55 : Colonne Nombre de versions
+    $version_count_style = $version_info->version_count > 1 
+        ? 'font-weight: bold; color: #0f6cbf;' 
+        : 'color: #666;';
+    echo html_writer::tag('td', $version_info->version_count, [
+        'class' => 'col-versions',
+        'style' => $version_count_style . ' text-align: center;',
+        'title' => $version_info->version_count > 1 
+            ? 'Cette question a ' . $version_info->version_count . ' versions' 
+            : 'Version unique'
+    ]);
     
     // Catégorie cliquable
     echo html_writer::start_tag('td', ['class' => 'col-category']);

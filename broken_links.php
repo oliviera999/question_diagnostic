@@ -7,8 +7,10 @@
 require_once(__DIR__ . '/../../config.php');
 require_once(__DIR__ . '/lib.php');
 require_once(__DIR__ . '/classes/question_link_checker.php');
+require_once(__DIR__ . '/classes/question_analyzer.php');
 
 use local_question_diagnostic\question_link_checker;
+use local_question_diagnostic\question_analyzer;
 
 // Charger les bibliothèques Moodle nécessaires.
 require_login();
@@ -198,6 +200,13 @@ echo html_writer::tag('h3', '🔗 ' . get_string('brokenlinks_table', 'local_que
 // Utiliser le cache par défaut (limite de 1000 questions pour éviter timeout)
 $broken_questions = question_link_checker::get_questions_with_broken_links(true, 1000);
 
+// 🆕 v1.9.55 : Récupérer les infos de versions (statut caché + nombre de versions) pour toutes les questions
+$question_ids = array_map(function($item) { return $item->question->id; }, $broken_questions);
+$version_info_map = [];
+if (!empty($question_ids)) {
+    $version_info_map = question_analyzer::get_questions_version_info_batch($question_ids);
+}
+
 // Afficher un avertissement si limite atteinte
 if (count($broken_questions) >= 1000) {
     echo html_writer::start_div('alert alert-info', ['style' => 'margin-bottom: 20px;']);
@@ -218,11 +227,13 @@ if (empty($broken_questions)) {
     // En-tête du tableau
     echo html_writer::start_tag('thead');
     echo html_writer::start_tag('tr');
-    echo html_writer::tag('th', get_string('question_id', 'local_question_diagnostic'));
-    echo html_writer::tag('th', get_string('question_name', 'local_question_diagnostic'));
-    echo html_writer::tag('th', get_string('question_type', 'local_question_diagnostic'));
-    echo html_writer::tag('th', get_string('question_category', 'local_question_diagnostic'));
-    echo html_writer::tag('th', get_string('broken_links_count', 'local_question_diagnostic'));
+    echo html_writer::tag('th', get_string('question_id', 'local_question_diagnostic'), ['class' => 'sortable', 'data-column' => 'id']);
+    echo html_writer::tag('th', get_string('question_name', 'local_question_diagnostic'), ['class' => 'sortable', 'data-column' => 'name']);
+    echo html_writer::tag('th', get_string('question_type', 'local_question_diagnostic'), ['class' => 'sortable', 'data-column' => 'qtype']);
+    echo html_writer::tag('th', get_string('question_hidden_status', 'local_question_diagnostic'), ['class' => 'sortable', 'data-column' => 'visibility', 'title' => 'Statut de visibilité de la question']);
+    echo html_writer::tag('th', get_string('question_version_count', 'local_question_diagnostic'), ['class' => 'sortable', 'data-column' => 'versions', 'title' => get_string('question_version_count_tooltip', 'local_question_diagnostic')]);
+    echo html_writer::tag('th', get_string('question_category', 'local_question_diagnostic'), ['class' => 'sortable', 'data-column' => 'category']);
+    echo html_writer::tag('th', get_string('broken_links_count', 'local_question_diagnostic'), ['class' => 'sortable', 'data-column' => 'brokencount']);
     echo html_writer::tag('th', get_string('broken_links_details', 'local_question_diagnostic'));
     echo html_writer::tag('th', get_string('actions', 'local_question_diagnostic'));
     echo html_writer::end_tag('tr');
@@ -236,11 +247,22 @@ if (empty($broken_questions)) {
         $category = $item->category;
         $broken_links = $item->broken_links;
         
-        // Attributs pour le filtrage
+        // 🆕 v1.9.55 : Récupérer les infos de versions pour cette question
+        $version_info = isset($version_info_map[$question->id]) ? $version_info_map[$question->id] : (object)[
+            'is_hidden' => false,
+            'version_count' => 0,
+            'status' => 'unknown'
+        ];
+        
+        // Attributs pour le filtrage et le tri
         $row_attrs = [
+            'data-id' => $question->id,
             'data-qtype' => $question->qtype,
             'data-name' => format_string($question->name),
-            'data-category' => $category ? format_string($category->name) : 'Inconnue'
+            'data-visibility' => $version_info->is_hidden ? '0' : '1',
+            'data-versions' => $version_info->version_count,
+            'data-category' => $category ? format_string($category->name) : 'Inconnue',
+            'data-brokencount' => $item->broken_count
         ];
         
         echo html_writer::start_tag('tr', $row_attrs);
@@ -258,6 +280,29 @@ if (empty($broken_questions)) {
             ucfirst($question->qtype), 
             ['class' => 'badge badge-info']
         ));
+        
+        // 🆕 v1.9.55 : Colonne Visibilité (cachée/visible)
+        $visibility_text = $version_info->is_hidden 
+            ? get_string('question_hidden', 'local_question_diagnostic') 
+            : get_string('question_visible', 'local_question_diagnostic');
+        $visibility_style = $version_info->is_hidden 
+            ? 'color: #d9534f; font-weight: bold;' 
+            : 'color: #5cb85c;';
+        echo html_writer::tag('td', $visibility_text, [
+            'style' => $visibility_style . ' text-align: center;',
+            'title' => 'Statut: ' . $version_info->status
+        ]);
+        
+        // 🆕 v1.9.55 : Colonne Nombre de versions
+        $version_count_style = $version_info->version_count > 1 
+            ? 'font-weight: bold; color: #0f6cbf;' 
+            : 'color: #666;';
+        echo html_writer::tag('td', $version_info->version_count, [
+            'style' => $version_count_style . ' text-align: center;',
+            'title' => $version_info->version_count > 1 
+                ? 'Cette question a ' . $version_info->version_count . ' versions' 
+                : 'Version unique'
+        ]);
         
         // Catégorie
         echo html_writer::start_tag('td');
