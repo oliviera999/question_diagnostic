@@ -1592,13 +1592,17 @@ class question_analyzer {
         global $DB;
         
         try {
-            // Récupérer les IDs des questions cachées
+            // 🔧 v1.9.60 : Requête améliorée pour récupérer TOUTES les questions cachées
+            // Chercher dans question_versions TOUTES les entrées avec status='hidden'
+            // Utiliser DISTINCT pour éviter les doublons si une question a plusieurs versions cachées
             $sql = "SELECT DISTINCT qv.questionid
                     FROM {question_versions} qv
                     WHERE qv.status = 'hidden'
                     ORDER BY qv.questionid DESC";
             
+            // 🔧 DEBUG : Ajouter un log pour voir combien on en trouve
             $hidden_question_ids = $DB->get_fieldset_sql($sql, [], 0, $limit > 0 ? $limit : 0);
+            debugging('get_hidden_questions: Found ' . count($hidden_question_ids) . ' hidden question IDs', DEBUG_DEVELOPER);
             
             if (empty($hidden_question_ids)) {
                 return [];
@@ -1651,24 +1655,46 @@ class question_analyzer {
             // Vérifier que la question existe
             $question = $DB->get_record('question', ['id' => $questionid]);
             if (!$question) {
+                debugging('unhide_question: Question not found (ID: ' . $questionid . ')', DEBUG_DEVELOPER);
                 return 'Question non trouvée (ID: ' . $questionid . ')';
             }
             
-            // Mettre à jour le statut dans question_versions
+            // 🔧 v1.9.60 : Vérifier d'abord si la question est cachée
+            $versions_hidden = $DB->count_records('question_versions', [
+                'questionid' => $questionid,
+                'status' => 'hidden'
+            ]);
+            
+            debugging('unhide_question ID ' . $questionid . ': Found ' . $versions_hidden . ' hidden version(s)', DEBUG_DEVELOPER);
+            
+            if ($versions_hidden == 0) {
+                return 'Question non cachée (ID: ' . $questionid . ')';
+            }
+            
+            // Mettre à jour TOUTES les versions cachées de cette question
             $sql = "UPDATE {question_versions}
                     SET status = 'ready'
                     WHERE questionid = :questionid
                     AND status = 'hidden'";
             
-            $result = $DB->execute($sql, ['questionid' => $questionid]);
+            $DB->execute($sql, ['questionid' => $questionid]);
             
-            if ($result) {
+            // Vérifier si la mise à jour a fonctionné
+            $still_hidden = $DB->count_records('question_versions', [
+                'questionid' => $questionid,
+                'status' => 'hidden'
+            ]);
+            
+            if ($still_hidden == 0) {
+                debugging('unhide_question ID ' . $questionid . ': SUCCESS - ' . $versions_hidden . ' version(s) made visible', DEBUG_DEVELOPER);
                 return true;
             } else {
-                return 'Aucune modification effectuée (la question n\'était peut-être pas cachée)';
+                debugging('unhide_question ID ' . $questionid . ': FAILED - Still ' . $still_hidden . ' hidden version(s)', DEBUG_DEVELOPER);
+                return 'Échec partiel : ' . $still_hidden . ' version(s) encore cachée(s)';
             }
             
         } catch (\Exception $e) {
+            debugging('unhide_question ID ' . $questionid . ': ERROR - ' . $e->getMessage(), DEBUG_DEVELOPER);
             return 'Erreur lors du changement de statut : ' . $e->getMessage();
         }
     }

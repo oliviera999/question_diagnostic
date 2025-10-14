@@ -56,103 +56,40 @@ $PAGE->requires->js('/local/question_diagnostic/scripts/main.js', true);
 $action = optional_param('action', '', PARAM_ALPHA);
 $confirm = optional_param('confirm', 0, PARAM_INT);
 
-// 🔧 DEBUG : Vérifier le sesskey
-if ($action === 'unhide_all') {
-    if (!confirm_sesskey()) {
-        print_error('invalidsesskey', 'error');
-    }
+if ($action === 'unhide_all' && $confirm) {
+    require_sesskey();
     
-    if (!$confirm) {
-        // Afficher la page de confirmation
-        echo $OUTPUT->header();
-        echo local_question_diagnostic_render_version_badge();
-        
-        echo html_writer::tag('h2', '⚠️ Confirmation requise');
-        
-        // Charger les questions cachées non utilisées
-        $hidden_questions_to_unhide = question_analyzer::get_hidden_questions(true, 0); // true = exclure utilisées
-        $count = count($hidden_questions_to_unhide);
-        
-        if ($count == 0) {
-            echo html_writer::start_tag('div', ['class' => 'alert alert-info', 'style' => 'margin: 20px 0;']);
-            echo html_writer::tag('p', '✅ Aucune question cachée manuellement à rendre visible.');
-            echo html_writer::tag('p', 'Toutes les questions cachées sont des soft delete (utilisées dans des quiz) et sont protégées.');
-            echo html_writer::end_tag('div');
-            
-            echo html_writer::link(
-                new moodle_url('/local/question_diagnostic/unhide_questions.php'),
-                '← Retour',
-                ['class' => 'btn btn-secondary']
-            );
-            
-            echo $OUTPUT->footer();
-            exit;
-        }
-        
-        echo html_writer::start_tag('div', ['class' => 'alert alert-warning', 'style' => 'margin: 20px 0;']);
-        echo html_writer::tag('p', '<strong>Vous êtes sur le point de rendre visible ' . $count . ' question(s) cachée(s) manuellement.</strong>');
-        echo html_writer::tag('p', 'Cette action va changer le statut de toutes les questions cachées NON utilisées de "hidden" à "ready".');
-        echo html_writer::tag('p', '⚠️ <strong>Note :</strong> Les questions cachées mais utilisées dans des quiz (soft delete) ne seront PAS affectées.');
-        echo html_writer::end_tag('div');
-        
-        // Afficher les questions qui seront affectées
-        echo html_writer::tag('h4', '📋 Questions qui seront rendues visibles :');
-        echo html_writer::start_tag('ul', ['style' => 'max-height: 300px; overflow-y: auto; background: #f8f9fa; padding: 15px; border-radius: 5px;']);
-        foreach ($hidden_questions_to_unhide as $q) {
-            echo html_writer::tag('li', 'ID ' . $q->id . ' : ' . format_string($q->name) . ' (' . $q->qtype . ')');
-        }
-        echo html_writer::end_tag('ul');
-        
-        echo html_writer::start_tag('div', ['style' => 'margin: 20px 0;']);
-        echo html_writer::link(
-            new moodle_url('/local/question_diagnostic/unhide_questions.php', [
-                'action' => 'unhide_all',
-                'confirm' => 1,
-                'sesskey' => sesskey()
-            ]),
-            '✅ Oui, rendre visibles (' . $count . ' questions)',
-            ['class' => 'btn btn-success btn-lg', 'style' => 'margin-right: 10px;']
-        );
-        echo html_writer::link(
-            new moodle_url('/local/question_diagnostic/unhide_questions.php'),
-            '❌ Annuler',
-            ['class' => 'btn btn-secondary btn-lg']
-        );
-        echo html_writer::end_tag('div');
-        
-        echo $OUTPUT->footer();
-        exit;
-    } else {
-        // Exécuter l'action
-        $hidden_questions = question_analyzer::get_hidden_questions(true, 0);
-        $question_ids = array_map(function($q) { return $q->id; }, $hidden_questions);
-        
-        if (empty($question_ids)) {
-            redirect(
-                new moodle_url('/local/question_diagnostic/unhide_questions.php'),
-                '✅ Aucune question cachée trouvée.',
-                null,
-                \core\output\notification::NOTIFY_INFO
-            );
-        }
-        
-        $result = question_analyzer::unhide_questions_batch($question_ids);
-        
-        // Purger le cache
-        question_analyzer::purge_all_caches();
-        
-        $message = '✅ Opération terminée : ' . $result['success'] . ' question(s) rendues visibles.';
-        if ($result['failed'] > 0) {
-            $message .= ' ' . $result['failed'] . ' échec(s).';
-        }
-        
+    // Exécuter l'action : Rendre TOUTES les questions cachées visibles
+    // 🔧 v1.9.60 : false = inclure TOUTES (même soft delete si l'utilisateur le demande)
+    $all_hidden_questions = question_analyzer::get_hidden_questions(false, 0);
+    $question_ids = array_map(function($q) { return $q->id; }, $all_hidden_questions);
+    
+    if (empty($question_ids)) {
         redirect(
             new moodle_url('/local/question_diagnostic/unhide_questions.php'),
-            $message,
+            '✅ Aucune question cachée trouvée.',
             null,
-            $result['failed'] > 0 ? \core\output\notification::NOTIFY_WARNING : \core\output\notification::NOTIFY_SUCCESS
+            \core\output\notification::NOTIFY_INFO
         );
     }
+    
+    // Exécuter en masse
+    $result = question_analyzer::unhide_questions_batch($question_ids);
+    
+    // Purger le cache
+    question_analyzer::purge_all_caches();
+    
+    $message = '✅ Opération terminée : ' . $result['success'] . ' question(s) rendues visibles.';
+    if ($result['failed'] > 0) {
+        $message .= ' ' . $result['failed'] . ' échec(s).';
+    }
+    
+    redirect(
+        new moodle_url('/local/question_diagnostic/unhide_questions.php'),
+        $message,
+        null,
+        $result['failed'] > 0 ? \core\output\notification::NOTIFY_WARNING : \core\output\notification::NOTIFY_SUCCESS
+    );
 }
 
 // ======================================================================
@@ -172,33 +109,74 @@ echo html_writer::tag('h2', '👁️ ' . get_string('unhide_questions_title', 'l
 
 // Introduction
 echo html_writer::start_tag('div', ['class' => 'alert alert-info', 'style' => 'margin: 20px 0;']);
-echo html_writer::tag('p', get_string('unhide_questions_intro', 'local_question_diagnostic'));
+echo html_writer::tag('p', '🔍 Cette page affiche <strong>TOUTES</strong> les questions avec status="hidden" dans question_versions, quelle qu\'en soit la raison (cachée manuellement ou soft delete).');
+echo html_writer::tag('p', 'Le bouton ci-dessous rendra <strong>TOUTES ces questions visibles</strong> en changeant leur statut de "hidden" à "ready".');
 echo html_writer::end_tag('div');
 
 // Charger TOUTES les questions cachées (y compris soft delete)
-$all_hidden_questions = question_analyzer::get_hidden_questions(false, 1000); // false = inclure toutes
+// 🔧 v1.9.60 : false = inclure TOUTES, 0 = pas de limite
+$all_hidden_questions = question_analyzer::get_hidden_questions(false, 0);
 $total_hidden = count($all_hidden_questions);
+
+// 🔧 DEBUG : Afficher un message si aucune question trouvée
+if ($total_hidden == 0) {
+    echo html_writer::start_tag('div', ['class' => 'alert alert-warning', 'style' => 'margin: 20px 0; padding: 20px;']);
+    echo html_writer::tag('strong', '🔍 Debug : ');
+    echo 'Aucune question avec status="hidden" trouvée dans la table question_versions. ';
+    echo 'Cela peut signifier que toutes vos questions sont visibles (status="ready"), ou qu\'il y a un problème avec la requête SQL.';
+    echo html_writer::end_tag('div');
+}
 
 // Calculer combien sont utilisées vs non utilisées
 $hidden_question_ids = array_map(function($q) { return $q->id; }, $all_hidden_questions);
-$usage_map = question_analyzer::get_questions_usage_by_ids($hidden_question_ids);
-
+$usage_map = [];
 $manually_hidden = 0; // Cachées manuellement (non utilisées)
 $soft_deleted = 0;    // Supprimées (soft delete, utilisées)
 
-foreach ($all_hidden_questions as $q) {
-    $is_used = false;
-    if (isset($usage_map[$q->id]) && is_array($usage_map[$q->id])) {
-        $quiz_count = isset($usage_map[$q->id]['quiz_count']) ? $usage_map[$q->id]['quiz_count'] : 0;
-        $is_used = ($quiz_count > 0);
-    }
+if (!empty($hidden_question_ids)) {
+    $usage_map = question_analyzer::get_questions_usage_by_ids($hidden_question_ids);
     
-    if ($is_used) {
-        $soft_deleted++;
-    } else {
-        $manually_hidden++;
+    foreach ($all_hidden_questions as $q) {
+        $is_used = false;
+        if (isset($usage_map[$q->id]) && is_array($usage_map[$q->id])) {
+            $quiz_count = isset($usage_map[$q->id]['quiz_count']) ? $usage_map[$q->id]['quiz_count'] : 0;
+            $is_used = ($quiz_count > 0);
+        }
+        
+        if ($is_used) {
+            $soft_deleted++;
+        } else {
+            $manually_hidden++;
+        }
     }
 }
+
+// 🔧 DEBUG : Afficher un résumé détaillé pour vérifier
+echo html_writer::start_tag('div', ['class' => 'alert alert-light', 'style' => 'margin: 20px 0; font-size: 12px; border-left: 3px solid #0f6cbf;']);
+echo html_writer::tag('strong', '🔍 Debug SQL : ');
+echo 'Requête exécutée : <code>SELECT DISTINCT questionid FROM mdl_question_versions WHERE status = \'hidden\'</code><br>';
+echo '<strong>Résultat :</strong> ' . $total_hidden . ' question(s) trouvée(s)<br>';
+
+// Vérification supplémentaire : Compter directement dans la BDD
+try {
+    $direct_count = $DB->count_records_sql(
+        "SELECT COUNT(DISTINCT qv.questionid) 
+         FROM {question_versions} qv 
+         WHERE qv.status = 'hidden'"
+    );
+    echo '<strong>Vérification directe BDD :</strong> ' . $direct_count . ' question(s) avec status=\'hidden\'<br>';
+    
+    if ($direct_count != $total_hidden) {
+        echo '<span style="color: red; font-weight: bold;">⚠️ DIFFÉRENCE DÉTECTÉE ! La fonction get_hidden_questions() ne retourne pas toutes les questions.</span><br>';
+    }
+} catch (Exception $e) {
+    echo '<span style="color: orange;">⚠️ Erreur vérification: ' . $e->getMessage() . '</span><br>';
+}
+
+if ($total_hidden > 0) {
+    echo '<strong>IDs trouvés :</strong> ' . implode(', ', array_slice($hidden_question_ids, 0, 50)) . ($total_hidden > 50 ? '... (+ ' . ($total_hidden - 50) . ' autres)' : '');
+}
+echo html_writer::end_tag('div');
 
 // Statistiques
 echo html_writer::start_tag('div', ['class' => 'qd-dashboard', 'style' => 'margin: 30px 0;']);
@@ -218,26 +196,52 @@ echo html_writer::end_tag('div');
 echo html_writer::start_tag('div', ['class' => 'qd-card danger']);
 echo html_writer::tag('div', 'Soft Delete', ['class' => 'qd-card-title']);
 echo html_writer::tag('div', $soft_deleted, ['class' => 'qd-card-value']);
-echo html_writer::tag('div', 'Utilisées dans quiz - Protégées', ['class' => 'qd-card-subtitle']);
+echo html_writer::tag('div', 'Utilisées dans quiz - SERONT AUSSI RENDUES VISIBLES ⚠️', ['class' => 'qd-card-subtitle']);
 echo html_writer::end_tag('div');
 
 echo html_writer::end_tag('div');
 
-// Bouton pour rendre toutes visibles (seulement les cachées manuellement)
-if ($manually_hidden > 0) {
+// Bouton pour rendre TOUTES visibles (avec avertissement sur soft delete)
+if ($total_hidden > 0) {
     echo html_writer::start_tag('div', ['style' => 'margin: 30px 0; text-align: center;']);
-    echo html_writer::link(
-        new moodle_url('/local/question_diagnostic/unhide_questions.php', [
-            'action' => 'unhide_all',
-            'sesskey' => sesskey()
-        ]),
-        '👁️ Rendre visibles les questions cachées manuellement (' . $manually_hidden . ')',
-        ['class' => 'btn btn-success btn-lg']
-    );
-    echo html_writer::tag('p', 
-        '⚠️ Les questions soft delete (' . $soft_deleted . ') utilisées dans des quiz seront automatiquement protégées.',
-        ['style' => 'margin-top: 10px; color: #666; font-size: 13px;']
-    );
+    
+    // 🔧 Utiliser un FORMULAIRE POST pour que ça fonctionne
+    $confirm_message = "⚠️ ATTENTION CRITIQUE\n\n";
+    $confirm_message .= "Vous allez rendre visible " . $total_hidden . " question(s) cachée(s).\n\n";
+    $confirm_message .= "Cela inclut:\n";
+    $confirm_message .= "- " . $manually_hidden . " question(s) cachées manuellement\n";
+    $confirm_message .= "- " . $soft_deleted . " question(s) soft delete (utilisées dans quiz)\n\n";
+    $confirm_message .= "Êtes-vous ABSOLUMENT sûr ?\n\n";
+    $confirm_message .= "Cliquez OK pour continuer ou Annuler pour arrêter.";
+    
+    echo html_writer::start_tag('form', [
+        'method' => 'post',
+        'action' => new moodle_url('/local/question_diagnostic/unhide_questions.php'),
+        'style' => 'display: inline-block;',
+        'onsubmit' => 'return confirm(' . json_encode($confirm_message) . ')'
+    ]);
+    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'action', 'value' => 'unhide_all']);
+    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'confirm', 'value' => '1']);
+    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]);
+    echo html_writer::empty_tag('input', [
+        'type' => 'submit',
+        'value' => '👁️ Rendre TOUTES les questions visibles (' . $total_hidden . ')',
+        'class' => 'btn btn-danger btn-lg'
+    ]);
+    echo html_writer::end_tag('form');
+    
+    echo html_writer::start_tag('div', ['class' => 'alert alert-danger', 'style' => 'margin-top: 20px; max-width: 800px; margin-left: auto; margin-right: auto;']);
+    echo html_writer::tag('strong', '⚠️ ATTENTION IMPORTANTE : ');
+    echo 'Cette action rendra visibles <strong>ABSOLUMENT TOUTES</strong> les ' . $total_hidden . ' question(s) cachées :<br><br>';
+    echo '✅ <strong>' . $manually_hidden . '</strong> question(s) cachées manuellement (sans risque)<br>';
+    echo '⚠️ <strong>' . $soft_deleted . '</strong> question(s) soft delete (utilisées dans ' . array_sum(array_map(function($q) use ($usage_map) {
+        return isset($usage_map[$q->id]['quiz_count']) ? $usage_map[$q->id]['quiz_count'] : 0;
+    }, array_filter($all_hidden_questions, function($q) use ($usage_map) {
+        $qc = isset($usage_map[$q->id]['quiz_count']) ? $usage_map[$q->id]['quiz_count'] : 0;
+        return $qc > 0;
+    }))) . ' quiz - peut affecter les tentatives de quiz)';
+    echo html_writer::end_tag('div');
+    
     echo html_writer::end_tag('div');
 }
 
