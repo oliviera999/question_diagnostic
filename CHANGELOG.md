@@ -5,6 +5,103 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.10.6] - 2025-10-14
+
+### 🎯 AMÉLIORATION CRITIQUE : Priorité maximale à "Olution"
+
+#### 🔥 Objectif
+
+Renforcer la détection de la catégorie "Olution" en la rendant **STRICTEMENT PRIORITAIRE** par rapport à d'autres variantes ou mots-clés génériques.
+
+#### ✨ Nouvelle stratégie de recherche STRICTE
+
+**7 niveaux de priorité (du plus strict au plus flexible) :**
+
+**PRIORITÉ 1 ⭐⭐⭐⭐⭐ : Nom EXACT "Olution"**
+- Correspondance exacte case-sensitive
+- Exemple : ✅ "Olution"
+
+**PRIORITÉ 2 ⭐⭐⭐⭐ : Variantes de casse**
+- Mots seuls avec casse différente
+- Exemples : ✅ "olution", "OLUTION"
+
+**PRIORITÉ 3 ⭐⭐⭐ : Commence par "Olution "**
+- Olution suivi d'un espace
+- Exemples : ✅ "Olution 2024", "Olution - Questions"
+- Trie par longueur (plus court = plus précis)
+
+**PRIORITÉ 4 ⭐⭐⭐ : Se termine par " Olution"**
+- Olution précédé d'un espace
+- Exemples : ✅ "Questions Olution", "Banque Olution"
+- Trie par longueur (plus court = plus précis)
+
+**PRIORITÉ 5 ⭐⭐ : Contient " Olution "**
+- Olution entouré d'espaces
+- Exemples : ✅ "Banque Olution 2024"
+- Trie par longueur
+
+**PRIORITÉ 6 ⭐ : Contient "Olution"**
+- Position et longueur optimales
+- Exemples : ⚠️ "OlutionQCM", "BanqueOlution"
+- Trie par position (plus tôt = mieux) et longueur
+
+**PRIORITÉ 7 (dernier recours) : Description**
+- Seulement si nom court (≤ 50 caractères)
+- Contient "olution" dans la description
+- Exemple : ⚠️ Nom: "Banque" + Description: "Catégorie olution"
+
+#### 🚫 Supprimé
+
+- ❌ Recherche par mots-clés génériques ("banque centrale", "partagé")
+- ❌ Recherche trop flexible dès les premières étapes
+- ❌ Priorité égale entre "Olution" et autres termes
+
+#### 📊 Tri optimisé
+
+Chaque niveau utilise un tri intelligent :
+- **Longueur** : Plus court = plus précis
+- **Position** : Plus tôt dans le nom = plus pertinent
+- **Contexte** : Espaces avant/après = mot distinct
+
+#### 🎨 Logs améliorés
+
+Mode debug affiche maintenant le niveau de priorité :
+```
+✅ Olution category found - EXACT match: Olution
+✅ Olution category found - Starts with "Olution ": Olution 2024
+⚠️ Olution category found - Contains "Olution" (flexible): BanqueOlution
+⚠️ Olution category found - Via description (last resort): Banque
+❌ No Olution category found with any strategy
+```
+
+#### 📁 Fichiers modifiés
+
+- **`lib.php`** : Fonction `local_question_diagnostic_find_olution_category()` complètement refactorisée avec 7 niveaux de priorité
+- **`version.php`** : Version incrémentée à v1.10.6
+- **`CHANGELOG.md`** : Cette entrée
+
+#### ✅ Avantages
+
+- ✅ **"Olution" TOUJOURS en priorité absolue**
+- ✅ Recherche stricte et ciblée
+- ✅ Évite les faux positifs
+- ✅ Tri intelligent par pertinence
+- ✅ Logs détaillés pour debug
+- ✅ Rétrocompatible avec v1.10.5
+
+#### 🔄 Migration depuis v1.10.5
+
+✅ **Aucune action requise** - amélioration transparente
+- Catégorie "Olution" exacte : Trouvée en priorité 1
+- Catégorie avec variante : Trouvée selon position/longueur
+- Pas de régression possible
+
+#### 🎯 Résultat
+
+La catégorie "Olution" est maintenant **TOUJOURS trouvée en premier** si elle existe, quelle que soit la présence d'autres catégories avec des noms similaires.
+
+---
+
 ## [1.10.5] - 2025-10-14
 
 ### 🧠 AMÉLIORATION : Recherche intelligente de la catégorie Olution

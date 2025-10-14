@@ -784,11 +784,15 @@ function local_question_diagnostic_render_back_link($current_page, $custom_text 
  * 
  * 🆕 v1.10.4 : Fonction pour identifier la catégorie Olution
  * 🔧 v1.10.5 : Recherche intelligente et flexible
+ * 🎯 v1.10.6 : PRIORITÉ MAXIMALE à "Olution" - Recherche stricte et ciblée
  * 
- * Stratégie de recherche (dans l'ordre) :
- * 1. Nom exact "Olution" (case-sensitive)
- * 2. Nom contenant "olution" (case-insensitive)
- * 3. Première catégorie racine système avec "olution" dans le nom ou description
+ * Stratégie de recherche STRICTE (dans l'ordre de priorité) :
+ * 1. Nom EXACT "Olution" (case-sensitive) - PRIORITÉ ABSOLUE
+ * 2. Variantes de casse : "olution", "OLUTION" (début de nom)
+ * 3. Nom commençant par "Olution " (avec espace)
+ * 4. Nom se terminant par " Olution"
+ * 5. Nom contenant " Olution " (entouré d'espaces)
+ * 6. En dernier recours : description contenant "olution" (si nom proche)
  * 
  * @return object|false Objet catégorie Olution ou false si non trouvée
  */
@@ -799,7 +803,9 @@ function local_question_diagnostic_find_olution_category() {
         // Récupérer le contexte système
         $systemcontext = context_system::instance();
         
-        // Stratégie 1 : Chercher nom exact "Olution" (case-sensitive)
+        // ==================================================================================
+        // PRIORITÉ 1 : Nom EXACT "Olution" (case-sensitive)
+        // ==================================================================================
         $olution = $DB->get_record('question_categories', [
             'contextid' => $systemcontext->id,
             'parent' => 0,
@@ -807,15 +813,128 @@ function local_question_diagnostic_find_olution_category() {
         ]);
         
         if ($olution) {
+            debugging('✅ Olution category found - EXACT match: Olution', DEBUG_DEVELOPER);
             return $olution;
         }
         
-        // Stratégie 2 : Chercher nom contenant "olution" (case-insensitive)
+        // ==================================================================================
+        // PRIORITÉ 2 : Variantes de casse exactes (mot seul)
+        // ==================================================================================
+        $variants = ['olution', 'OLUTION'];
+        
+        foreach ($variants as $variant) {
+            $olution = $DB->get_record('question_categories', [
+                'contextid' => $systemcontext->id,
+                'parent' => 0,
+                'name' => $variant
+            ]);
+            
+            if ($olution) {
+                debugging('✅ Olution category found - Case variant: ' . $variant, DEBUG_DEVELOPER);
+                return $olution;
+            }
+        }
+        
+        // ==================================================================================
+        // PRIORITÉ 3 : Nom commençant par "Olution " (avec espace après)
+        // Exemples : "Olution 2024", "Olution - Questions"
+        // ==================================================================================
         $sql = "SELECT *
                 FROM {question_categories}
                 WHERE contextid = :contextid
                 AND parent = 0
-                AND " . $DB->sql_like('name', ':pattern', false, false);
+                AND " . $DB->sql_like('name', ':pattern', false, false) . "
+                ORDER BY LENGTH(name) ASC
+                LIMIT 1";
+        
+        $olution = $DB->get_record_sql($sql, [
+            'contextid' => $systemcontext->id,
+            'pattern' => 'Olution %'
+        ]);
+        
+        if ($olution) {
+            debugging('✅ Olution category found - Starts with "Olution ": ' . $olution->name, DEBUG_DEVELOPER);
+            return $olution;
+        }
+        
+        // ==================================================================================
+        // PRIORITÉ 4 : Nom se terminant par " Olution" (avec espace avant)
+        // Exemples : "Questions Olution", "Banque Olution"
+        // ==================================================================================
+        $sql = "SELECT *
+                FROM {question_categories}
+                WHERE contextid = :contextid
+                AND parent = 0
+                AND " . $DB->sql_like('name', ':pattern', false, false) . "
+                ORDER BY LENGTH(name) ASC
+                LIMIT 1";
+        
+        $olution = $DB->get_record_sql($sql, [
+            'contextid' => $systemcontext->id,
+            'pattern' => '% Olution'
+        ]);
+        
+        if ($olution) {
+            debugging('✅ Olution category found - Ends with " Olution": ' . $olution->name, DEBUG_DEVELOPER);
+            return $olution;
+        }
+        
+        // ==================================================================================
+        // PRIORITÉ 5 : Nom contenant " Olution " (entouré d'espaces)
+        // Exemples : "Banque Olution 2024", "Questions Olution Partagées"
+        // ==================================================================================
+        $sql = "SELECT *
+                FROM {question_categories}
+                WHERE contextid = :contextid
+                AND parent = 0
+                AND " . $DB->sql_like('name', ':pattern', false, false) . "
+                ORDER BY LENGTH(name) ASC
+                LIMIT 1";
+        
+        $olution = $DB->get_record_sql($sql, [
+            'contextid' => $systemcontext->id,
+            'pattern' => '% Olution %'
+        ]);
+        
+        if ($olution) {
+            debugging('✅ Olution category found - Contains " Olution ": ' . $olution->name, DEBUG_DEVELOPER);
+            return $olution;
+        }
+        
+        // ==================================================================================
+        // PRIORITÉ 6 : Nom contenant "Olution" sans espaces (plus flexible)
+        // Exemples : "OlutionQCM", "BanqueOlution"
+        // ==================================================================================
+        $sql = "SELECT *
+                FROM {question_categories}
+                WHERE contextid = :contextid
+                AND parent = 0
+                AND " . $DB->sql_like('name', ':pattern', false, false) . "
+                ORDER BY " . $DB->sql_position("'Olution'", 'name') . " ASC, LENGTH(name) ASC
+                LIMIT 1";
+        
+        $olution = $DB->get_record_sql($sql, [
+            'contextid' => $systemcontext->id,
+            'pattern' => '%Olution%'
+        ]);
+        
+        if ($olution) {
+            debugging('⚠️ Olution category found - Contains "Olution" (flexible): ' . $olution->name, DEBUG_DEVELOPER);
+            return $olution;
+        }
+        
+        // ==================================================================================
+        // PRIORITÉ 7 : EN DERNIER RECOURS - Description contenant "olution"
+        // SEULEMENT si le nom est court et potentiellement pertinent
+        // ==================================================================================
+        $sql = "SELECT *
+                FROM {question_categories}
+                WHERE contextid = :contextid
+                AND parent = 0
+                AND " . $DB->sql_like('info', ':pattern', false, false) . "
+                AND LENGTH(name) <= 50
+                ORDER BY " . $DB->sql_position("'olution'", 'info') . " ASC
+                LIMIT 1";
         
         $olution = $DB->get_record_sql($sql, [
             'contextid' => $systemcontext->id,
@@ -823,55 +942,12 @@ function local_question_diagnostic_find_olution_category() {
         ]);
         
         if ($olution) {
-            debugging('Olution category found with flexible search: ' . $olution->name, DEBUG_DEVELOPER);
+            debugging('⚠️ Olution category found - Via description (last resort): ' . $olution->name, DEBUG_DEVELOPER);
             return $olution;
         }
         
-        // Stratégie 3 : Chercher dans la description aussi
-        $sql = "SELECT *
-                FROM {question_categories}
-                WHERE contextid = :contextid
-                AND parent = 0
-                AND (" . $DB->sql_like('name', ':pattern1', false, false) . "
-                     OR " . $DB->sql_like('info', ':pattern2', false, false) . ")
-                ORDER BY name ASC
-                LIMIT 1";
-        
-        $olution = $DB->get_record_sql($sql, [
-            'contextid' => $systemcontext->id,
-            'pattern1' => '%olution%',
-            'pattern2' => '%olution%'
-        ]);
-        
-        if ($olution) {
-            debugging('Olution category found via description: ' . $olution->name, DEBUG_DEVELOPER);
-            return $olution;
-        }
-        
-        // Stratégie 4 : Chercher toute catégorie système racine marquée spécialement
-        // (avec un mot-clé dans la description comme "banque centrale" ou "questions partagées")
-        $sql = "SELECT *
-                FROM {question_categories}
-                WHERE contextid = :contextid
-                AND parent = 0
-                AND (" . $DB->sql_like('info', ':pattern1', false, false) . "
-                     OR " . $DB->sql_like('info', ':pattern2', false, false) . "
-                     OR " . $DB->sql_like('name', ':pattern3', false, false) . ")
-                ORDER BY name ASC
-                LIMIT 1";
-        
-        $olution = $DB->get_record_sql($sql, [
-            'contextid' => $systemcontext->id,
-            'pattern1' => '%banque%centrale%',
-            'pattern2' => '%questions%partagées%',
-            'pattern3' => '%partagé%'
-        ]);
-        
-        if ($olution) {
-            debugging('Olution category found via keywords: ' . $olution->name, DEBUG_DEVELOPER);
-            return $olution;
-        }
-        
+        // Aucune catégorie Olution trouvée
+        debugging('❌ No Olution category found with any strategy', DEBUG_DEVELOPER);
         return false;
         
     } catch (Exception $e) {
