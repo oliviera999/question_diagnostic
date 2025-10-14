@@ -288,16 +288,30 @@ foreach ($all_questions as $q) {
     echo html_writer::tag('td', format_string($q->name));
     echo html_writer::tag('td', $q->qtype);
     
-    // 🆕 v1.9.55 : Colonne Visibilité (cachée/visible)
-    $visibility_text = $version_info->is_hidden 
-        ? get_string('question_hidden', 'local_question_diagnostic') 
-        : get_string('question_visible', 'local_question_diagnostic');
-    $visibility_style = $version_info->is_hidden 
-        ? 'color: #d9534f; font-weight: bold;' 
-        : 'color: #5cb85c;';
+    // 🆕 v1.9.57 : Colonne Visibilité (visible/cachée/supprimée)
+    $visibility_status = question_analyzer::get_question_visibility_status($q->id, $version_info, $group_usage_map);
+    
+    switch ($visibility_status) {
+        case 'deleted':
+            $visibility_text = get_string('question_deleted', 'local_question_diagnostic');
+            $visibility_style = 'color: #d9534f; font-weight: bold;';
+            $visibility_tooltip = get_string('question_deleted_tooltip', 'local_question_diagnostic');
+            break;
+        case 'hidden':
+            $visibility_text = get_string('question_hidden', 'local_question_diagnostic');
+            $visibility_style = 'color: #f0ad4e; font-weight: bold;';
+            $visibility_tooltip = get_string('question_hidden_tooltip', 'local_question_diagnostic');
+            break;
+        default: // 'visible'
+            $visibility_text = get_string('question_visible', 'local_question_diagnostic');
+            $visibility_style = 'color: #5cb85c;';
+            $visibility_tooltip = 'Question visible et active';
+            break;
+    }
+    
     echo html_writer::tag('td', $visibility_text, [
         'style' => $visibility_style . ' text-align: center;',
-        'title' => 'Statut: ' . $version_info->status
+        'title' => $visibility_tooltip . ' (Statut: ' . $version_info->status . ')'
     ]);
     
     // 🆕 v1.9.55 : Colonne Nombre de versions

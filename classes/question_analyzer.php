@@ -1479,6 +1479,44 @@ class question_analyzer {
     }
     
     /**
+     * Détermine si une question cachée a été "supprimée" (soft delete)
+     * 
+     * 🆕 v1.9.57 : Nouvelle méthode pour distinguer cachée manuelle vs supprimée
+     * 
+     * Une question est considérée comme "supprimée" si :
+     * - Elle est cachée (status = 'hidden')
+     * - ET elle est utilisée dans au moins 1 quiz
+     * 
+     * Raison : Moodle garde les questions supprimées mais utilisées pour l'intégrité des tentatives.
+     * 
+     * @param int $questionid ID de la question
+     * @param object $version_info Infos de version (depuis get_questions_version_info_batch)
+     * @param array $usage_info Infos d'usage (depuis get_questions_usage_by_ids)
+     * @return string 'deleted'|'hidden'|'visible'
+     */
+    public static function get_question_visibility_status($questionid, $version_info, $usage_info) {
+        // Si la question n'est pas cachée, elle est visible
+        if (!$version_info || !$version_info->is_hidden) {
+            return 'visible';
+        }
+        
+        // La question est cachée, vérifier si elle est utilisée
+        $is_used = false;
+        if (isset($usage_info[$questionid]) && is_array($usage_info[$questionid])) {
+            $quiz_count = isset($usage_info[$questionid]['quiz_count']) ? $usage_info[$questionid]['quiz_count'] : 0;
+            $is_used = ($quiz_count > 0);
+        }
+        
+        // Question cachée ET utilisée = probablement supprimée (soft delete)
+        if ($is_used) {
+            return 'deleted';
+        }
+        
+        // Question cachée mais NON utilisée = cachée manuellement
+        return 'hidden';
+    }
+    
+    /**
      * Récupère les informations de versions pour un batch de questions
      * 
      * 🆕 v1.9.55 : Nouvelle méthode pour afficher statut caché et nombre de versions

@@ -271,8 +271,12 @@ try {
     // 🆕 v1.9.55 : Récupérer les infos de versions (statut caché + nombre de versions) pour toutes les questions
     $question_ids = array_map(function($item) { return $item->question->id; }, $unused_questions);
     $version_info_map = [];
+    $usage_map = []; // 🆕 v1.9.57
     if (!empty($question_ids)) {
         $version_info_map = question_analyzer::get_questions_version_info_batch($question_ids);
+        // 🆕 v1.9.57 : Charger aussi les infos d'usage pour distinguer cachée vs supprimée
+        // Note : Normalement vide car ce sont des questions inutilisées, mais on charge pour cohérence
+        $usage_map = question_analyzer::get_questions_usage_by_ids($question_ids);
     }
 } catch (Exception $e) {
     echo html_writer::start_tag('script');
@@ -416,17 +420,31 @@ foreach ($unused_questions as $question) {
     echo html_writer::tag('td', format_string($question->name), ['class' => 'col-name']);
     echo html_writer::tag('td', $question->qtype, ['class' => 'col-type']);
     
-    // 🆕 v1.9.55 : Colonne Visibilité (cachée/visible)
-    $visibility_text = $version_info->is_hidden 
-        ? get_string('question_hidden', 'local_question_diagnostic') 
-        : get_string('question_visible', 'local_question_diagnostic');
-    $visibility_style = $version_info->is_hidden 
-        ? 'color: #d9534f; font-weight: bold;' 
-        : 'color: #5cb85c;';
+    // 🆕 v1.9.57 : Colonne Visibilité (visible/cachée/supprimée)
+    $visibility_status = question_analyzer::get_question_visibility_status($question->id, $version_info, $usage_map);
+    
+    switch ($visibility_status) {
+        case 'deleted':
+            $visibility_text = get_string('question_deleted', 'local_question_diagnostic');
+            $visibility_style = 'color: #d9534f; font-weight: bold;';
+            $visibility_tooltip = get_string('question_deleted_tooltip', 'local_question_diagnostic');
+            break;
+        case 'hidden':
+            $visibility_text = get_string('question_hidden', 'local_question_diagnostic');
+            $visibility_style = 'color: #f0ad4e; font-weight: bold;';
+            $visibility_tooltip = get_string('question_hidden_tooltip', 'local_question_diagnostic');
+            break;
+        default: // 'visible'
+            $visibility_text = get_string('question_visible', 'local_question_diagnostic');
+            $visibility_style = 'color: #5cb85c;';
+            $visibility_tooltip = 'Question visible et active';
+            break;
+    }
+    
     echo html_writer::tag('td', $visibility_text, [
         'class' => 'col-visibility',
         'style' => $visibility_style . ' text-align: center;',
-        'title' => 'Statut: ' . $version_info->status
+        'title' => $visibility_tooltip . ' (Statut: ' . $version_info->status . ')'
     ]);
     
     // 🆕 v1.9.55 : Colonne Nombre de versions
