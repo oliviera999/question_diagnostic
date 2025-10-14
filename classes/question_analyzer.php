@@ -1349,38 +1349,17 @@ class question_analyzer {
             // ÉTAPE 2 : Vérifier l'usage de TOUTES les questions en une seule requête
             $usage_map = self::get_questions_usage_by_ids($questionids);
             
-            // ÉTAPE 2.5 : Vérifier le statut caché de TOUTES les questions en une seule requête
-            // 🆕 v1.9.52 : Protection des questions cachées
-            // ⚠️ MOODLE 4.5 : Le statut est dans question_versions.status (pas question.hidden)
-            $hidden_map = [];
-            try {
-                list($insql_status, $params_status) = $DB->get_in_or_equal($questionids);
-                $status_sql = "SELECT qv.questionid, qv.status
-                              FROM {question_versions} qv
-                              WHERE qv.questionid $insql_status";
-                $status_records = $DB->get_records_sql($status_sql, $params_status);
-                
-                foreach ($status_records as $record) {
-                    $hidden_map[$record->questionid] = ($record->status === 'hidden');
-                }
-            } catch (\Exception $e) {
-                debugging('Error fetching question status: ' . $e->getMessage(), DEBUG_DEVELOPER);
-                // En cas d'erreur, considérer toutes comme visibles (pas de protection excessive)
-            }
+            // 🗑️ REMOVED v1.9.61 : Chargement de hidden_map supprimé
+            // Anciennement : On chargeait le statut caché pour protéger ces questions
+            // Nouveau comportement : Les questions cachées peuvent être supprimées si doublons inutilisés
+            // Performance : Économise 1 requête SQL inutile
             
-            // ÉTAPE 3 : Trouver les doublons pour chaque question en cherchant dans TOUTE la base
-            // 🔧 v1.9.51 FIX CRITIQUE : Ne PAS se limiter aux questions en paramètre !
-            // Pour chaque question à vérifier, on doit chercher dans TOUTE la base de données
-            // pour voir s'il existe d'autres questions avec le même nom+type
-            
-            // ÉTAPE 4 : Analyser chaque question
+            // ÉTAPE 3 : Analyser chaque question
             foreach ($questions as $q) {
                 $qid = $q->id;
                 
                 // Vérification 1 : Question utilisée ?
                 // 🔧 v1.9.43 FIX CRITIQUE : Utiliser la clé 'quiz_count' directement au lieu d'itérer sur l'array
-                // L'ancien code itérait sur les clés de l'array associatif (['quiz_count', 'quiz_list', ...])
-                // ce qui comptait toujours 4 même pour les questions inutilisées !
                 if (isset($usage_map[$qid]) && is_array($usage_map[$qid])) {
                     $quiz_count = isset($usage_map[$qid]['quiz_count']) ? $usage_map[$qid]['quiz_count'] : 0;
                     
@@ -1391,17 +1370,10 @@ class question_analyzer {
                     }
                 }
                 
-                // Vérification 2 : Question cachée ?
-                // 🆕 v1.9.52 : Protéger TOUTES les questions cachées contre la suppression
-                if (isset($hidden_map[$qid]) && $hidden_map[$qid] === true) {
-                    $results[$qid]->reason = 'Question cachée (protégée)';
-                    $results[$qid]->details['is_hidden'] = true;
-                    $results[$qid]->details['debug_name'] = $q->name;
-                    $results[$qid]->details['debug_type'] = $q->qtype;
-                    continue;
-                }
+                // 🗑️ REMOVED v1.9.61 : Protection "Question cachée" RETIRÉE
+                // L'utilisateur peut maintenant supprimer les questions cachées si elles sont des doublons inutilisés
                 
-                // Vérification 3 : Question a des doublons ?
+                // Vérification 2 : Question a des doublons ?
                 // 🔧 v1.9.51 FIX CRITIQUE : Chercher TOUTES les questions avec ce nom+type dans la BASE
                 // (pas seulement parmi les questions passées en paramètre !)
                 $all_with_same_signature = $DB->get_records('question', [

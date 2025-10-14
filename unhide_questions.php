@@ -56,15 +56,23 @@ $PAGE->requires->js('/local/question_diagnostic/scripts/main.js', true);
 $action = optional_param('action', '', PARAM_ALPHA);
 $confirm = optional_param('confirm', 0, PARAM_INT);
 
+// 🔍 DEBUG : Afficher les paramètres reçus
+debugging('unhide_questions.php: action=' . $action . ', confirm=' . $confirm, DEBUG_DEVELOPER);
+
 if ($action === 'unhide_all' && $confirm) {
     require_sesskey();
+    
+    debugging('unhide_questions.php: Starting unhide process...', DEBUG_DEVELOPER);
     
     // Exécuter l'action : Rendre TOUTES les questions cachées visibles
     // 🔧 v1.9.60 : false = inclure TOUTES (même soft delete si l'utilisateur le demande)
     $all_hidden_questions = question_analyzer::get_hidden_questions(false, 0);
     $question_ids = array_map(function($q) { return $q->id; }, $all_hidden_questions);
     
+    debugging('unhide_questions.php: Found ' . count($question_ids) . ' hidden questions to unhide', DEBUG_DEVELOPER);
+    
     if (empty($question_ids)) {
+        debugging('unhide_questions.php: No hidden questions found, redirecting...', DEBUG_DEVELOPER);
         redirect(
             new moodle_url('/local/question_diagnostic/unhide_questions.php'),
             '✅ Aucune question cachée trouvée.',
@@ -74,15 +82,19 @@ if ($action === 'unhide_all' && $confirm) {
     }
     
     // Exécuter en masse
+    debugging('unhide_questions.php: Calling unhide_questions_batch...', DEBUG_DEVELOPER);
     $result = question_analyzer::unhide_questions_batch($question_ids);
+    debugging('unhide_questions.php: Result - success=' . $result['success'] . ', failed=' . $result['failed'], DEBUG_DEVELOPER);
     
     // Purger le cache
     question_analyzer::purge_all_caches();
     
     $message = '✅ Opération terminée : ' . $result['success'] . ' question(s) rendues visibles.';
     if ($result['failed'] > 0) {
-        $message .= ' ' . $result['failed'] . ' échec(s).';
+        $message .= ' ' . $result['failed'] . ' échec(s). Détails : ' . implode('; ', array_slice($result['errors'], 0, 5));
     }
+    
+    debugging('unhide_questions.php: Redirecting with message: ' . $message, DEBUG_DEVELOPER);
     
     redirect(
         new moodle_url('/local/question_diagnostic/unhide_questions.php'),
