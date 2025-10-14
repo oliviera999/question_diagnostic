@@ -1479,6 +1479,69 @@ class question_analyzer {
     }
     
     /**
+     * Récupère les informations de versions pour un batch de questions
+     * 
+     * 🆕 v1.9.55 : Nouvelle méthode pour afficher statut caché et nombre de versions
+     * 
+     * @param array $questionids Tableau d'IDs de questions
+     * @return array Map [question_id => (object)[is_hidden => bool, version_count => int, latest_version => int]]
+     */
+    public static function get_questions_version_info_batch($questionids) {
+        global $DB;
+        
+        if (empty($questionids)) {
+            return [];
+        }
+        
+        $results = [];
+        
+        try {
+            // Initialiser tous les résultats
+            foreach ($questionids as $qid) {
+                $results[$qid] = (object)[
+                    'is_hidden' => false,
+                    'version_count' => 0,
+                    'latest_version' => 0,
+                    'status' => 'unknown'
+                ];
+            }
+            
+            // ÉTAPE 1 : Récupérer le statut et le nombre de versions depuis question_versions
+            // ⚠️ MOODLE 4.5 : Les versions sont dans question_versions avec status et version
+            list($insql, $params) = $DB->get_in_or_equal($questionids);
+            
+            $version_sql = "SELECT qv.questionid,
+                                   qv.status,
+                                   qv.version,
+                                   COUNT(*) OVER (PARTITION BY qbe.id) as version_count,
+                                   MAX(qv.version) OVER (PARTITION BY qbe.id) as latest_version
+                            FROM {question_versions} qv
+                            INNER JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
+                            WHERE qv.questionid $insql
+                            ORDER BY qv.questionid, qv.version DESC";
+            
+            $version_records = $DB->get_records_sql($version_sql, $params);
+            
+            foreach ($version_records as $record) {
+                $qid = $record->questionid;
+                
+                // Ne prendre que la première occurrence (version la plus récente)
+                if (!isset($results[$qid]) || $results[$qid]->status === 'unknown') {
+                    $results[$qid]->is_hidden = ($record->status === 'hidden');
+                    $results[$qid]->status = $record->status;
+                    $results[$qid]->version_count = (int)$record->version_count;
+                    $results[$qid]->latest_version = (int)$record->latest_version;
+                }
+            }
+            
+        } catch (\Exception $e) {
+            debugging('Error in get_questions_version_info_batch: ' . $e->getMessage(), DEBUG_DEVELOPER);
+        }
+        
+        return $results;
+    }
+    
+    /**
      * Supprime une question en toute sécurité (avec vérifications)
      * Utilise l'API Moodle pour supprimer proprement
      *
