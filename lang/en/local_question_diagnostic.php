@@ -416,3 +416,16 @@ $string['statistics'] = 'Statistics';
 $string['tool_unused_questions_title'] = 'Unused questions';
 $string['tool_unused_questions_desc'] = 'View and manage all questions that are not used in quizzes. Identify obsolete questions, delete them in bulk, or export them for archiving.';
 
+// 🆕 v1.10.2: Global categories cleanup
+$string['cleanup_all_categories'] = 'Global Categories Cleanup';
+$string['cleanup_all_categories_desc'] = 'Automatically delete ALL deletable categories from the site';
+$string['cleanup_all_categories_preview_title'] = 'Preview of global categories cleanup';
+$string['cleanup_all_categories_preview_desc'] = 'Here is a preview of all categories that will be deleted during global cleanup. Only empty and unprotected categories will be deleted.';
+$string['cleanup_all_categories_nothing_desc'] = 'All your categories are either in use or protected. No cleanup is needed.';
+$string['cleanup_all_categories_warning'] = '⚠️ WARNING: This action will permanently delete {$a} category(ies) in an IRREVERSIBLE way!';
+$string['cleanup_all_nothing_to_delete'] = 'Nothing to delete';
+$string['cleanup_all_complete_title'] = 'Global cleanup completed';
+$string['cleanup_all_complete_summary'] = '{$a->deleted} category(ies) deleted';
+$string['total_categories'] = 'Total categories';
+$string['backtocategories'] = 'Back to categories';
+

@@ -155,6 +155,21 @@ if (isset($globalstats->total_protected) && $globalstats->total_protected > 0) {
 
 echo html_writer::start_tag('div', ['style' => 'margin: 20px 0; display: flex; gap: 10px; flex-wrap: wrap;']);
 
+// 🆕 v1.10.2 : Bouton de nettoyage global des catégories
+$cleanup_all_url = new moodle_url('/local/question_diagnostic/actions/cleanup_all_categories.php', [
+    'preview' => 1,
+    'sesskey' => sesskey()
+]);
+echo html_writer::link(
+    $cleanup_all_url, 
+    '🧹 ' . get_string('cleanup_all_categories', 'local_question_diagnostic'), 
+    [
+        'class' => 'btn btn-warning btn-lg',
+        'title' => get_string('cleanup_all_categories_desc', 'local_question_diagnostic'),
+        'style' => 'font-weight: bold;'
+    ]
+);
+
 $exporturl = new moodle_url('/local/question_diagnostic/actions/export.php', [
     'type' => 'csv',
     'sesskey' => sesskey()
@@ -324,7 +339,7 @@ echo html_writer::tag('th', 'Contexte', ['class' => 'sortable', 'data-column' =>
 echo html_writer::tag('th', 'Parent', ['class' => 'sortable', 'data-column' => 'parent']);
 echo html_writer::tag('th', 'Questions', ['class' => 'sortable', 'data-column' => 'questions']);
 echo html_writer::tag('th', 'Sous-cat.', ['class' => 'sortable', 'data-column' => 'subcategories']);
-echo html_writer::tag('th', 'Statut');
+echo html_writer::tag('th', 'Statut', ['class' => 'sortable', 'data-column' => 'status']);
 echo html_writer::tag('th', 'Actions');
 echo html_writer::end_tag('tr');
 echo html_writer::end_tag('thead');
@@ -335,6 +350,19 @@ echo html_writer::start_tag('tbody');
 foreach ($categories_with_stats as $item) {
     $cat = $item->category;
     $stats = $item->stats;
+    
+    // Déterminer le statut principal pour le tri (priorité)
+    // Ordre de priorité : Protégée (5) > Orpheline (4) > Doublon (3) > Vide (2) > OK (1)
+    $status_priority = 1; // OK par défaut
+    if ($stats->is_protected) {
+        $status_priority = 5;
+    } else if ($stats->is_orphan) {
+        $status_priority = 4;
+    } else if (isset($stats->is_duplicate) && $stats->is_duplicate) {
+        $status_priority = 3;
+    } else if ($stats->is_empty) {
+        $status_priority = 2;
+    }
     
     // Attributs data pour le filtrage et le tri
     $row_attrs = [
@@ -348,7 +376,8 @@ foreach ($categories_with_stats as $item) {
         'data-empty' => $stats->is_empty ? '1' : '0',
         'data-orphan' => $stats->is_orphan ? '1' : '0',
         'data-duplicate' => (isset($stats->is_duplicate) && $stats->is_duplicate) ? '1' : '0',
-        'data-protected' => $stats->is_protected ? '1' : '0'  // ⚠️ Ajouter pour filtrage
+        'data-protected' => $stats->is_protected ? '1' : '0',  // ⚠️ Ajouter pour filtrage
+        'data-status' => $status_priority  // Pour le tri par statut
     ];
     
     // Débug : forcer les attributs si nécessaire

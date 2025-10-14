@@ -416,3 +416,16 @@ $string['statistics'] = 'Statistiques';
 $string['tool_unused_questions_title'] = 'Questions inutilisées';
 $string['tool_unused_questions_desc'] = 'Visualisez et gérez toutes les questions qui ne sont pas utilisées dans des quiz. Identifiez les questions obsolètes, supprimez-les en masse ou exportez-les pour archivage.';
 
+// 🆕 v1.10.2 : Nettoyage global des catégories
+$string['cleanup_all_categories'] = 'Nettoyage Global des Catégories';
+$string['cleanup_all_categories_desc'] = 'Supprimer automatiquement TOUTES les catégories supprimables du site';
+$string['cleanup_all_categories_preview_title'] = 'Prévisualisation du nettoyage global des catégories';
+$string['cleanup_all_categories_preview_desc'] = 'Voici un aperçu de toutes les catégories qui seront supprimées lors du nettoyage global. Seules les catégories vides et non protégées seront supprimées.';
+$string['cleanup_all_categories_nothing_desc'] = 'Toutes vos catégories sont soit utilisées, soit protégées. Aucun nettoyage n\'est nécessaire.';
+$string['cleanup_all_categories_warning'] = '⚠️ ATTENTION : Cette action va supprimer {$a} catégorie(s) de manière IRRÉVERSIBLE !';
+$string['cleanup_all_nothing_to_delete'] = 'Aucune catégorie à supprimer';
+$string['cleanup_all_complete_title'] = 'Nettoyage global terminé';
+$string['cleanup_all_complete_summary'] = '{$a->deleted} catégorie(s) supprimée(s)';
+$string['total_categories'] = 'Total catégories';
+$string['backtocategories'] = 'Retour aux catégories';
+
