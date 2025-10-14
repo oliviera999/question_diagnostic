@@ -67,11 +67,14 @@ if (!$olution) {
     exit;
 }
 
-// Afficher quelle catégorie a été trouvée
+// Afficher quelle catégorie de cours a été trouvée
 echo html_writer::start_div('alert alert-info mb-3');
-echo html_writer::tag('strong', '✅ Catégorie système détectée : ');
+echo html_writer::tag('strong', '✅ Catégorie de cours détectée : ');
 echo html_writer::tag('span', format_string($olution->name));
 echo html_writer::tag('small', ' (ID: ' . $olution->id . ')', ['class' => 'text-muted ml-2']);
+echo html_writer::tag('br');
+$courses_count = $DB->count_records('course', ['category' => $olution->id]);
+echo html_writer::tag('small', 'Cette catégorie contient ' . ($courses_count - 1) . ' cours', ['class' => 'text-muted']);
 echo html_writer::end_div();
 
 // Récupérer les statistiques
@@ -110,12 +113,12 @@ echo html_writer::end_div();
 echo html_writer::end_div();
 echo html_writer::end_div();
 
-// Carte 4 : Sous-catégories Olution
+// Carte 4 : Cours dans Olution
 echo html_writer::start_div('col-md-3');
 echo html_writer::start_div('card qd-card');
 echo html_writer::start_div('card-body text-center');
-echo html_writer::tag('h3', $stats->olution_subcategories_count, ['class' => 'text-info']);
-echo html_writer::tag('p', get_string('olution_subcategories_count', 'local_question_diagnostic'), ['class' => 'mb-0']);
+echo html_writer::tag('h3', $stats->olution_courses_count, ['class' => 'text-info']);
+echo html_writer::tag('p', get_string('olution_courses_count', 'local_question_diagnostic'), ['class' => 'mb-0']);
 echo html_writer::end_div();
 echo html_writer::end_div();
 echo html_writer::end_div();
@@ -161,8 +164,8 @@ if (!empty($duplicates)) {
     echo html_writer::start_tag('tr');
     echo html_writer::tag('th', get_string('question_name', 'local_question_diagnostic'));
     echo html_writer::tag('th', get_string('question_type', 'local_question_diagnostic'));
-    echo html_writer::tag('th', get_string('course_category', 'local_question_diagnostic'));
-    echo html_writer::tag('th', get_string('olution_target_category', 'local_question_diagnostic'));
+    echo html_writer::tag('th', get_string('source_course_and_category', 'local_question_diagnostic'));
+    echo html_writer::tag('th', get_string('olution_target', 'local_question_diagnostic'));
     echo html_writer::tag('th', get_string('similarity', 'local_question_diagnostic'));
     echo html_writer::tag('th', get_string('actions', 'local_question_diagnostic'));
     echo html_writer::end_tag('tr');
@@ -182,17 +185,26 @@ if (!empty($duplicates)) {
         // Type de question
         echo html_writer::tag('td', $dup['course_question']->qtype);
         
-        // Catégorie source (cours)
+        // Cours et catégorie source
         echo html_writer::start_tag('td');
-        echo format_string($dup['course_category']->name);
+        echo html_writer::tag('strong', format_string($dup['course']->fullname));
         echo html_writer::tag('br');
-        echo html_writer::tag('small', 'ID: ' . $dup['course_category']->id, ['class' => 'text-muted']);
+        echo html_writer::tag('small', format_string($dup['course_category']->name), ['class' => 'text-muted']);
         echo html_writer::end_tag('td');
         
-        // Catégorie cible (Olution)
+        // Cours et catégorie cible (Olution)
         echo html_writer::start_tag('td');
-        if ($dup['olution_target_category']) {
-            echo html_writer::tag('span', format_string($dup['olution_target_category']->name), ['class' => 'badge badge-success']);
+        if ($dup['olution_target_categories'] && !empty($dup['olution_target_categories'])) {
+            // Afficher la première correspondance (ou permettre le choix si plusieurs)
+            $first_target = $dup['olution_target_categories'][0];
+            echo html_writer::tag('strong', format_string($first_target['course']->fullname));
+            echo html_writer::tag('br');
+            echo html_writer::tag('small', format_string($first_target['category']->name), ['class' => 'text-muted']);
+            
+            if (count($dup['olution_target_categories']) > 1) {
+                echo html_writer::tag('br');
+                echo html_writer::tag('span', '(' . count($dup['olution_target_categories']) . ' correspondances)', ['class' => 'badge badge-info']);
+            }
         } else {
             echo html_writer::tag('span', get_string('no_match', 'local_question_diagnostic'), ['class' => 'badge badge-warning']);
         }
@@ -203,10 +215,11 @@ if (!empty($duplicates)) {
         
         // Actions
         echo html_writer::start_tag('td');
-        if ($dup['olution_target_category']) {
+        if ($dup['olution_target_categories'] && !empty($dup['olution_target_categories'])) {
+            $first_target = $dup['olution_target_categories'][0];
             $move_url = new moodle_url('/local/question_diagnostic/actions/move_to_olution.php', [
                 'questionid' => $dup['course_question']->id,
-                'targetcatid' => $dup['olution_target_category']->id,
+                'targetcatid' => $first_target['category']->id,
                 'sesskey' => sesskey()
             ]);
             echo html_writer::link(

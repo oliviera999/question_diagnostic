@@ -5,6 +5,139 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.10.7] - 2025-10-14
+
+### 🔧 CORRECTION MAJEURE : Olution est une catégorie de COURS
+
+#### 🐛 Problème critique résolu
+
+Les versions v1.10.4, v1.10.5 et v1.10.6 cherchaient "Olution" dans les **catégories de questions** (question_categories) au niveau système, alors qu'Olution est une **catégorie de COURS** (course_categories) !
+
+#### 🎯 Compréhension corrigée
+
+**AVANT (incorrect v1.10.4-v1.10.6) :**
+```
+❌ Olution = Catégorie de questions système (question_categories, CONTEXT_SYSTEM)
+```
+
+**MAINTENANT (correct v1.10.7) :**
+```
+✅ Olution = Catégorie de COURS (course_categories)
+✅ Contient plusieurs cours
+✅ Chaque cours a ses propres catégories de questions
+```
+
+#### 🏗️ Architecture correcte
+
+```
+Catégorie de COURS "Olution" (course_categories)
+  ├── Cours: Mathématiques (Olution)
+  │   └── Catégories de questions:
+  │       ├── QCM Maths
+  │       └── Exercices Maths
+  ├── Cours: Français (Olution)
+  │   └── Catégories de questions:
+  │       └── Grammaire
+  └── ...
+
+Autres cours (hors Olution)
+  ├── Cours X
+  │   └── Catégories avec DOUBLONS
+  └── Cours Y
+      └── Catégories avec DOUBLONS
+```
+
+#### ✨ Nouvelle logique implémentée
+
+**1. Détection de la catégorie de cours Olution**
+- Cherche dans `course_categories` (pas question_categories)
+- 7 stratégies de recherche conservées
+- Priorité maximale au nom "Olution"
+
+**2. Récupération des cours Olution**
+- Liste tous les cours dans la catégorie Olution
+- Récupère leurs catégories de questions
+
+**3. Détection des doublons**
+- Compare questions des cours normaux vs cours Olution
+- Matche par nom de catégorie de questions
+- Similarité ≥ 90% du contenu
+
+**4. Déplacement des questions**
+- Déplace vers les catégories de questions des cours Olution
+- Vérifie que le cours cible est bien dans Olution
+- Transaction SQL sécurisée
+
+#### 📁 Fichiers modifiés
+
+- **`lib.php`** : 
+  - `find_olution_category()` : Cherche dans course_categories
+  - `get_olution_courses()` : Nouvelle fonction (liste cours Olution)
+  - `get_olution_question_categories()` : Nouvelle fonction (catégories de questions des cours Olution)
+  - `find_olution_category_by_name()` : Retourne array de catégories
+
+- **`classes/olution_manager.php`** : 
+  - `find_course_to_olution_duplicates()` : Logique complètement refaite
+  - `get_duplicate_stats()` : Compte les cours (pas sous-catégories)
+  - `move_question_to_olution()` : Vérifie cours dans Olution
+
+- **`olution_duplicates.php`** : 
+  - Affiche catégorie de cours + nombre de cours
+  - Tableau avec cours source et cours cible
+  - Support multi-correspondances
+
+- **`actions/move_to_olution.php`** : 
+  - Affiche cours source et cours cible
+  - Gère array de catégories cibles
+
+- **Fichiers de langue** : 
+  - Nouvelles chaînes pour cours
+  - Messages mis à jour
+
+- **`version.php`** : Version v1.10.7
+
+#### 🎨 Interface mise à jour
+
+**Indication** :
+```
+✅ Catégorie de cours détectée : Olution (ID: 123)
+Cette catégorie contient X cours
+```
+
+**Tableau des doublons** :
+```
+Question | Type | Cours source / Catégorie | Cours Olution cible / Catégorie | Similarité | Actions
+```
+
+**Statistiques** :
+- Cours dans Olution (au lieu de sous-catégories)
+- Questions déplaçables
+- Questions sans correspondance
+
+#### 🔄 Migration depuis v1.10.6
+
+⚠️ **Action REQUISE** : Purger les caches Moodle
+
+Les versions précédentes (v1.10.4-v1.10.6) ne pouvaient PAS fonctionner correctement car elles cherchaient au mauvais endroit. Cette version corrige complètement la logique.
+
+#### 🧪 Tests
+
+1. Créer/vérifier catégorie de COURS "Olution"
+2. Ajouter des cours dans cette catégorie
+3. Créer catégories de questions dans ces cours
+4. Créer questions en doublon dans cours hors Olution
+5. Tester la détection et le déplacement
+
+#### ✅ Résultat
+
+Le système fonctionne maintenant correctement avec la structure réelle de Moodle :
+- ✅ Trouve la catégorie de cours Olution
+- ✅ Liste les cours dans Olution
+- ✅ Détecte les doublons entre cours
+- ✅ Déplace vers les bonnes catégories de questions
+
+---
+
 ## [1.10.6] - 2025-10-14
 
 ### 🎯 AMÉLIORATION CRITIQUE : Priorité maximale à "Olution"

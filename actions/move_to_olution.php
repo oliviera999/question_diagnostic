@@ -72,6 +72,22 @@ if ($action === 'move_one') {
         
         echo html_writer::tag('h2', get_string('confirm_move_to_olution', 'local_question_diagnostic'));
         
+        // Récupérer les cours source et cible
+        $source_course = null;
+        $target_course = null;
+        
+        if ($source_category) {
+            $source_context = $DB->get_record('context', ['id' => $source_category->contextid]);
+            if ($source_context && $source_context->contextlevel == CONTEXT_COURSE) {
+                $source_course = $DB->get_record('course', ['id' => $source_context->instanceid]);
+            }
+        }
+        
+        $target_context = $DB->get_record('context', ['id' => $target_category->contextid]);
+        if ($target_context && $target_context->contextlevel == CONTEXT_COURSE) {
+            $target_course = $DB->get_record('course', ['id' => $target_context->instanceid]);
+        }
+        
         // Afficher les détails du déplacement
         echo html_writer::start_div('alert alert-info');
         echo html_writer::tag('h4', get_string('move_details', 'local_question_diagnostic'));
@@ -79,12 +95,14 @@ if ($action === 'move_one') {
                               format_string($question->name) . ' (ID: ' . $question->id . ')');
         echo html_writer::tag('p', html_writer::tag('strong', get_string('question_type', 'local_question_diagnostic')) . ': ' . 
                               $question->qtype);
-        if ($source_category) {
-            echo html_writer::tag('p', html_writer::tag('strong', get_string('from_category', 'local_question_diagnostic')) . ': ' . 
-                                  format_string($source_category->name) . ' (ID: ' . $source_category->id . ')');
+        if ($source_category && $source_course) {
+            echo html_writer::tag('p', html_writer::tag('strong', get_string('from_course_category', 'local_question_diagnostic')) . ': ' . 
+                                  format_string($source_course->fullname) . ' / ' . format_string($source_category->name));
         }
-        echo html_writer::tag('p', html_writer::tag('strong', get_string('to_category', 'local_question_diagnostic')) . ': ' . 
-                              format_string($target_category->name) . ' (ID: ' . $target_category->id . ')');
+        if ($target_course) {
+            echo html_writer::tag('p', html_writer::tag('strong', get_string('to_course_category', 'local_question_diagnostic')) . ': ' . 
+                                  format_string($target_course->fullname) . ' / ' . format_string($target_category->name));
+        }
         echo html_writer::end_div();
         
         // Avertissement
@@ -146,13 +164,13 @@ else if ($action === 'move_all') {
                               $stats->movable_questions);
         echo html_writer::end_div();
         
-        // Liste des catégories sources concernées
-        if (!empty($stats->by_source_category)) {
-            echo html_writer::tag('h4', get_string('affected_categories', 'local_question_diagnostic'));
+        // Liste des cours sources concernés
+        if (!empty($stats->by_source_course)) {
+            echo html_writer::tag('h4', get_string('affected_courses', 'local_question_diagnostic'));
             echo html_writer::start_tag('ul');
-            foreach ($stats->by_source_category as $cat_info) {
-                echo html_writer::tag('li', format_string($cat_info['category']->name) . ' : ' . 
-                                      $cat_info['count'] . ' ' . get_string('questions', 'question'));
+            foreach ($stats->by_source_course as $course_info) {
+                echo html_writer::tag('li', format_string($course_info['course']->fullname) . ' : ' . 
+                                      $course_info['count'] . ' ' . get_string('questions', 'question'));
             }
             echo html_writer::end_tag('ul');
         }
@@ -185,10 +203,12 @@ else if ($action === 'move_all') {
     // Préparer les opérations de déplacement
     $operations = [];
     foreach ($all_duplicates as $dup) {
-        if ($dup['olution_target_category']) {
+        if ($dup['olution_target_categories'] && !empty($dup['olution_target_categories'])) {
+            // Utiliser la première catégorie correspondante
+            $first_target = $dup['olution_target_categories'][0];
             $operations[] = [
                 'questionid' => $dup['course_question']->id,
-                'target_category_id' => $dup['olution_target_category']->id
+                'target_category_id' => $first_target['category']->id
             ];
         }
     }
