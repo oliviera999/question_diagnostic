@@ -535,22 +535,22 @@ echo html_writer::start_tag('div', ['class' => 'qd-tool-content']);
 echo html_writer::tag('h4', get_string('olution_duplicates_title', 'local_question_diagnostic'), ['class' => 'qd-tool-title']);
 
 echo html_writer::tag('p', 
-    'Détecte et déplace automatiquement les questions en doublon depuis les catégories de cours vers les catégories correspondantes dans "Olution" (catégorie système).',
+    'Détecte tous les doublons du site et les déplace vers les sous-catégories d\'Olution (catégorie de questions système). Déplace chaque question vers la sous-catégorie la plus profonde où se trouve déjà un doublon.',
     ['class' => 'qd-tool-description']
 );
 
 // Statistiques spécifiques
 echo html_writer::start_tag('div', ['class' => 'qd-tool-stats']);
 if ($olution_stats->olution_exists) {
-    echo html_writer::tag('span', '📚 ' . $olution_stats->olution_courses_count . ' cours Olution', ['class' => 'qd-tool-stat-item']);
+    echo html_writer::tag('span', '📚 ' . $olution_stats->olution_courses_count . ' sous-catégorie(s)', ['class' => 'qd-tool-stat-item']);
     if ($olution_stats->total_duplicates > 0) {
-        echo html_writer::tag('span', '📊 ' . $olution_stats->total_duplicates . ' doublons détectés', ['class' => 'qd-tool-stat-item qd-stat-warning']);
+        echo html_writer::tag('span', '📊 ' . $olution_stats->total_duplicates . ' question(s) en doublon', ['class' => 'qd-tool-stat-item qd-stat-warning']);
     }
     if ($olution_stats->movable_questions > 0) {
-        echo html_writer::tag('span', '✅ ' . $olution_stats->movable_questions . ' déplaçables', ['class' => 'qd-tool-stat-item qd-stat-success']);
+        echo html_writer::tag('span', '✅ ' . $olution_stats->movable_questions . ' déplaçable(s)', ['class' => 'qd-tool-stat-item qd-stat-success']);
     }
 } else {
-    echo html_writer::tag('span', '⚠️ Catégorie de cours Olution non trouvée', ['class' => 'qd-tool-stat-item qd-stat-warning']);
+    echo html_writer::tag('span', '⚠️ Catégorie Olution non trouvée', ['class' => 'qd-tool-stat-item qd-stat-warning']);
 }
 echo html_writer::end_tag('div');
 

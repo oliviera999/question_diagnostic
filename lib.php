@@ -780,14 +780,15 @@ function local_question_diagnostic_render_back_link($current_page, $custom_text 
 }
 
 /**
- * Trouve la catégorie de COURS "Olution"
+ * Trouve la catégorie de QUESTIONS "Olution" au niveau système
  * 
  * 🆕 v1.10.4 : Fonction pour identifier la catégorie Olution
  * 🔧 v1.10.5 : Recherche intelligente et flexible
  * 🎯 v1.10.6 : PRIORITÉ MAXIMALE à "Olution" - Recherche stricte et ciblée
  * 🔄 v1.10.7 : CORRECTION MAJEURE - Olution est une catégorie de COURS, pas de questions
+ * 🎯 v1.10.9 : CORRECTION FINALE - Olution est une catégorie de QUESTIONS système
  * 
- * Stratégie de recherche STRICTE dans course_categories (dans l'ordre de priorité) :
+ * Stratégie de recherche STRICTE dans question_categories niveau SYSTÈME :
  * 1. Nom EXACT "Olution" (case-sensitive) - PRIORITÉ ABSOLUE
  * 2. Variantes de casse : "olution", "OLUTION"
  * 3. Nom commençant par "Olution " (avec espace)
@@ -796,17 +797,21 @@ function local_question_diagnostic_render_back_link($current_page, $custom_text 
  * 6. Nom contenant "Olution" (plus flexible)
  * 7. En dernier recours : description contenant "olution"
  * 
- * @return object|false Objet catégorie de cours Olution ou false si non trouvée
+ * @return object|false Objet catégorie de questions Olution ou false si non trouvée
  */
 function local_question_diagnostic_find_olution_category() {
     global $DB;
     
     try {
+        // Récupérer le contexte système
+        $systemcontext = context_system::instance();
         
         // ==================================================================================
-        // PRIORITÉ 1 : Nom EXACT "Olution" (case-sensitive)
+        // PRIORITÉ 1 : Nom EXACT "Olution" (case-sensitive) au niveau SYSTÈME
         // ==================================================================================
-        $olution = $DB->get_record('course_categories', [
+        $olution = $DB->get_record('question_categories', [
+            'contextid' => $systemcontext->id,
+            'parent' => 0,
             'name' => 'Olution'
         ]);
         
@@ -821,12 +826,14 @@ function local_question_diagnostic_find_olution_category() {
         $variants = ['olution', 'OLUTION'];
         
         foreach ($variants as $variant) {
-            $olution = $DB->get_record('course_categories', [
+            $olution = $DB->get_record('question_categories', [
+                'contextid' => $systemcontext->id,
+                'parent' => 0,
                 'name' => $variant
             ]);
             
             if ($olution) {
-                debugging('✅ Olution course category found - Case variant: ' . $variant, DEBUG_DEVELOPER);
+                debugging('✅ Olution question category found - Case variant: ' . $variant, DEBUG_DEVELOPER);
                 return $olution;
             }
         }
@@ -836,12 +843,15 @@ function local_question_diagnostic_find_olution_category() {
         // Exemples : "Olution 2024", "Olution - Questions"
         // ==================================================================================
         $sql = "SELECT *
-                FROM {course_categories}
-                WHERE " . $DB->sql_like('name', ':pattern', false, false) . "
+                FROM {question_categories}
+                WHERE contextid = :contextid
+                AND parent = 0
+                AND " . $DB->sql_like('name', ':pattern', false, false) . "
                 ORDER BY LENGTH(name) ASC
                 LIMIT 1";
         
         $olution = $DB->get_record_sql($sql, [
+            'contextid' => $systemcontext->id,
             'pattern' => 'Olution %'
         ]);
         
@@ -855,12 +865,15 @@ function local_question_diagnostic_find_olution_category() {
         // Exemples : "Questions Olution", "Banque Olution"
         // ==================================================================================
         $sql = "SELECT *
-                FROM {course_categories}
-                WHERE " . $DB->sql_like('name', ':pattern', false, false) . "
+                FROM {question_categories}
+                WHERE contextid = :contextid
+                AND parent = 0
+                AND " . $DB->sql_like('name', ':pattern', false, false) . "
                 ORDER BY LENGTH(name) ASC
                 LIMIT 1";
         
         $olution = $DB->get_record_sql($sql, [
+            'contextid' => $systemcontext->id,
             'pattern' => '% Olution'
         ]);
         
@@ -874,12 +887,15 @@ function local_question_diagnostic_find_olution_category() {
         // Exemples : "Banque Olution 2024", "Questions Olution Partagées"
         // ==================================================================================
         $sql = "SELECT *
-                FROM {course_categories}
-                WHERE " . $DB->sql_like('name', ':pattern', false, false) . "
+                FROM {question_categories}
+                WHERE contextid = :contextid
+                AND parent = 0
+                AND " . $DB->sql_like('name', ':pattern', false, false) . "
                 ORDER BY LENGTH(name) ASC
                 LIMIT 1";
         
         $olution = $DB->get_record_sql($sql, [
+            'contextid' => $systemcontext->id,
             'pattern' => '% Olution %'
         ]);
         
@@ -893,12 +909,15 @@ function local_question_diagnostic_find_olution_category() {
         // Exemples : "OlutionQCM", "BanqueOlution"
         // ==================================================================================
         $sql = "SELECT *
-                FROM {course_categories}
-                WHERE " . $DB->sql_like('name', ':pattern', false, false) . "
+                FROM {question_categories}
+                WHERE contextid = :contextid
+                AND parent = 0
+                AND " . $DB->sql_like('name', ':pattern', false, false) . "
                 ORDER BY " . $DB->sql_position("'Olution'", 'name') . " ASC, LENGTH(name) ASC
                 LIMIT 1";
         
         $olution = $DB->get_record_sql($sql, [
+            'contextid' => $systemcontext->id,
             'pattern' => '%Olution%'
         ]);
         
@@ -912,13 +931,16 @@ function local_question_diagnostic_find_olution_category() {
         // SEULEMENT si le nom est court et potentiellement pertinent
         // ==================================================================================
         $sql = "SELECT *
-                FROM {course_categories}
-                WHERE " . $DB->sql_like('description', ':pattern', false, false) . "
+                FROM {question_categories}
+                WHERE contextid = :contextid
+                AND parent = 0
+                AND " . $DB->sql_like('info', ':pattern', false, false) . "
                 AND LENGTH(name) <= 50
-                ORDER BY " . $DB->sql_position("'olution'", 'description') . " ASC
+                ORDER BY " . $DB->sql_position("'olution'", 'info') . " ASC
                 LIMIT 1";
         
         $olution = $DB->get_record_sql($sql, [
+            'contextid' => $systemcontext->id,
             'pattern' => '%olution%'
         ]);
         
@@ -938,109 +960,45 @@ function local_question_diagnostic_find_olution_category() {
 }
 
 /**
- * Récupère tous les COURS dans la catégorie Olution
+ * Récupère toutes les sous-catégories d'Olution (récursif)
  * 
  * 🆕 v1.10.4 : Récupère la structure complète d'Olution
- * 🔄 v1.10.7 : CORRECTION - Récupère les COURS, pas les sous-catégories de questions
+ * 🔄 v1.10.9 : CORRECTION FINALE - Récupère les sous-catégories de QUESTIONS
  * 
- * @return array Tableau des cours dans Olution
+ * @param int|null $parent_id ID de la catégorie parente (null = Olution racine)
+ * @return array Tableau de toutes les sous-catégories (récursif)
  */
-function local_question_diagnostic_get_olution_courses() {
+function local_question_diagnostic_get_olution_subcategories($parent_id = null) {
     global $DB;
     
     try {
-        $olution = local_question_diagnostic_find_olution_category();
-        
-        if (!$olution) {
-            return [];
-        }
-        
-        // Récupérer tous les cours dans la catégorie Olution
-        $courses = $DB->get_records('course', ['category' => $olution->id]);
-        
-        return $courses;
-        
-    } catch (Exception $e) {
-        debugging('Error getting Olution courses: ' . $e->getMessage(), DEBUG_DEVELOPER);
-        return [];
-    }
-}
-
-/**
- * Récupère toutes les catégories de questions des cours Olution
- * 
- * 🆕 v1.10.7 : Nouvelle fonction pour récupérer les catégories de questions
- *              de tous les cours dans la catégorie Olution
- * 
- * @return array Tableau associatif [nom_categorie => [course_id, category_id, ...]]
- */
-function local_question_diagnostic_get_olution_question_categories() {
-    global $DB;
-    
-    try {
-        $courses = local_question_diagnostic_get_olution_courses();
-        
-        if (empty($courses)) {
-            return [];
-        }
-        
-        $question_categories = [];
-        
-        // Pour chaque cours dans Olution
-        foreach ($courses as $course) {
-            // Récupérer le contexte du cours
-            $course_context = context_course::instance($course->id);
-            
-            // Récupérer toutes les catégories de questions de ce cours
-            $cats = $DB->get_records('question_categories', ['contextid' => $course_context->id]);
-            
-            foreach ($cats as $cat) {
-                // Indexer par nom de catégorie pour recherche rapide
-                if (!isset($question_categories[$cat->name])) {
-                    $question_categories[$cat->name] = [];
-                }
-                
-                $question_categories[$cat->name][] = [
-                    'category' => $cat,
-                    'course' => $course,
-                    'context_id' => $course_context->id
-                ];
+        if ($parent_id === null) {
+            $olution = local_question_diagnostic_find_olution_category();
+            if (!$olution) {
+                return [];
             }
+            $parent_id = $olution->id;
         }
         
-        return $question_categories;
+        // Récupérer les sous-catégories directes
+        $direct_children = $DB->get_records('question_categories', ['parent' => $parent_id]);
+        
+        $all_subcategories = [];
+        
+        foreach ($direct_children as $child) {
+            $all_subcategories[] = $child;
+            
+            // Récupérer récursivement les sous-catégories de cette catégorie
+            $children_of_child = local_question_diagnostic_get_olution_subcategories($child->id);
+            $all_subcategories = array_merge($all_subcategories, $children_of_child);
+        }
+        
+        return $all_subcategories;
         
     } catch (Exception $e) {
-        debugging('Error getting Olution question categories: ' . $e->getMessage(), DEBUG_DEVELOPER);
+        debugging('Error getting Olution subcategories: ' . $e->getMessage(), DEBUG_DEVELOPER);
         return [];
     }
 }
 
-/**
- * Trouve une catégorie de questions Olution correspondante par nom
- * 
- * 🆕 v1.10.4 : Recherche une catégorie dans Olution par nom
- * 🔄 v1.10.7 : CORRECTION - Cherche dans les catégories de questions des COURS Olution
- * 
- * @param string $category_name Nom de la catégorie de questions à chercher
- * @return array|false Tableau des catégories correspondantes ou false si non trouvée
- */
-function local_question_diagnostic_find_olution_category_by_name($category_name) {
-    $olution_question_cats = local_question_diagnostic_get_olution_question_categories();
-    
-    // Recherche exacte par nom
-    if (isset($olution_question_cats[$category_name])) {
-        return $olution_question_cats[$category_name];
-    }
-    
-    // Recherche insensible à la casse
-    $category_name_lower = strtolower(trim($category_name));
-    foreach ($olution_question_cats as $name => $cat_array) {
-        if (strtolower(trim($name)) === $category_name_lower) {
-            return $cat_array;
-        }
-    }
-    
-    return false;
-}
 

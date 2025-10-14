@@ -12,12 +12,13 @@ defined('MOODLE_INTERNAL') || die();
 
 require_once($CFG->dirroot . '/question/editlib.php');
 require_once(__DIR__ . '/../lib.php');
+require_once(__DIR__ . '/question_analyzer.php');
 
 /**
  * Gestionnaire des doublons Olution
  * 
- * Détecte et gère les questions en doublon entre les cours normaux
- * et les cours dans la catégorie de cours "Olution"
+ * Détecte les doublons de questions et les déplace vers les sous-catégories
+ * de la catégorie de questions "Olution" (système)
  *
  * @package    local_question_diagnostic
  * @copyright  2025
@@ -26,278 +27,214 @@ require_once(__DIR__ . '/../lib.php');
 class olution_manager {
 
     /**
-     * Calcule la similarité entre deux textes (méthode simple)
+     * Obtient la profondeur d'une catégorie de questions dans l'arborescence
      * 
-     * @param string $text1 Premier texte
-     * @param string $text2 Deuxième texte
-     * @return float Similarité entre 0 et 1
+     * @param int $categoryid ID de la catégorie
+     * @return int Profondeur (0 = racine, 1 = niveau 1, etc.)
      */
-    private static function calculate_text_similarity($text1, $text2) {
-        // Nettoyer les textes HTML
-        $text1_clean = strip_tags($text1);
-        $text2_clean = strip_tags($text2);
+    private static function get_category_depth($categoryid) {
+        global $DB;
         
-        // Normaliser (minuscules, espaces)
-        $text1_clean = strtolower(trim(preg_replace('/\s+/', ' ', $text1_clean)));
-        $text2_clean = strtolower(trim(preg_replace('/\s+/', ' ', $text2_clean)));
+        $depth = 0;
+        $current_id = $categoryid;
+        $visited = [];
         
-        // Si exactement identiques
-        if ($text1_clean === $text2_clean) {
-            return 1.0;
+        while ($current_id > 0) {
+            // Éviter les boucles infinies
+            if (in_array($current_id, $visited)) {
+                break;
+            }
+            $visited[] = $current_id;
+            
+            $cat = $DB->get_record('question_categories', ['id' => $current_id]);
+            if (!$cat) {
+                break;
+            }
+            
+            if ($cat->parent == 0) {
+                break; // Racine atteinte
+            }
+            
+            $depth++;
+            $current_id = $cat->parent;
         }
         
-        // Calculer la similarité avec similar_text
-        similar_text($text1_clean, $text2_clean, $percent);
-        
-        return $percent / 100.0;
+        return $depth;
     }
 
     /**
-     * Détecte les doublons de questions liées à Olution
+     * Vérifie si une catégorie est dans Olution ou une de ses sous-catégories
      * 
-     * 🔄 v1.10.7 : Logique CORRIGÉE
-     * 🔧 v1.10.8 : Logique SIMPLIFIÉE - Détection ALL-TO-ALL
-     * 
-     * Détecte :
-     * 1. Doublons entre cours HORS Olution → cours DANS Olution
-     * 2. Doublons ENTRE les cours d'Olution eux-mêmes
-     * 
-     * @param int $limit Limite du nombre de résultats (0 = tous)
-     * @param int $offset Offset pour pagination
-     * @return array Tableau de doublons détectés
+     * @param int $categoryid ID de la catégorie à vérifier
+     * @return bool True si dans Olution
      */
-    public static function find_course_to_olution_duplicates($limit = 0, $offset = 0) {
+    private static function is_in_olution($categoryid) {
+        global $DB;
+        
+        $olution = local_question_diagnostic_find_olution_category();
+        if (!$olution) {
+            return false;
+        }
+        
+        // Remonter l'arborescence jusqu'à trouver Olution ou une racine
+        $current_id = $categoryid;
+        $visited = [];
+        
+        while ($current_id > 0) {
+            if ($current_id == $olution->id) {
+                return true; // Trouvé !
+            }
+            
+            // Éviter les boucles
+            if (in_array($current_id, $visited)) {
+                break;
+            }
+            $visited[] = $current_id;
+            
+            $cat = $DB->get_record('question_categories', ['id' => $current_id]);
+            if (!$cat) {
+                break;
+            }
+            
+            if ($cat->parent == 0) {
+                break; // Racine atteinte sans trouver Olution
+            }
+            
+            $current_id = $cat->parent;
+        }
+        
+        return false;
+    }
+
+    /**
+     * Détecte tous les groupes de doublons du site
+     * Utilise la même logique que questions_cleanup.php (nom + type)
+     * 
+     * 🆕 v1.10.9 : Logique CORRECTE basée sur question_analyzer::get_duplicate_groups()
+     * 
+     * @param int $limit Limite du nombre de groupes (0 = tous)
+     * @param int $offset Offset pour pagination
+     * @return array Tableau de groupes de doublons avec infos Olution
+     */
+    public static function find_all_duplicates_for_olution($limit = 0, $offset = 0) {
         global $DB;
         
         try {
-            // Vérifier que la catégorie de cours Olution existe
-            $olution_course_category = local_question_diagnostic_find_olution_category();
-            if (!$olution_course_category) {
-                debugging('Olution course category not found', DEBUG_DEVELOPER);
+            // Vérifier que la catégorie de questions Olution existe
+            $olution = local_question_diagnostic_find_olution_category();
+            if (!$olution) {
+                debugging('❌ Olution question category not found', DEBUG_DEVELOPER);
                 return [];
             }
             
-            debugging('✅ Olution course category found: ' . $olution_course_category->name . ' (ID: ' . $olution_course_category->id . ')', DEBUG_DEVELOPER);
+            debugging('✅ Olution question category found: ' . $olution->name . ' (ID: ' . $olution->id . ')', DEBUG_DEVELOPER);
             
-            // Récupérer tous les cours dans Olution
-            $olution_courses = $DB->get_records('course', ['category' => $olution_course_category->id]);
+            // Utiliser la détection de doublons existante (nom + type)
+            // Récupérer TOUS les groupes de doublons du site
+            $duplicate_groups = question_analyzer::get_duplicate_groups(0, 0, false, false);
             
-            if (empty($olution_courses)) {
-                debugging('⚠️ No courses found in Olution category', DEBUG_DEVELOPER);
-                return [];
-            }
+            debugging('📊 Found ' . count($duplicate_groups) . ' duplicate groups', DEBUG_DEVELOPER);
             
-            debugging('📊 Found ' . count($olution_courses) . ' courses in Olution', DEBUG_DEVELOPER);
+            $results = [];
             
-            // Récupérer les IDs des cours Olution
-            $olution_course_ids = array_keys($olution_courses);
-            
-            // ÉTAPE 1 : Indexer TOUTES les questions des cours Olution par signature
-            $olution_questions_index = [];
-            
-            foreach ($olution_course_ids as $course_id) {
-                // Récupérer le contexte du cours
-                $course_context = \context_course::instance($course_id);
+            // Pour chaque groupe de doublons
+            foreach ($duplicate_groups as $group) {
+                $question_ids = $group->all_question_ids;
                 
-                // Récupérer toutes les questions de ce cours
-                $sql = "SELECT q.*, qbe.questioncategoryid, qc.name as category_name
-                       FROM {question} q
-                       INNER JOIN {question_versions} qv ON qv.questionid = q.id
-                       INNER JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
-                       INNER JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
-                       WHERE qc.contextid = :contextid
-                       ORDER BY q.name, q.qtype";
+                if (empty($question_ids)) {
+                    continue;
+                }
                 
-                $questions = $DB->get_records_sql($sql, ['contextid' => $course_context->id]);
+                // Récupérer les détails de toutes les questions du groupe
+                list($insql, $params) = $DB->get_in_or_equal($question_ids);
+                $questions = $DB->get_records_select('question', "id $insql", $params);
+                
+                // Récupérer les catégories de chaque question
+                $questions_with_categories = [];
+                $olution_questions = [];
+                $non_olution_questions = [];
                 
                 foreach ($questions as $q) {
-                    $signature = $q->name . '|||' . $q->qtype;
-                    if (!isset($olution_questions_index[$signature])) {
-                        $olution_questions_index[$signature] = [];
-                    }
-                    $olution_questions_index[$signature][] = [
-                        'question' => $q,
-                        'category_id' => $q->questioncategoryid,
-                        'category_name' => $q->category_name,
-                        'course_id' => $course_id,
-                        'course' => $olution_courses[$course_id]
-                    ];
-                }
-            }
-            
-            debugging('📊 Indexed ' . count($olution_questions_index) . ' unique question signatures in Olution', DEBUG_DEVELOPER);
-            
-            // ÉTAPE 2 : Chercher les doublons dans TOUS les autres cours
-            $duplicates = [];
-            
-            // Récupérer TOUS les cours (pas seulement hors Olution, pour détecter aussi doublons internes)
-            $all_courses = $DB->get_records('course', null, 'fullname ASC');
-            
-            foreach ($all_courses as $course) {
-                // Ignorer le site principal
-                if ($course->id == 1) {
-                    continue;
-                }
-                
-                // Récupérer le contexte du cours
-                try {
-                    $course_context = \context_course::instance($course->id);
-                } catch (\Exception $e) {
-                    continue;
-                }
-                
-                // Récupérer les catégories de questions de ce cours
-                $course_question_cats = $DB->get_records('question_categories', [
-                    'contextid' => $course_context->id
-                ]);
-                
-                // Pour chaque catégorie de questions
-                foreach ($course_question_cats as $course_cat) {
-                    // Récupérer les questions de cette catégorie
-                    $sql = "SELECT q.*, qbe.questioncategoryid
-                           FROM {question} q
-                           INNER JOIN {question_versions} qv ON qv.questionid = q.id
-                           INNER JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
-                           WHERE qbe.questioncategoryid = :catid
-                           ORDER BY q.name, q.qtype";
+                    // Récupérer la catégorie via question_bank_entries
+                    $sql_cat = "SELECT qc.*
+                               FROM {question_categories} qc
+                               INNER JOIN {question_bank_entries} qbe ON qbe.questioncategoryid = qc.id
+                               INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+                               WHERE qv.questionid = :qid
+                               LIMIT 1";
+                    $cat = $DB->get_record_sql($sql_cat, ['qid' => $q->id]);
                     
-                    $course_questions = $DB->get_records_sql($sql, ['catid' => $course_cat->id]);
-                    
-                    // Pour chaque question de ce cours
-                    foreach ($course_questions as $course_q) {
-                        $signature = $course_q->name . '|||' . $course_q->qtype;
+                    if ($cat) {
+                        $is_in_olution = self::is_in_olution($cat->id);
+                        $depth = self::get_category_depth($cat->id);
                         
-                        // Vérifier si cette signature existe dans l'index Olution
-                        if (isset($olution_questions_index[$signature])) {
-                            // Il y a au moins un doublon potentiel
-                            foreach ($olution_questions_index[$signature] as $olution_entry) {
-                                // Ne pas comparer une question avec elle-même
-                                if ($course_q->id == $olution_entry['question']->id) {
-                                    continue;
-                                }
-                                
-                                // Calculer la similarité du contenu
-                                $similarity = self::calculate_text_similarity(
-                                    $course_q->questiontext,
-                                    $olution_entry['question']->questiontext
-                                );
-                                
-                                // Seuil de 90% de similarité
-                                if ($similarity >= 0.90) {
-                                    // Trouver une catégorie cible dans Olution avec le même nom
-                                    $matching_targets = self::find_matching_olution_categories($course_cat->name, $olution_courses);
-                                    
-                                    $duplicates[] = [
-                                        'course_question' => $course_q,
-                                        'olution_question' => $olution_entry['question'],
-                                        'course_category' => $course_cat,
-                                        'course' => $course,
-                                        'olution_target_categories' => $matching_targets,
-                                        'olution_course' => $olution_entry['course'],
-                                        'similarity' => $similarity,
-                                        'is_internal_olution' => in_array($course->id, $olution_course_ids)
-                                    ];
-                                    break; // Un seul match suffit par question
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            
-            debugging('📊 Found ' . count($duplicates) . ' total duplicates', DEBUG_DEVELOPER);
-            
-            // Appliquer pagination
-            if ($limit > 0) {
-                $duplicates = array_slice($duplicates, $offset, $limit);
-            }
-            
-            return $duplicates;
-            
-        } catch (\Exception $e) {
-            debugging('Error in find_course_to_olution_duplicates: ' . $e->getMessage(), DEBUG_DEVELOPER);
-            return [];
-        }
-    }
-    
-    /**
-     * Trouve les catégories de questions Olution correspondant à un nom donné
-     * 
-     * 🆕 v1.10.8 : Helper pour trouver les catégories cibles
-     * 
-     * @param string $category_name Nom de la catégorie à chercher
-     * @param array $olution_courses Tableau des cours Olution
-     * @return array|false Tableau des catégories correspondantes ou false
-     */
-    private static function find_matching_olution_categories($category_name, $olution_courses) {
-        global $DB;
-        
-        $matches = [];
-        
-        foreach ($olution_courses as $course) {
-            try {
-                $course_context = \context_course::instance($course->id);
-                
-                // Chercher une catégorie avec ce nom exact
-                $cat = $DB->get_record('question_categories', [
-                    'contextid' => $course_context->id,
-                    'name' => $category_name
-                ]);
-                
-                if ($cat) {
-                    $matches[] = [
-                        'category' => $cat,
-                        'course' => $course,
-                        'context_id' => $course_context->id
-                    ];
-                }
-            } catch (\Exception $e) {
-                continue;
-            }
-        }
-        
-        // Si aucune correspondance exacte, chercher case-insensitive
-        if (empty($matches)) {
-            $category_name_lower = strtolower(trim($category_name));
-            
-            foreach ($olution_courses as $course) {
-                try {
-                    $course_context = \context_course::instance($course->id);
-                    
-                    $cats = $DB->get_records('question_categories', ['contextid' => $course_context->id]);
-                    
-                    foreach ($cats as $cat) {
-                        if (strtolower(trim($cat->name)) === $category_name_lower) {
-                            $matches[] = [
+                        $questions_with_categories[] = [
+                            'question' => $q,
+                            'category' => $cat,
+                            'is_in_olution' => $is_in_olution,
+                            'depth' => $depth
+                        ];
+                        
+                        if ($is_in_olution) {
+                            $olution_questions[] = [
+                                'question' => $q,
                                 'category' => $cat,
-                                'course' => $course,
-                                'context_id' => $course_context->id
+                                'depth' => $depth
+                            ];
+                        } else {
+                            $non_olution_questions[] = [
+                                'question' => $q,
+                                'category' => $cat
                             ];
                         }
                     }
-                } catch (\Exception $e) {
-                    continue;
+                }
+                
+                // Si au moins UN doublon est dans Olution, c'est intéressant
+                if (!empty($olution_questions)) {
+                    // Trouver la catégorie Olution la plus profonde
+                    $deepest_olution_cat = null;
+                    $max_depth = -1;
+                    
+                    foreach ($olution_questions as $oq) {
+                        if ($oq['depth'] > $max_depth) {
+                            $max_depth = $oq['depth'];
+                            $deepest_olution_cat = $oq['category'];
+                        }
+                    }
+                    
+                    $results[] = [
+                        'group_name' => $group->question_name,
+                        'group_type' => $group->qtype,
+                        'total_count' => count($questions_with_categories),
+                        'olution_count' => count($olution_questions),
+                        'non_olution_count' => count($non_olution_questions),
+                        'all_questions' => $questions_with_categories,
+                        'olution_questions' => $olution_questions,
+                        'non_olution_questions' => $non_olution_questions,
+                        'target_category' => $deepest_olution_cat,
+                        'target_depth' => $max_depth
+                    ];
                 }
             }
+            
+            debugging('📊 Found ' . count($results) . ' duplicate groups with Olution presence', DEBUG_DEVELOPER);
+            
+            // Appliquer pagination
+            if ($limit > 0) {
+                $results = array_slice($results, $offset, $limit);
+            }
+            
+            return $results;
+            
+        } catch (\Exception $e) {
+            debugging('Error in find_all_duplicates_for_olution: ' . $e->getMessage(), DEBUG_DEVELOPER);
+            return [];
         }
-        
-        return empty($matches) ? false : $matches;
     }
 
     /**
-     * Compte le nombre total de doublons cours → Olution
-     * 
-     * @return int Nombre total de doublons
-     */
-    public static function count_course_to_olution_duplicates() {
-        $all = self::find_course_to_olution_duplicates(0, 0);
-        return count($all);
-    }
-
-    /**
-     * Obtient les statistiques globales des doublons cours → Olution
-     * 
-     * 🔄 v1.10.7 : CORRECTION - Statistiques pour catégorie de COURS
+     * Obtient les statistiques globales des doublons Olution
      * 
      * @return object Statistiques
      */
@@ -306,7 +243,7 @@ class olution_manager {
         
         $stats = new \stdClass();
         
-        // Vérifier que la catégorie de cours Olution existe
+        // Vérifier que la catégorie de questions Olution existe
         $olution = local_question_diagnostic_find_olution_category();
         $stats->olution_exists = ($olution !== false);
         
@@ -316,68 +253,47 @@ class olution_manager {
             $stats->total_duplicates = 0;
             $stats->movable_questions = 0;
             $stats->unmovable_questions = 0;
-            $stats->by_source_course = [];
             return $stats;
         }
         
         $stats->olution_name = $olution->name;
         
-        // Compter les cours dans Olution (tous, pas -1)
-        $stats->olution_courses_count = $DB->count_records('course', [
-            'category' => $olution->id
+        // Compter les sous-catégories d'Olution
+        $stats->olution_courses_count = $DB->count_records('question_categories', [
+            'parent' => $olution->id
         ]);
         
-        debugging('📊 Getting duplicate stats for Olution with ' . $stats->olution_courses_count . ' courses', DEBUG_DEVELOPER);
+        // Récupérer tous les groupes de doublons
+        $all_groups = self::find_all_duplicates_for_olution(0, 0);
         
-        // Récupérer tous les doublons
-        $all_duplicates = self::find_course_to_olution_duplicates(0, 0);
-        $stats->total_duplicates = count($all_duplicates);
-        
-        debugging('📊 Total duplicates found: ' . $stats->total_duplicates, DEBUG_DEVELOPER);
-        
-        // Compter ceux qui peuvent être déplacés (ont une catégorie cible)
+        // Compter le total de questions en doublon
+        $total_questions = 0;
         $movable = 0;
-        $unmovable = 0;
         
-        foreach ($all_duplicates as $dup) {
-            if ($dup['olution_target_categories'] && !empty($dup['olution_target_categories'])) {
-                $movable++;
-            } else {
-                $unmovable++;
+        foreach ($all_groups as $group) {
+            // Toutes les questions du groupe sauf celles déjà dans la catégorie cible
+            foreach ($group['all_questions'] as $q_info) {
+                $total_questions++;
+                
+                // Une question est déplaçable si elle n'est pas déjà dans la catégorie cible
+                if ($group['target_category'] && $q_info['category']->id != $group['target_category']->id) {
+                    $movable++;
+                }
             }
         }
         
+        $stats->total_duplicates = $total_questions;
         $stats->movable_questions = $movable;
-        $stats->unmovable_questions = $unmovable;
-        
-        // Grouper par cours source
-        $by_course = [];
-        foreach ($all_duplicates as $dup) {
-            $course_id = $dup['course']->id;
-            if (!isset($by_course[$course_id])) {
-                $by_course[$course_id] = [
-                    'course' => $dup['course'],
-                    'count' => 0
-                ];
-            }
-            $by_course[$course_id]['count']++;
-        }
-        
-        $stats->by_source_course = array_values($by_course);
+        $stats->unmovable_questions = $total_questions - $movable;
         
         return $stats;
     }
 
     /**
-     * Déplace une question vers une catégorie de questions d'un cours Olution
-     * 
-     * 🔄 v1.10.7 : CORRECTION - Déplace vers catégories des COURS Olution
-     * 
-     * Cette méthode utilise l'API Moodle pour déplacer proprement une question,
-     * en mettant à jour question_bank_entries.questioncategoryid
+     * Déplace une question vers la catégorie Olution cible
      * 
      * @param int $questionid ID de la question à déplacer
-     * @param int $target_category_id ID de la catégorie de questions Olution cible
+     * @param int $target_category_id ID de la catégorie Olution cible
      * @return bool|string True si succès, message d'erreur sinon
      */
     public static function move_question_to_olution($questionid, $target_category_id) {
@@ -390,25 +306,14 @@ class olution_manager {
                 return 'Question introuvable (ID: ' . $questionid . ')';
             }
             
-            // Vérifier que la catégorie cible existe
+            // Vérifier que la catégorie cible existe et est dans Olution
             $target_category = $DB->get_record('question_categories', ['id' => $target_category_id]);
             if (!$target_category) {
                 return 'Catégorie cible introuvable (ID: ' . $target_category_id . ')';
             }
             
-            // Vérifier que la catégorie cible appartient à un cours dans Olution
-            $target_context = $DB->get_record('context', ['id' => $target_category->contextid]);
-            if (!$target_context || $target_context->contextlevel != CONTEXT_COURSE) {
-                return 'La catégorie cible n\'est pas dans un contexte de cours';
-            }
-            
-            // Vérifier que le cours est dans Olution
-            $course_id = $target_context->instanceid;
-            $course = $DB->get_record('course', ['id' => $course_id]);
-            
-            $olution_category = local_question_diagnostic_find_olution_category();
-            if (!$olution_category || $course->category != $olution_category->id) {
-                return 'Le cours cible n\'est pas dans la catégorie Olution';
+            if (!self::is_in_olution($target_category_id)) {
+                return 'La catégorie cible n\'est pas dans Olution';
             }
             
             // Démarrer une transaction
@@ -440,9 +345,7 @@ class olution_manager {
                         'question_id' => $questionid,
                         'target_category_id' => $target_category_id,
                         'target_category_name' => $target_category->name,
-                        'target_course_id' => $course->id,
-                        'target_course_name' => $course->fullname,
-                        'message' => 'Question déplacée vers cours Olution: ' . $course->fullname . ' / ' . $target_category->name
+                        'message' => 'Question déplacée vers Olution: ' . $target_category->name
                     ],
                     $questionid
                 );

@@ -5,6 +5,123 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.10.9] - 2025-10-14
+
+### 🎯 CORRECTION FINALE : Olution = Catégorie de QUESTIONS système
+
+#### 🔥 Compréhension CORRECTE enfin !
+
+**RÉALITÉ** :
+- **Olution** = Catégorie de QUESTIONS au niveau SYSTÈME (question_categories, CONTEXT_SYSTEM)
+- Avec de **nombreuses sous-catégories** (profondeur multiple)
+- Les doublons doivent être déplacés vers la **sous-catégorie la plus profonde** où se trouve déjà un doublon
+
+#### 🏗️ Architecture RÉELLE
+
+```
+Catégorie de QUESTIONS "Olution" (question_categories, CONTEXT_SYSTEM, parent=0)
+  ├── Mathématiques (profondeur 1)
+  │   ├── QCM (profondeur 2)
+  │   └── Exercices (profondeur 2)
+  │       └── Avancés (profondeur 3) ← Catégorie la plus profonde
+  ├── Français (profondeur 1)
+  └── Sciences (profondeur 1)
+
+Autres catégories de questions (tous contextes)
+  └── Contiennent des doublons à déplacer vers Olution
+```
+
+#### ✨ Logique CORRECTE implémentée
+
+**1. Détection des doublons**
+- Utilise `question_analyzer::get_duplicate_groups()` (même logique que questions_cleanup.php)
+- Critères : Nom + Type (signature simple et efficace)
+- Détecte TOUS les doublons du site (dans et hors Olution)
+
+**2. Analyse par groupe**
+- Pour chaque groupe de doublons :
+  * Identifier quelles questions sont dans Olution
+  * Calculer la profondeur de chaque catégorie
+  * Trouver la sous-catégorie Olution la plus profonde
+  * Marquer les autres questions comme déplaçables
+
+**3. Interface par groupes**
+- Affiche UN GROUPE = TOUTES les versions d'une question (nom + type)
+- Badge : X versions totales, Y dans Olution, Z hors Olution
+- Indique la catégorie cible (la plus profonde)
+- Tableau : ID, Catégorie actuelle, Dans Olution?, Profondeur, Action
+
+**4. Déplacement intelligent**
+- Déplace vers la sous-catégorie **la plus profonde** d'Olution
+- Évite les doublons dans la même catégorie
+- Préserve la catégorie cible (déjà bonne)
+
+#### 📁 Fichiers modifiés
+
+- **`lib.php`** :
+  - `find_olution_category()` : Cherche dans question_categories CONTEXT_SYSTEM
+  - `get_olution_subcategories()` : Récupère toutes les sous-catégories (récursif)
+  - Supprimé : get_olution_courses(), get_olution_question_categories(), find_olution_category_by_name()
+
+- **`classes/olution_manager.php`** : Logique COMPLÈTE refaite
+  - `get_category_depth()` : Calcule la profondeur dans l'arborescence
+  - `is_in_olution()` : Vérifie si catégorie dans Olution
+  - `find_all_duplicates_for_olution()` : Détection basée sur question_analyzer
+  - `find_matching_olution_categories()` : Supprimé (non nécessaire)
+  - `move_question_to_olution()` : Simplifié (vérifie is_in_olution)
+
+- **`olution_duplicates.php`** :
+  - Affichage par groupes (cards expansibles)
+  - Sous-catégories comptées (pas cours)
+  - Tableau : profondeur + dans Olution + action
+
+- **`index.php`** :
+  - Description mise à jour (sous-catégories)
+  - Stats : sous-catégories au lieu de cours
+
+- **`version.php`** : v1.10.9
+
+#### 🎨 Nouvelle interface
+
+**Indication** :
+```
+✅ Catégorie de questions Olution détectée : Olution (ID: X)
+Cette catégorie contient Y sous-catégorie(s) (toute profondeur)
+```
+
+**Carte par groupe** :
+```
+Question XYZ (multichoice) - 5 version(s) [3 dans Olution] [2 hors Olution]
+🎯 Catégorie cible (profondeur 3) : Mathématiques → QCM → Avancés
+
+Tableau:
+| ID  | Catégorie actuelle          | Dans Olution? | Profondeur | Action      |
+|-----|----------------------------|---------------|------------|-------------|
+| 123 | Math QCM Avancés (cible)   | ✅ Oui        | 3          | 🎯 Cible    |
+| 456 | Math QCM                   | ✅ Oui        | 2          | Déplacer →  |
+| 789 | Cours X / Questions        | ❌ Non        | 1          | Déplacer →  |
+```
+
+#### 🔧 Logs de debug
+
+```
+✅ Olution question category found: Olution (ID: X)
+📊 Found Y duplicate groups
+📊 Found Z duplicate groups with Olution presence
+📊 Total duplicates found: N questions
+```
+
+#### ✅ Résultat
+
+**Détecte maintenant TOUS les doublons et les déplace intelligemment** :
+- ✅ Trouve catégorie de questions Olution (CONTEXT_SYSTEM)
+- ✅ Compte toutes les sous-catégories (récursif)
+- ✅ Détecte doublons avec même logique que questions_cleanup.php
+- ✅ Déplace vers sous-catégorie la plus profonde
+- ✅ Affiche par groupes avec actions ciblées
+
+---
+
 ## [1.10.8] - 2025-10-14
 
 ### 🐛 CORRECTIONS MULTIPLES : Détection fonctionnelle + Comptage cours
