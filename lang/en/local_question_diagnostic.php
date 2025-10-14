@@ -274,6 +274,21 @@ $string['duplicate_group_unused'] = 'Unused versions';
 $string['duplicate_group_deletable'] = 'Deletable'; // 🆕 v1.9.53
 $string['duplicate_group_deletable_help'] = 'Number of actually deletable versions (unused and unprotected duplicates)'; // 🆕 v1.9.53
 $string['duplicate_group_details'] = 'Details';
+
+// Duplicate group details - Clarified terminology
+$string['duplicate_instances_count'] = 'Number of duplicate instances';
+$string['used_instances'] = 'Used instances';
+$string['unused_instances'] = 'Unused instances';
+$string['all_duplicate_instances'] = 'All duplicate instances of this question';
+$string['representative_marker'] = '🎯 Representative instance (used to identify this group)';
+$string['duplicate_analysis'] = 'Duplicate group analysis';
+$string['total_instances'] = 'Total instances';
+$string['used_instances_desc'] = 'Used instances (present in at least 1 quiz)';
+$string['unused_instances_deletable'] = 'Unused instances (deletable)';
+$string['total_quizzes_using'] = 'Total quizzes using these instances';
+$string['total_usages_count'] = 'Total usages in quizzes';
+$string['recommendation_unused'] = 'This group contains <strong>{$a->unused} unused instance(s)</strong> that could be deleted to clean up the database. Used instances ({$a->used}) must be kept.';
+$string['recommendation_all_used'] = 'All instances of this question are used. No deletion recommended.';
 $string['optimized_mode_enabled'] = 'Optimized mode enabled'; // 🆕 v1.9.53
 $string['optimized_mode_desc'] = 'Only groups containing at least 1 deletable version are displayed. Groups where all versions are used or protected are automatically hidden to speed up display.'; // 🆕 v1.9.53
 $string['load_more_groups'] = 'Load 5 more groups';

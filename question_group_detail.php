@@ -123,14 +123,52 @@ foreach ($all_questions as $q) {
 
 $unused_count_preview = count($all_questions) - $used_count_preview;
 
+// 🔍 Analyse de supprimabilité pour diagnostic
+// 🆕 v1.9.6 : Vérifier la supprimabilité de toutes les questions du groupe en batch
+$deletability_map = question_analyzer::can_delete_questions_batch($group_question_ids);
+$deletable_count = 0;
+$protected_reasons = [];
+
+foreach ($all_questions as $q) {
+    if (isset($deletability_map[$q->id])) {
+        $check = $deletability_map[$q->id];
+        if ($check->can_delete) {
+            $deletable_count++;
+        } else {
+            // Compter les raisons de protection
+            if (!isset($protected_reasons[$check->reason])) {
+                $protected_reasons[$check->reason] = 0;
+            }
+            $protected_reasons[$check->reason]++;
+        }
+    }
+}
+
 // En-tête du groupe
 echo html_writer::start_tag('div', ['class' => 'alert alert-info', 'style' => 'margin: 20px 0;']);
 echo html_writer::tag('h3', '📋 ' . get_string('group_summary', 'local_question_diagnostic'), ['style' => 'margin-top: 0;']);
 echo html_writer::tag('p', '<strong>' . get_string('duplicate_group_name', 'local_question_diagnostic') . ' :</strong> ' . format_string($question_name));
 echo html_writer::tag('p', '<strong>' . get_string('type', 'local_question_diagnostic') . ' :</strong> ' . $qtype);
-echo html_writer::tag('p', '<strong>' . get_string('duplicate_group_count', 'local_question_diagnostic') . ' :</strong> ' . count($all_questions) . ' version(s)');
-echo html_writer::tag('p', '<strong>' . get_string('duplicate_group_used', 'local_question_diagnostic') . ' :</strong> ' . $used_count_preview);
-echo html_writer::tag('p', '<strong>' . get_string('duplicate_group_unused', 'local_question_diagnostic') . ' :</strong> ' . $unused_count_preview);
+echo html_writer::tag('p', '<strong>' . get_string('duplicate_instances_count', 'local_question_diagnostic') . ' :</strong> ' . count($all_questions) . ' question(s)');
+echo html_writer::tag('p', '<strong>' . get_string('used_instances', 'local_question_diagnostic') . ' :</strong> ' . $used_count_preview);
+echo html_writer::tag('p', '<strong>' . get_string('unused_instances', 'local_question_diagnostic') . ' :</strong> ' . $unused_count_preview);
+
+// 🔍 Diagnostic de supprimabilité
+echo html_writer::tag('p', '<strong>🔍 Instances supprimables :</strong> ' . $deletable_count . ' / ' . count($all_questions), 
+    ['style' => $deletable_count > 0 ? 'color: #28a745; font-weight: bold;' : 'color: #d9534f; font-weight: bold;']);
+
+// Afficher les raisons de protection si des questions sont protégées
+if (!empty($protected_reasons)) {
+    echo html_writer::start_tag('div', ['style' => 'margin-top: 10px; padding: 10px; background: #fff3cd; border-left: 3px solid #ffc107;']);
+    echo html_writer::tag('strong', '⚠️ Raisons de protection :');
+    echo html_writer::start_tag('ul', ['style' => 'margin: 5px 0 0 0; padding-left: 20px;']);
+    foreach ($protected_reasons as $reason => $count) {
+        echo html_writer::tag('li', $reason . ' : ' . $count . ' question(s)');
+    }
+    echo html_writer::end_tag('ul');
+    echo html_writer::end_tag('div');
+}
+
 echo html_writer::end_tag('div');
 
 // 🆕 v1.9.23 : Bouton de suppression en masse (au-dessus du tableau)
@@ -148,7 +186,12 @@ echo html_writer::tag('span', '0 question(s) sélectionnée(s)', [
 echo html_writer::end_tag('div');
 
 // Tableau détaillé
-echo html_writer::tag('h3', '📋 ' . get_string('all_versions_in_group', 'local_question_diagnostic'));
+echo html_writer::tag('h3', '📋 ' . get_string('all_duplicate_instances', 'local_question_diagnostic'));
+
+// Légende pour le symbole 🎯
+echo html_writer::start_tag('div', ['class' => 'alert alert-light', 'style' => 'margin: 10px 0; padding: 10px; border-left: 3px solid #0f6cbf;']);
+echo html_writer::tag('small', get_string('representative_marker', 'local_question_diagnostic'), ['style' => 'color: #666;']);
+echo html_writer::end_tag('div');
 
 echo html_writer::start_tag('table', ['class' => 'qd-table qd-sortable-table', 'style' => 'width: 100%;', 'id' => 'group-detail-table']);
 
@@ -172,8 +215,7 @@ echo html_writer::end_tag('thead');
 
 echo html_writer::start_tag('tbody');
 
-// 🆕 v1.9.6 : Vérifier la supprimabilité de toutes les questions du groupe en batch
-$deletability_map = question_analyzer::can_delete_questions_batch($group_question_ids);
+// Note : $deletability_map déjà calculé plus haut pour le diagnostic
 
 foreach ($all_questions as $q) {
     $stats = question_analyzer::get_question_stats($q);
@@ -298,11 +340,28 @@ foreach ($all_questions as $q) {
             'style' => 'background: #d9534f; color: white; padding: 3px 8px; margin-right: 5px;'
         ]);
     } else {
-        // Question protégée
+        // Question protégée - Afficher la raison COMPLÈTE avec détails
         $reason = $can_delete_check ? $can_delete_check->reason : 'Vérification impossible';
+        
+        // 🔍 Mode diagnostic : ajouter les détails complets
+        $debug_info = '';
+        if ($can_delete_check && isset($can_delete_check->details) && !empty($can_delete_check->details)) {
+            $debug_details = [];
+            foreach ($can_delete_check->details as $key => $value) {
+                if (is_array($value)) {
+                    $debug_details[] = "$key: " . count($value) . " items";
+                } else {
+                    $debug_details[] = "$key: " . var_export($value, true);
+                }
+            }
+            if (!empty($debug_details)) {
+                $debug_info = "\n\nDétails:\n" . implode("\n", $debug_details);
+            }
+        }
+        
         echo html_writer::tag('span', '🔒', [
             'class' => 'btn btn-sm btn-secondary',
-            'title' => 'PROTÉGÉE : ' . $reason,
+            'title' => 'PROTÉGÉE : ' . $reason . $debug_info,
             'style' => 'background: #6c757d; color: white; padding: 3px 8px; cursor: not-allowed; margin-right: 5px;'
         ]);
     }
@@ -426,10 +485,10 @@ function sortTable(table, column, direction) {
 ";
 echo html_writer::end_tag('script');
 
-// Résumé détaillé
+// Résumé détaillé avec terminologie clarifiée
 echo html_writer::start_tag('div', ['class' => 'alert alert-info', 'style' => 'margin-top: 20px;']);
-echo html_writer::tag('h4', '📊 Analyse du Groupe');
-echo html_writer::tag('p', '<strong>Total de versions :</strong> ' . count($all_questions));
+echo html_writer::tag('h4', '📊 ' . get_string('duplicate_analysis', 'local_question_diagnostic'));
+echo html_writer::tag('p', '<strong>' . get_string('total_instances', 'local_question_diagnostic') . ' :</strong> ' . count($all_questions) . ' question(s) distinctes');
 
 $used_count = 0;
 $unused_count = 0;
@@ -455,18 +514,20 @@ foreach ($all_questions as $q) {
     $total_usages += $question_usages;
 }
 
-echo html_writer::tag('p', '<strong>Versions utilisées :</strong> ' . $used_count . ' (présentes dans au moins 1 quiz)');
-echo html_writer::tag('p', '<strong>Versions inutilisées (supprimables) :</strong> ' . $unused_count);
-echo html_writer::tag('p', '<strong>Total quiz utilisant ces versions :</strong> ' . $total_quiz_count . ' quiz');
-echo html_writer::tag('p', '<strong>Total utilisations :</strong> ' . $total_usages . ' utilisation(s) dans des quiz');
+echo html_writer::tag('p', '<strong>' . get_string('used_instances_desc', 'local_question_diagnostic') . ' :</strong> ' . $used_count);
+echo html_writer::tag('p', '<strong>' . get_string('unused_instances_deletable', 'local_question_diagnostic') . ' :</strong> ' . $unused_count);
+echo html_writer::tag('p', '<strong>' . get_string('total_quizzes_using', 'local_question_diagnostic') . ' :</strong> ' . $total_quiz_count);
+echo html_writer::tag('p', '<strong>' . get_string('total_usages_count', 'local_question_diagnostic') . ' :</strong> ' . $total_usages);
 
 echo html_writer::start_tag('div', ['style' => 'margin-top: 20px; padding: 15px; background: #e7f3ff; border-left: 4px solid #0f6cbf;']);
 echo html_writer::tag('strong', '💡 Recommandation : ');
 if ($unused_count > 0) {
-    echo 'Ce groupe contient <strong>' . $unused_count . ' version(s) inutilisée(s)</strong> qui pourrai(en)t être supprimée(s) pour nettoyer la base. ';
-    echo 'Les versions utilisées (' . $used_count . ') doivent être conservées.';
+    $recommendation_data = new stdClass();
+    $recommendation_data->unused = $unused_count;
+    $recommendation_data->used = $used_count;
+    echo get_string('recommendation_unused', 'local_question_diagnostic', $recommendation_data);
 } else {
-    echo 'Toutes les versions de cette question sont utilisées. Aucune suppression recommandée.';
+    echo get_string('recommendation_all_used', 'local_question_diagnostic');
 }
 echo html_writer::end_tag('div');
 

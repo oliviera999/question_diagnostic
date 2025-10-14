@@ -274,6 +274,21 @@ $string['duplicate_group_unused'] = 'Versions inutilisées';
 $string['duplicate_group_deletable'] = 'Suppressibles'; // 🆕 v1.9.53
 $string['duplicate_group_deletable_help'] = 'Nombre de versions réellement supprimables (doublons inutilisés et non protégés)'; // 🆕 v1.9.53
 $string['duplicate_group_details'] = 'Détails';
+
+// Détails du groupe de doublons - Terminologie clarifiée
+$string['duplicate_instances_count'] = 'Nombre d\'instances dupliquées';
+$string['used_instances'] = 'Instances utilisées';
+$string['unused_instances'] = 'Instances inutilisées';
+$string['all_duplicate_instances'] = 'Toutes les instances dupliquées de cette question';
+$string['representative_marker'] = '🎯 Instance représentative (utilisée pour identifier ce groupe)';
+$string['duplicate_analysis'] = 'Analyse du groupe de doublons';
+$string['total_instances'] = 'Total d\'instances';
+$string['used_instances_desc'] = 'Instances utilisées (présentes dans au moins 1 quiz)';
+$string['unused_instances_deletable'] = 'Instances inutilisées (supprimables)';
+$string['total_quizzes_using'] = 'Total de quiz utilisant ces instances';
+$string['total_usages_count'] = 'Total d\'utilisations dans des quiz';
+$string['recommendation_unused'] = 'Ce groupe contient <strong>{$a->unused} instance(s) inutilisée(s)</strong> qui pourrai(en)t être supprimée(s) pour nettoyer la base. Les instances utilisées ({$a->used}) doivent être conservées.';
+$string['recommendation_all_used'] = 'Toutes les instances de cette question sont utilisées. Aucune suppression recommandée.';
 $string['optimized_mode_enabled'] = 'Mode optimisé activé'; // 🆕 v1.9.53
 $string['optimized_mode_desc'] = 'Seuls les groupes contenant au moins 1 version supprimable sont affichés. Les groupes où toutes les versions sont utilisées ou protégées sont automatiquement masqués pour accélérer l\'affichage.'; // 🆕 v1.9.53
 $string['load_more_groups'] = 'Charger 5 groupes supplémentaires';
