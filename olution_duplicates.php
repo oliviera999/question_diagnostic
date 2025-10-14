@@ -72,7 +72,7 @@ echo html_writer::start_div('alert alert-info mb-3');
 echo html_writer::tag('strong', '✅ Catégorie de cours détectée : ');
 echo html_writer::tag('span', format_string($olution->name));
 echo html_writer::tag('small', ' (ID: ' . $olution->id . ')', ['class' => 'text-muted ml-2']);
-echo html_writer::tag('br');
+echo html_writer::empty_tag('br');
 $courses_count = $DB->count_records('course', ['category' => $olution->id]);
 echo html_writer::tag('small', 'Cette catégorie contient ' . ($courses_count - 1) . ' cours', ['class' => 'text-muted']);
 echo html_writer::end_div();
@@ -178,7 +178,7 @@ if (!empty($duplicates)) {
         // Nom de la question
         echo html_writer::start_tag('td');
         echo html_writer::tag('strong', format_string($dup['course_question']->name));
-        echo html_writer::tag('br');
+        echo html_writer::empty_tag('br');
         echo html_writer::tag('small', 'ID: ' . $dup['course_question']->id, ['class' => 'text-muted']);
         echo html_writer::end_tag('td');
         
@@ -188,7 +188,7 @@ if (!empty($duplicates)) {
         // Cours et catégorie source
         echo html_writer::start_tag('td');
         echo html_writer::tag('strong', format_string($dup['course']->fullname));
-        echo html_writer::tag('br');
+        echo html_writer::empty_tag('br');
         echo html_writer::tag('small', format_string($dup['course_category']->name), ['class' => 'text-muted']);
         echo html_writer::end_tag('td');
         
@@ -198,11 +198,11 @@ if (!empty($duplicates)) {
             // Afficher la première correspondance (ou permettre le choix si plusieurs)
             $first_target = $dup['olution_target_categories'][0];
             echo html_writer::tag('strong', format_string($first_target['course']->fullname));
-            echo html_writer::tag('br');
+            echo html_writer::empty_tag('br');
             echo html_writer::tag('small', format_string($first_target['category']->name), ['class' => 'text-muted']);
             
             if (count($dup['olution_target_categories']) > 1) {
-                echo html_writer::tag('br');
+                echo html_writer::empty_tag('br');
                 echo html_writer::tag('span', '(' . count($dup['olution_target_categories']) . ' correspondances)', ['class' => 'badge badge-info']);
             }
         } else {
