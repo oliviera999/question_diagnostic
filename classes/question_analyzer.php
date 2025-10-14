@@ -1794,8 +1794,9 @@ class question_analyzer {
         
         $stats = new \stdClass();
         
-        // Récupérer TOUS les groupes de doublons (limit = 0)
-        $all_groups = self::get_duplicate_groups(0, 0, false);
+        // 🆕 v1.9.53 : OPTIMISATION - Récupérer uniquement les groupes avec versions supprimables
+        // Évite de traiter des groupes où toutes les versions sont protégées
+        $all_groups = self::get_duplicate_groups(0, 0, false, true); // deletable_only = true
         
         $stats->total_groups = count($all_groups);
         $stats->total_questions_to_delete = 0;

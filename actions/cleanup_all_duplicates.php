@@ -144,6 +144,12 @@ function show_preview_page() {
     echo html_writer::tag('p', get_string('cleanup_all_preview_desc', 'local_question_diagnostic'), 
                           ['style' => 'font-size: 16px; margin-bottom: 30px;']);
     
+    // 🆕 v1.9.53 : Message d'information sur l'optimisation
+    echo html_writer::start_tag('div', ['class' => 'alert alert-info', 'style' => 'margin-bottom: 20px; padding: 15px;']);
+    echo '⚡ <strong>Mode optimisé :</strong> Seuls les groupes contenant au moins 1 version <strong>supprimable</strong> sont analysés. ';
+    echo 'Les groupes où toutes les versions sont utilisées ou protégées (questions cachées, uniques) sont automatiquement exclus du nettoyage.';
+    echo html_writer::end_tag('div');
+    
     // Statistiques principales en cartes
     echo html_writer::start_tag('div', ['class' => 'qd-dashboard', 'style' => 'margin: 30px 0;']);
     
@@ -296,12 +302,13 @@ function execute_cleanup_batch($batch) {
     
     // Initialiser ou récupérer la progression depuis la session
     if ($batch == 0) {
+        // 🆕 v1.9.53 : OPTIMISATION - Ne compter que les groupes avec versions supprimables
         // Premier batch : initialiser
         $_SESSION['cleanup_progress'] = [
             'total_deleted' => 0,
             'total_kept' => 0,
             'total_groups_processed' => 0,
-            'total_groups' => question_analyzer::count_duplicate_groups(false),
+            'total_groups' => question_analyzer::count_duplicate_groups(false, true), // deletable_only = true
             'errors' => []
         ];
     }
@@ -311,8 +318,9 @@ function execute_cleanup_batch($batch) {
     // Calculer l'offset
     $offset = $batch * BATCH_SIZE;
     
-    // Charger les groupes pour ce batch
-    $groups = question_analyzer::get_duplicate_groups(BATCH_SIZE, $offset, false);
+    // 🆕 v1.9.53 : OPTIMISATION - Charger uniquement les groupes avec versions supprimables
+    // Cela évite de traiter des groupes où toutes les versions sont protégées
+    $groups = question_analyzer::get_duplicate_groups(BATCH_SIZE, $offset, false, true); // deletable_only = true
     
     // Si aucun groupe restant, afficher la page de complétion
     if (empty($groups)) {
