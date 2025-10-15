@@ -277,6 +277,15 @@ foreach ($context_options as $contextid => $label) {
 echo html_writer::end_tag('select');
 echo html_writer::end_tag('div');
 
+// 🆕 v1.11.3 : Filtre par type de catégories
+echo html_writer::start_tag('div', ['class' => 'qd-filter-group']);
+echo html_writer::tag('label', 'Type de catégories', ['for' => 'filter-type']);
+echo html_writer::start_tag('select', ['id' => 'filter-type', 'class' => 'form-control']);
+echo html_writer::tag('option', 'Questions uniquement (actuel)', ['value' => 'questions']);
+echo html_writer::tag('option', 'Toutes les catégories (questions + cours)', ['value' => 'all']);
+echo html_writer::end_tag('select');
+echo html_writer::end_tag('div');
+
 echo html_writer::end_tag('div'); // fin qd-filters-row
 
 echo html_writer::tag('div', '', ['id' => 'filter-stats', 'style' => 'margin-top: 10px; font-size: 14px; color: #666;']);
@@ -324,7 +333,35 @@ echo html_writer::end_tag('div');
 
 echo html_writer::tag('h3', '📂 Liste des catégories');
 
-$categories_with_stats = category_manager::get_all_categories_with_stats();
+// 🆕 v1.11.3 : Détecter le type de catégories demandé
+$category_type = optional_param('type', 'questions', PARAM_ALPHA);
+
+if ($category_type === 'all') {
+    // Récupérer toutes les catégories (questions + cours)
+    $all_categories = category_manager::get_all_site_categories_with_stats();
+    
+    // Convertir au format attendu par l'interface
+    $categories_with_stats = [];
+    foreach ($all_categories as $cat) {
+        $categories_with_stats[] = (object)[
+            'category' => $cat,
+            'stats' => $cat // Les stats sont déjà intégrées dans l'objet unifié
+        ];
+    }
+    
+    echo html_writer::start_div('alert alert-info', ['style' => 'margin: 10px 0;']);
+    echo html_writer::tag('strong', '🔍 Vue étendue activée : ');
+    echo 'Affichage de toutes les catégories du site (questions + cours). ';
+    echo html_writer::link(
+        new moodle_url('/local/question_diagnostic/categories.php', ['type' => 'questions']),
+        'Revenir à la vue questions uniquement',
+        ['class' => 'btn btn-sm btn-secondary ml-2']
+    );
+    echo html_writer::end_div();
+} else {
+    // Vue normale : catégories de questions uniquement
+    $categories_with_stats = category_manager::get_all_categories_with_stats();
+}
 
 echo html_writer::start_tag('div', ['class' => 'qd-table-wrapper']);
 echo html_writer::start_tag('table', ['class' => 'qd-table']);
@@ -334,10 +371,12 @@ echo html_writer::start_tag('thead');
 echo html_writer::start_tag('tr');
 echo html_writer::tag('th', html_writer::checkbox('select-all', 1, false, '', ['id' => 'select-all']));
 echo html_writer::tag('th', 'ID', ['class' => 'sortable', 'data-column' => 'id']);
+echo html_writer::tag('th', 'Type', ['class' => 'sortable', 'data-column' => 'type', 'title' => 'Type de catégorie']);
 echo html_writer::tag('th', 'Nom', ['class' => 'sortable', 'data-column' => 'name']);
 echo html_writer::tag('th', 'Contexte', ['class' => 'sortable', 'data-column' => 'context']);
 echo html_writer::tag('th', 'Parent', ['class' => 'sortable', 'data-column' => 'parent']);
 echo html_writer::tag('th', 'Questions', ['class' => 'sortable', 'data-column' => 'questions']);
+echo html_writer::tag('th', 'Cours', ['class' => 'sortable', 'data-column' => 'courses', 'title' => 'Nombre de cours (pour catégories de cours)']);
 echo html_writer::tag('th', 'Sous-cat.', ['class' => 'sortable', 'data-column' => 'subcategories']);
 echo html_writer::tag('th', 'Statut', ['class' => 'sortable', 'data-column' => 'status']);
 echo html_writer::tag('th', '🗑️ Supprimable', ['class' => 'sortable', 'data-column' => 'deletable', 'title' => 'Peut-on supprimer cette catégorie ?']);
@@ -367,20 +406,27 @@ foreach ($categories_with_stats as $item) {
     
     // Attributs data pour le filtrage et le tri
     $can_delete = $stats->is_empty && !$stats->is_protected;
+    
+    // 🆕 v1.11.3 : Gérer les deux types de catégories
+    $category_type = isset($cat->category_type) ? $cat->category_type : 'question';
+    $course_count = isset($cat->course_count) ? $cat->course_count : 0;
+    
     $row_attrs = [
         'data-id' => $cat->id,
         'data-name' => format_string($cat->name),
-        'data-context' => $cat->contextid,
+        'data-type' => $category_type,
+        'data-context' => $cat->contextid ?? '',
         'data-parent' => $cat->parent,
-        'data-questions' => $stats->total_questions,  // ⚠️ Utiliser total_questions pour vérification sécurité
-        'data-visible-questions' => $stats->visible_questions,
+        'data-questions' => $stats->total_questions ?? 0,
+        'data-visible-questions' => $stats->visible_questions ?? 0,
+        'data-courses' => $course_count,
         'data-subcategories' => $stats->subcategories,
         'data-empty' => $stats->is_empty ? '1' : '0',
         'data-orphan' => $stats->is_orphan ? '1' : '0',
         'data-duplicate' => (isset($stats->is_duplicate) && $stats->is_duplicate) ? '1' : '0',
-        'data-protected' => $stats->is_protected ? '1' : '0',  // ⚠️ Ajouter pour filtrage
-        'data-status' => $status_priority,  // Pour le tri par statut
-        'data-deletable' => $can_delete ? '1' : '0'  // Pour le tri par supprimabilité
+        'data-protected' => $stats->is_protected ? '1' : '0',
+        'data-status' => $status_priority,
+        'data-deletable' => $can_delete ? '1' : '0'
     ];
     
     // Débug : forcer les attributs si nécessaire
@@ -406,6 +452,15 @@ foreach ($categories_with_stats as $item) {
     
     // ID
     echo html_writer::tag('td', $cat->id);
+    
+    // 🆕 v1.11.3 : Type de catégorie
+    echo html_writer::start_tag('td');
+    if ($category_type === 'course') {
+        echo html_writer::tag('span', '📚', ['title' => 'Catégorie de cours']);
+    } else {
+        echo html_writer::tag('span', '❓', ['title' => 'Catégorie de questions']);
+    }
+    echo html_writer::end_tag('td');
     
     // Nom (avec lien vers la banque de questions)
     echo html_writer::start_tag('td');
@@ -448,11 +503,20 @@ foreach ($categories_with_stats as $item) {
     echo html_writer::tag('td', $cat->parent ?: '-');
     
     // Questions
-    $questions_display = $stats->visible_questions;
-    if ($stats->total_questions > $stats->visible_questions) {
+    $questions_display = $stats->visible_questions ?? 0;
+    if (($stats->total_questions ?? 0) > ($stats->visible_questions ?? 0)) {
         $questions_display .= " (+{$stats->total_questions} cachées)";
     }
     echo html_writer::tag('td', $questions_display);
+    
+    // 🆕 v1.11.3 : Cours (pour les catégories de cours)
+    echo html_writer::start_tag('td');
+    if ($category_type === 'course') {
+        echo $course_count;
+    } else {
+        echo '-';
+    }
+    echo html_writer::end_tag('td');
     
     // Sous-catégories
     echo html_writer::tag('td', $stats->subcategories);
@@ -697,6 +761,29 @@ document.addEventListener('DOMContentLoaded', function() {
             closeMoveModal();
         }
     });
+    
+    // 🆕 v1.11.3 : Gestion du changement de type de catégories
+    const filterType = document.getElementById('filter-type');
+    if (filterType) {
+        filterType.addEventListener('change', function() {
+            const selectedType = this.value;
+            const currentUrl = new URL(window.location);
+            
+            if (selectedType === 'all') {
+                currentUrl.searchParams.set('type', 'all');
+            } else {
+                currentUrl.searchParams.delete('type');
+            }
+            
+            // Rediriger vers la nouvelle URL
+            window.location.href = currentUrl.toString();
+        });
+        
+        // Pré-sélectionner la valeur actuelle
+        const urlParams = new URLSearchParams(window.location.search);
+        const currentType = urlParams.get('type') || 'questions';
+        filterType.value = currentType;
+    }
 });
 <?php
 echo html_writer::end_tag('script');

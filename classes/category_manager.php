@@ -153,10 +153,13 @@ class category_manager {
                 $is_protected = false;
                 $protection_reason = '';
                 
-                // Protection 1 : "Default for..."
-                if (stripos($cat->name, 'Default for') !== false || stripos($cat->name, 'Par défaut pour') !== false) {
+                // Protection 1 : "Default for..." AVEC contexte valide
+                // 🔧 v1.10.3 : Protection conditionnelle - protéger SEULEMENT si contexte valide
+                // Les catégories "Default for" orphelines (contexte supprimé) sont supprimables
+                if ((stripos($cat->name, 'Default for') !== false || stripos($cat->name, 'Par défaut pour') !== false) 
+                    && $context_valid) {
                     $is_protected = true;
-                    $protection_reason = 'Catégorie par défaut Moodle';
+                    $protection_reason = 'Catégorie par défaut Moodle (contexte actif)';
                 }
                 // Protection 2 : Catégorie avec description
                 else if (!empty($cat->info)) {
@@ -315,10 +318,13 @@ class category_manager {
             $stats->is_protected = false;
             $stats->protection_reason = '';
             
-            // Protection 1 : "Default for..."
-            if (stripos($category->name, 'Default for') !== false || stripos($category->name, 'Par défaut pour') !== false) {
+            // Protection 1 : "Default for..." AVEC contexte valide
+            // 🔧 v1.10.3 : Protection conditionnelle - protéger SEULEMENT si contexte valide
+            // Les catégories "Default for" orphelines (contexte supprimé) sont supprimables
+            if ((stripos($category->name, 'Default for') !== false || stripos($category->name, 'Par défaut pour') !== false) 
+                && $stats->context_valid) {
                 $stats->is_protected = true;
-                $stats->protection_reason = 'Catégorie par défaut Moodle';
+                $stats->protection_reason = 'Catégorie par défaut Moodle (contexte actif)';
             }
             // Protection 2 : Catégorie avec description
             else if (!empty($category->info)) {
@@ -403,9 +409,21 @@ class category_manager {
         try {
             $category = $DB->get_record('question_categories', ['id' => $categoryid], '*', MUST_EXIST);
             
-            // 🛡️ PROTECTION 1 : Catégories "Default for..." (créées automatiquement par Moodle)
+            // 🛡️ PROTECTION 1 : Catégories "Default for..." AVEC contexte valide
+            // 🔧 v1.10.3 : Protection conditionnelle - protéger SEULEMENT si contexte actif
+            // Les catégories "Default for" orphelines (contexte supprimé) peuvent être supprimées
             if (stripos($category->name, 'Default for') !== false || stripos($category->name, 'Par défaut pour') !== false) {
-                return "❌ PROTÉGÉE : Cette catégorie est créée automatiquement par Moodle et ne doit jamais être supprimée.";
+                // Vérifier si le contexte est valide
+                try {
+                    $context = \context::instance_by_id($category->contextid, IGNORE_MISSING);
+                    if ($context) {
+                        // Contexte valide → PROTÉGÉE
+                        return "❌ PROTÉGÉE : Cette catégorie par défaut est liée à un contexte actif (cours, quiz, etc.) et ne doit pas être supprimée. Si vous devez vraiment la supprimer, supprimez d'abord le cours/contexte associé.";
+                    }
+                    // Sinon : contexte invalide/orphelin → SUPPRIMABLE (continuer les autres vérifications)
+                } catch (\Exception $e) {
+                    // Erreur de contexte → considéré comme orphelin → SUPPRIMABLE (continuer)
+                }
             }
             
             // 🛡️ PROTECTION 2 : Catégories avec description (usage intentionnel)
@@ -885,6 +903,152 @@ class category_manager {
      */
     public static function get_question_bank_url($category) {
         return local_question_diagnostic_get_question_bank_url($category);
+    }
+
+    /**
+     * 🆕 v1.11.3 : Récupère TOUTES les catégories du site (questions + cours)
+     * 
+     * Cette méthode étend la recherche pour inclure :
+     * - Les catégories de questions (question_categories)
+     * - Les catégories de cours (course_categories)
+     * 
+     * @return array Tableau unifié de toutes les catégories avec métadonnées
+     */
+    public static function get_all_site_categories_with_stats() {
+        global $DB;
+
+        try {
+            $all_categories = [];
+
+            // ==================================================================================
+            // PARTIE 1 : Catégories de QUESTIONS (logique existante)
+            // ==================================================================================
+            debugging('🔍 Loading question categories...', DEBUG_DEVELOPER);
+            
+            $question_categories = self::get_all_categories_with_stats();
+            
+            // Marquer le type pour les catégories de questions
+            foreach ($question_categories as $cat) {
+                $cat->category_type = 'question';
+                $cat->category_type_label = 'Catégorie de questions';
+                $cat->can_delete = !$cat->is_protected && $cat->total_questions == 0 && $cat->subcategories == 0;
+                $all_categories[] = $cat;
+            }
+            
+            debugging('✅ Loaded ' . count($question_categories) . ' question categories', DEBUG_DEVELOPER);
+
+            // ==================================================================================
+            // PARTIE 2 : Catégories de COURS (nouvelle logique)
+            // ==================================================================================
+            debugging('🔍 Loading course categories...', DEBUG_DEVELOPER);
+            
+            // Récupérer toutes les catégories de cours
+            $course_categories = $DB->get_records('course_categories', null, 'parent, name ASC');
+            
+            // Compter les cours par catégorie
+            $sql_course_counts = "SELECT category, COUNT(*) as course_count
+                                 FROM {course}
+                                 WHERE category > 0
+                                 GROUP BY category";
+            $course_counts = $DB->get_records_sql($sql_course_counts);
+            
+            // Compter les sous-catégories de cours par parent
+            $sql_subcat_counts = "SELECT parent, COUNT(*) as subcat_count
+                                 FROM {course_categories}
+                                 WHERE parent IS NOT NULL AND parent > 0
+                                 GROUP BY parent";
+            $subcat_counts = $DB->get_records_sql($sql_subcat_counts);
+            
+            foreach ($course_categories as $cat) {
+                // Compter les cours dans cette catégorie
+                $course_count = isset($course_counts[$cat->id]) ? (int)$course_counts[$cat->id]->course_count : 0;
+                
+                // Compter les sous-catégories
+                $subcategories = isset($subcat_counts[$cat->id]) ? (int)$subcat_counts[$cat->id]->subcat_count : 0;
+                
+                // Déterminer le statut
+                $status = 'ok';
+                $status_label = 'OK';
+                $is_protected = false;
+                $protection_reason = '';
+                
+                if ($course_count == 0 && $subcategories == 0) {
+                    $status = 'empty';
+                    $status_label = 'Vide';
+                } else if ($course_count == 0 && $subcategories > 0) {
+                    $status = 'orphan';
+                    $status_label = 'Orpheline';
+                }
+                
+                // Protection : catégories système importantes
+                if ($cat->id == 1 || stripos($cat->name, 'miscellaneous') !== false) {
+                    $is_protected = true;
+                    $protection_reason = 'Catégorie système protégée';
+                }
+                
+                // Créer l'objet catégorie unifié
+                $unified_category = (object)[
+                    'id' => $cat->id,
+                    'name' => $cat->name,
+                    'info' => $cat->description ?? '',
+                    'parent' => $cat->parent ?? 0,
+                    'contextid' => null, // Pas de contexte pour les catégories de cours
+                    'category_type' => 'course',
+                    'category_type_label' => 'Catégorie de cours',
+                    
+                    // Statistiques
+                    'total_questions' => 0, // Pas de questions dans les catégories de cours
+                    'visible_questions' => 0,
+                    'course_count' => $course_count,
+                    'subcategories' => $subcategories,
+                    
+                    // Statut et protection
+                    'status' => $status,
+                    'status_label' => $status_label,
+                    'is_protected' => $is_protected,
+                    'protection_reason' => $protection_reason,
+                    'can_delete' => !$is_protected && $course_count == 0 && $subcategories == 0,
+                    
+                    // Contexte (pour les catégories de cours, pas de contexte Moodle)
+                    'context_name' => 'Catégorie de cours',
+                    'context_type' => 'course_category',
+                    'course_name' => null,
+                    'module_name' => null,
+                    
+                    // Doublons (pas applicable aux catégories de cours)
+                    'has_duplicates' => false,
+                    'duplicate_ids' => [],
+                ];
+                
+                $all_categories[] = $unified_category;
+            }
+            
+            debugging('✅ Loaded ' . count($course_categories) . ' course categories', DEBUG_DEVELOPER);
+
+            // ==================================================================================
+            // PARTIE 3 : Tri unifié
+            // ==================================================================================
+            usort($all_categories, function($a, $b) {
+                // Tri par type d'abord (questions puis cours)
+                $type_order = ['question' => 0, 'course' => 1];
+                $type_cmp = $type_order[$a->category_type] - $type_order[$b->category_type];
+                
+                if ($type_cmp !== 0) {
+                    return $type_cmp;
+                }
+                
+                // Puis tri par nom
+                return strcmp($a->name, $b->name);
+            });
+
+            debugging('🎯 Total categories loaded: ' . count($all_categories) . ' (Questions: ' . count($question_categories) . ', Courses: ' . count($course_categories) . ')', DEBUG_DEVELOPER);
+
+            return $all_categories;
+
+        } catch (Exception $e) {
+            debugging('Error loading all site categories: ' . $e->getMessage(), DEBUG_DEVELOPER);
+            return [];
+        }
     }
 }
 

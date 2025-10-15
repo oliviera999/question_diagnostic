@@ -9,8 +9,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'local_question_diagnostic';
-$plugin->version = 2025101502;  // YYYYMMDDXX format (v1.11.2 - CORRECTION FINALE: Olution = catégorie de cours ID 78)
+$plugin->version = 2025101503;  // YYYYMMDDXX format (v1.11.3 - NOUVELLE FONCTIONNALITÉ: Recherche étendue toutes catégories du site)
 $plugin->requires = 2022041900; // Moodle 4.0+ (architecture question_bank_entries requise)
 $plugin->maturity = MATURITY_STABLE;
-$plugin->release = 'v1.11.2';
+$plugin->release = 'v1.11.3';
 
