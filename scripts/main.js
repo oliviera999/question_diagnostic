@@ -151,10 +151,11 @@
             courseCategoryFilter.addEventListener('change', function() {
                 // Rediriger vers la page avec le nouveau filtre de catégorie de cours
                 const url = new URL(window.location);
-                if (this.value === 'all') {
+                const val = parseInt(this.value, 10) || 0;
+                if (val === 0) {
                     url.searchParams.delete('course_category');
                 } else {
-                    url.searchParams.set('course_category', this.value);
+                    url.searchParams.set('course_category', String(val));
                 }
                 window.location.href = url.toString();
             });
