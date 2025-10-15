@@ -498,30 +498,23 @@ if ($view_type === 'all') {
         }
         echo html_writer::end_div();
 
-        // Mode "banque de questions" simplifié: liste Nom (nb) + action Purge
+        // Mode "banque de questions" hiérarchique: arbre des catégories
         if (!empty($bankview)) {
             echo html_writer::tag('h3', 'Catégories de question de « Catégorie: ' . format_string($course_category_name) . ' »');
-            if (empty($categories_with_stats)) {
+            
+            // Récupérer la hiérarchie des catégories
+            $hierarchy = local_question_diagnostic_get_question_categories_hierarchy($course_category_filter);
+            
+            if (empty($hierarchy)) {
                 echo html_writer::start_div('alert alert-warning');
                 echo 'Aucune catégorie trouvée dans cette sélection.';
                 echo html_writer::end_div();
             } else {
-                echo html_writer::start_tag('ul', ['style' => 'list-style: none; padding-left: 0;']);
-                foreach ($categories_with_stats as $item) {
-                    $cat = $item; // objets unifiés côté filtré
-                    $count = (int)($cat->total_questions ?? 0);
-                    $purgeurl = new moodle_url('/local/question_diagnostic/actions/delete.php', [
-                        'id' => $cat->id,
-                        'preview' => 1,
-                        'sesskey' => sesskey()
-                    ]);
-                    echo html_writer::start_tag('li', ['style' => 'margin: 6px 0;']);
-                    echo html_writer::tag('span', format_string($cat->name) . ' (' . $count . ')');
-                    echo ' ';
-                    echo html_writer::link($purgeurl, 'Purge this category', ['class' => 'btn btn-xs btn-danger', 'style' => 'margin-left: 8px;']);
-                    echo html_writer::end_tag('li');
-                }
-                echo html_writer::end_tag('ul');
+                echo html_writer::start_div('qd-hierarchy-container', [
+                    'style' => 'background: #ffffff; border: 1px solid #dee2e6; border-radius: 8px; padding: 20px; margin: 20px 0;'
+                ]);
+                echo local_question_diagnostic_render_category_hierarchy($hierarchy);
+                echo html_writer::end_div();
             }
             // En mode banque, on s'arrête avant d'afficher le tableau détaillé
             echo html_writer::tag('hr', '');

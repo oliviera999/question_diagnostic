@@ -690,6 +690,99 @@
     background: #0052a3;
 }
 
+/* ======================================================================
+   VUE HIÉRARCHIQUE DES CATÉGORIES (v1.11.11)
+   ====================================================================== */
+
+.qd-hierarchy-container {
+    background: #ffffff;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    padding: 20px;
+    margin: 20px 0;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.qd-category-item {
+    margin: 4px 0;
+    padding: 8px 12px;
+    border-left: 3px solid #e9ecef;
+    background: #f8f9fa;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+    position: relative;
+}
+
+.qd-category-item:hover {
+    background: #e9ecef;
+    border-left-color: #0f6cbf;
+    transform: translateX(2px);
+}
+
+.qd-category-item:nth-child(even) {
+    background: #ffffff;
+}
+
+.qd-category-item:nth-child(even):hover {
+    background: #f8f9fa;
+}
+
+.qd-category-description {
+    font-size: 0.9em;
+    color: #6c757d;
+    margin-top: 4px;
+    font-style: italic;
+    line-height: 1.4;
+}
+
+/* Indentation visuelle pour la hiérarchie */
+.qd-category-item[style*="margin-left: 20px"] {
+    border-left-color: #28a745;
+}
+
+.qd-category-item[style*="margin-left: 40px"] {
+    border-left-color: #ffc107;
+}
+
+.qd-category-item[style*="margin-left: 60px"] {
+    border-left-color: #dc3545;
+}
+
+.qd-category-item[style*="margin-left: 80px"] {
+    border-left-color: #6f42c1;
+}
+
+/* Badges de comptage */
+.qd-category-item .badge {
+    font-size: 0.75em;
+    padding: 4px 8px;
+    margin-left: 8px;
+}
+
+/* Boutons de purge */
+.qd-category-item .btn-xs {
+    font-size: 0.7em;
+    padding: 2px 6px;
+    margin-left: 8px;
+}
+
+/* Responsive pour la hiérarchie */
+@media (max-width: 768px) {
+    .qd-hierarchy-container {
+        padding: 15px;
+        margin: 15px 0;
+    }
+    
+    .qd-category-item {
+        padding: 6px 8px;
+        font-size: 0.9em;
+    }
+    
+    .qd-category-description {
+        font-size: 0.8em;
+    }
+}
+
 @media (max-width: 768px) {
     .qd-tools-menu {
         grid-template-columns: 1fr;
