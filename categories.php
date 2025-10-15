@@ -466,7 +466,7 @@ if ($view_type === 'all') {
             $course_category_name = format_string($selectedcat->name);
         }
         
-        echo html_writer::start_div('alert alert-info', ['style' => 'margin: 20px 0; border-left: 4px solid #17a2b8;']);
+        echo html_writer::start_div('alert alert-info', ['style' => 'margin: 20px 0; border-left: 4px solid #17a2b8; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;']);
         echo '<strong>' . get_string('filter_active_course_category', 'local_question_diagnostic') . '</strong><br>';
         echo get_string('course_category_filter_info', 'local_question_diagnostic') . ' : <strong>' . $course_category_name . '</strong><br>';
         echo html_writer::link(
@@ -474,7 +474,53 @@ if ($view_type === 'all') {
             get_string('show_all_course_categories', 'local_question_diagnostic'),
             ['class' => 'btn btn-sm btn-secondary ml-2']
         );
+        // Toggle lien pour mode "banque" (liste)
+        $bankview = optional_param('bank_view', 0, PARAM_INT);
+        $toggleparams = ['course_category' => (int)$course_category_filter];
+        if ($bankview) {
+            echo html_writer::link(
+                new moodle_url('/local/question_diagnostic/categories.php', $toggleparams),
+                'Mode tableau',
+                ['class' => 'btn btn-sm btn-outline-primary']
+            );
+        } else {
+            $toggleparams['bank_view'] = 1;
+            echo html_writer::link(
+                new moodle_url('/local/question_diagnostic/categories.php', $toggleparams),
+                'Mode banque (liste)',
+                ['class' => 'btn btn-sm btn-primary']
+            );
+        }
         echo html_writer::end_div();
+
+        // Mode "banque de questions" simplifié: liste Nom (nb) + action Purge
+        if (!empty($bankview)) {
+            echo html_writer::tag('h3', 'Catégories de question de « Catégorie: ' . format_string($course_category_name) . ' »');
+            if (empty($categories_with_stats)) {
+                echo html_writer::start_div('alert alert-warning');
+                echo 'Aucune catégorie trouvée dans cette sélection.';
+                echo html_writer::end_div();
+            } else {
+                echo html_writer::start_tag('ul', ['style' => 'list-style: none; padding-left: 0;']);
+                foreach ($categories_with_stats as $item) {
+                    $cat = $item; // objets unifiés côté filtré
+                    $count = (int)($cat->total_questions ?? 0);
+                    $purgeurl = new moodle_url('/local/question_diagnostic/actions/delete.php', [
+                        'id' => $cat->id,
+                        'preview' => 1,
+                        'sesskey' => sesskey()
+                    ]);
+                    echo html_writer::start_tag('li', ['style' => 'margin: 6px 0;']);
+                    echo html_writer::tag('span', format_string($cat->name) . ' (' . $count . ')');
+                    echo ' ';
+                    echo html_writer::link($purgeurl, 'Purge this category', ['class' => 'btn btn-xs btn-danger', 'style' => 'margin-left: 8px;']);
+                    echo html_writer::end_tag('li');
+                }
+                echo html_writer::end_tag('ul');
+            }
+            // En mode banque, on s'arrête avant d'afficher le tableau détaillé
+            echo html_writer::tag('hr', '');
+        }
     } else {
         // Pas de filtre par catégorie de cours
         $categories_with_stats = category_manager::get_all_categories_with_stats();
