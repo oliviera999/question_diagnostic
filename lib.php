@@ -1169,17 +1169,114 @@ function local_question_diagnostic_render_cache_purge_button() {
 /**
  * Récupère les catégories de questions avec leur hiérarchie pour une catégorie de cours
  * 
- * 🔧 v1.11.11 : Vue hiérarchique des catégories de questions
- * Affiche les catégories organisées en arbre comme dans la banque de questions Moodle.
+ * 🔧 v1.11.13 : CORRECTION MAJEURE - Utilise la même logique que le déplacement vers Olution
+ * Au lieu de chercher dans les cours de la catégorie "olution", cherche directement
+ * la catégorie de QUESTIONS "Olution" (système) et ses sous-catégories.
  * 
- * @param int $course_category_id ID de la catégorie de cours
+ * @param int $course_category_id ID de la catégorie de cours (utilisé pour déterminer la logique)
  * @return array Structure hiérarchique des catégories
  */
 function local_question_diagnostic_get_question_categories_hierarchy($course_category_id) {
     global $DB;
     
     try {
-        // Utiliser la fonction existante qui fonctionne déjà
+        // ==================================================================================
+        // LOGIQUE SPÉCIALE POUR LA CATÉGORIE "OLUTION"
+        // ==================================================================================
+        
+        // Récupérer le nom de la catégorie de cours
+        $course_category = $DB->get_record('course_categories', ['id' => $course_category_id]);
+        if (!$course_category) {
+            debugging('Course category not found: ' . $course_category_id, DEBUG_DEVELOPER);
+            return [];
+        }
+        
+        $course_category_name = strtolower(trim($course_category->name));
+        
+        // Si c'est la catégorie "olution", utiliser la logique spéciale
+        if ($course_category_name === 'olution') {
+            debugging('🔍 Using special Olution logic for course category: ' . $course_category_name, DEBUG_DEVELOPER);
+            
+            // Chercher la catégorie de QUESTIONS "Olution" (système)
+            $olution_category = local_question_diagnostic_find_olution_category();
+            if (!$olution_category) {
+                debugging('❌ Olution question category not found', DEBUG_DEVELOPER);
+                return [];
+            }
+            
+            debugging('✅ Found Olution question category: ' . $olution_category->name . ' (ID: ' . $olution_category->id . ')', DEBUG_DEVELOPER);
+            
+            // Récupérer TOUTES les catégories dans la hiérarchie d'Olution (racine + sous-catégories)
+            $all_olution_categories = [];
+            
+            // Ajouter la catégorie racine Olution
+            $all_olution_categories[] = $olution_category;
+            
+            // Récupérer toutes les sous-catégories d'Olution
+            $olution_subcategories = local_question_diagnostic_get_olution_subcategories($olution_category->id);
+            $all_olution_categories = array_merge($all_olution_categories, $olution_subcategories);
+            
+            debugging('📊 Found ' . count($all_olution_categories) . ' categories in Olution hierarchy', DEBUG_DEVELOPER);
+            
+            // Enrichir avec les statistiques et informations de contexte
+            $categories = [];
+            foreach ($all_olution_categories as $cat) {
+                $category = new stdClass();
+                $category->id = $cat->id;
+                $category->name = $cat->name;
+                $category->info = $cat->info ?? '';
+                $category->parent = $cat->parent;
+                $category->sortorder = $cat->sortorder ?? 0;
+                
+                // Compter les questions pour cette catégorie
+                $question_count = $DB->count_records_sql(
+                    "SELECT COUNT(DISTINCT q.id) 
+                     FROM {question} q
+                     INNER JOIN {question_versions} qv ON qv.questionid = q.id
+                     INNER JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
+                     WHERE qbe.questioncategoryid = :categoryid",
+                    ['categoryid' => $cat->id]
+                );
+                $category->total_questions = $question_count;
+                
+                // Déterminer le type de contexte
+                $context = $DB->get_record('context', ['id' => $cat->contextid]);
+                if ($context) {
+                    switch ($context->contextlevel) {
+                        case CONTEXT_SYSTEM:
+                            $category->context_type = 'system';
+                            $category->context_display_name = 'Système';
+                            break;
+                        case CONTEXT_COURSE:
+                            $course = $DB->get_record('course', ['id' => $context->instanceid]);
+                            $category->context_type = 'course';
+                            $category->context_display_name = $course ? $course->fullname : 'Cours inconnu';
+                            break;
+                        case CONTEXT_MODULE:
+                            $category->context_type = 'module';
+                            $category->context_display_name = 'Module';
+                            break;
+                        default:
+                            $category->context_type = 'unknown';
+                            $category->context_display_name = 'Inconnu';
+                    }
+                } else {
+                    $category->context_type = 'unknown';
+                    $category->context_display_name = 'Contexte invalide';
+                }
+                
+                $categories[] = $category;
+            }
+            
+            // Construire la hiérarchie
+            return local_question_diagnostic_build_category_hierarchy($categories);
+        }
+        
+        // ==================================================================================
+        // LOGIQUE STANDARD POUR LES AUTRES CATÉGORIES DE COURS
+        // ==================================================================================
+        
+        // Pour les autres catégories, utiliser la logique existante
         $categories_with_stats = local_question_diagnostic_get_question_categories_by_course_category($course_category_id);
         
         if (empty($categories_with_stats)) {
