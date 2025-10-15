@@ -123,6 +123,8 @@
         const searchInput = document.getElementById('filter-search');
         const statusFilter = document.getElementById('filter-status');
         const contextFilter = document.getElementById('filter-context');
+        const typeFilter = document.getElementById('filter-type');
+        const courseCategoryFilter = document.getElementById('filter-course-category');
 
         if (searchInput) {
             searchInput.addEventListener('input', debounce(applyFilters, 300));
@@ -134,6 +136,28 @@
 
         if (contextFilter) {
             contextFilter.addEventListener('change', applyFilters);
+        }
+
+        if (typeFilter) {
+            typeFilter.addEventListener('change', function() {
+                // Rediriger vers la page avec le nouveau type de vue
+                const url = new URL(window.location);
+                url.searchParams.set('view_type', this.value);
+                window.location.href = url.toString();
+            });
+        }
+
+        if (courseCategoryFilter) {
+            courseCategoryFilter.addEventListener('change', function() {
+                // Rediriger vers la page avec le nouveau filtre de catégorie de cours
+                const url = new URL(window.location);
+                if (this.value === 'all') {
+                    url.searchParams.delete('course_category');
+                } else {
+                    url.searchParams.set('course_category', this.value);
+                }
+                window.location.href = url.toString();
+            });
         }
     }
 

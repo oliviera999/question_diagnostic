@@ -30,6 +30,23 @@ $PAGE->set_title($pagetitle);
 $PAGE->set_heading(local_question_diagnostic_get_heading_with_version($pagetitle));
 $PAGE->set_pagelayout('report');
 
+// ======================================================================
+// GESTION DES PARAMÈTRES DE FILTRAGE
+// ======================================================================
+
+// Récupérer les paramètres de filtrage
+$view_type = optional_param('view_type', 'questions', PARAM_TEXT);
+$course_category_filter = optional_param('course_category', 'all', PARAM_INT);
+
+// Validation des paramètres
+if (!in_array($view_type, ['questions', 'all'])) {
+    $view_type = 'questions';
+}
+
+if ($course_category_filter !== 'all' && $course_category_filter <= 0) {
+    $course_category_filter = 'all';
+}
+
 // Ajouter les CSS et JavaScript personnalisés
 $PAGE->requires->css('/local/question_diagnostic/styles/main.css');
 $PAGE->requires->js('/local/question_diagnostic/scripts/progress.js', true);  // 🆕 v1.9.41 : Barres de progression
@@ -63,7 +80,7 @@ echo html_writer::end_tag('div');
 // STATISTIQUES GLOBALES (Dashboard) - Calculées après détection du type de vue
 // ======================================================================
 
-// Calculer les statistiques selon le type de vue
+// Calculer les statistiques selon le type de vue et le filtre
 if ($view_type === 'all') {
     // Vue étendue : statistiques pour toutes les catégories
     $all_categories = category_manager::get_all_site_categories_with_stats();
@@ -93,7 +110,37 @@ if ($view_type === 'all') {
     ];
 } else {
     // Vue normale : statistiques pour les catégories de questions uniquement
-    $globalstats = category_manager::get_global_stats();
+    if ($course_category_filter !== 'all') {
+        // Filtrer par catégorie de cours spécifique
+        $filtered_categories = local_question_diagnostic_get_question_categories_by_course_category($course_category_filter);
+        
+        // Calculer les statistiques pour les catégories filtrées
+        $total_questions = 0;
+        $empty_categories = 0;
+        $orphan_categories = 0;
+        $duplicate_categories = 0;
+        $total_protected = 0;
+        
+        foreach ($filtered_categories as $cat) {
+            $total_questions += isset($cat->total_questions) ? $cat->total_questions : 0;
+            if (isset($cat->status) && $cat->status === 'empty') $empty_categories++;
+            if (isset($cat->status) && $cat->status === 'orphan') $orphan_categories++;
+            if (isset($cat->is_duplicate) && $cat->is_duplicate) $duplicate_categories++;
+            if (isset($cat->is_protected) && $cat->is_protected) $total_protected++;
+        }
+        
+        $globalstats = (object)[
+            'total_categories' => count($filtered_categories),
+            'total_questions' => $total_questions,
+            'empty_categories' => $empty_categories,
+            'orphan_categories' => $orphan_categories,
+            'duplicate_categories' => $duplicate_categories,
+            'total_protected' => $total_protected
+        ];
+    } else {
+        // Pas de filtre par catégorie de cours
+        $globalstats = category_manager::get_global_stats();
+    }
 }
 
 echo html_writer::start_tag('div', ['class' => 'qd-dashboard']);
@@ -312,8 +359,29 @@ echo html_writer::end_tag('div');
 echo html_writer::start_tag('div', ['class' => 'qd-filter-group']);
 echo html_writer::tag('label', 'Type de catégories', ['for' => 'filter-type']);
 echo html_writer::start_tag('select', ['id' => 'filter-type', 'class' => 'form-control']);
-echo html_writer::tag('option', 'Questions uniquement (actuel)', ['value' => 'questions']);
-echo html_writer::tag('option', 'Toutes les catégories (questions + cours)', ['value' => 'all']);
+echo html_writer::tag('option', 'Questions uniquement (actuel)', ['value' => 'questions', 'selected' => ($view_type === 'questions')]);
+echo html_writer::tag('option', 'Toutes les catégories (questions + cours)', ['value' => 'all', 'selected' => ($view_type === 'all')]);
+echo html_writer::end_tag('select');
+echo html_writer::end_tag('div');
+
+// 🆕 v1.11.5 : Filtre par catégorie de cours
+echo html_writer::start_tag('div', ['class' => 'qd-filter-group']);
+echo html_writer::tag('label', get_string('course_category_filter', 'local_question_diagnostic'), ['for' => 'filter-course-category']);
+echo html_writer::start_tag('select', ['id' => 'filter-course-category', 'class' => 'form-control']);
+echo html_writer::tag('option', get_string('all_course_categories', 'local_question_diagnostic'), ['value' => 'all', 'selected' => ($course_category_filter === 'all')]);
+
+// Récupérer toutes les catégories de cours
+$course_categories = local_question_diagnostic_get_course_categories();
+
+foreach ($course_categories as $course_cat) {
+    $label = $course_cat->formatted_name;
+    if ($course_cat->course_count > 0) {
+        $label .= ' (' . $course_cat->course_count . ' cours)';
+    }
+    $selected = ($course_category_filter == $course_cat->id) ? 'selected' : '';
+    echo html_writer::tag('option', $label, ['value' => $course_cat->id, 'selected' => $selected]);
+}
+
 echo html_writer::end_tag('select');
 echo html_writer::end_tag('div');
 
@@ -387,7 +455,32 @@ if ($view_type === 'all') {
     echo html_writer::end_div();
 } else {
     // Vue normale : catégories de questions uniquement
-    $categories_with_stats = category_manager::get_all_categories_with_stats();
+    if ($course_category_filter !== 'all') {
+        // Filtrer par catégorie de cours spécifique
+        $categories_with_stats = local_question_diagnostic_get_question_categories_by_course_category($course_category_filter);
+        
+        // Ajouter un message informatif
+        $course_category_name = '';
+        foreach ($course_categories as $cat) {
+            if ($cat->id == $course_category_filter) {
+                $course_category_name = $cat->formatted_name;
+                break;
+            }
+        }
+        
+        echo html_writer::start_div('alert alert-info', ['style' => 'margin: 20px 0; border-left: 4px solid #17a2b8;']);
+        echo '<strong>' . get_string('filter_active_course_category', 'local_question_diagnostic') . '</strong><br>';
+        echo get_string('course_category_filter_info', 'local_question_diagnostic') . ' : <strong>' . $course_category_name . '</strong><br>';
+        echo html_writer::link(
+            new moodle_url('/local/question_diagnostic/categories.php', ['course_category' => 'all']),
+            get_string('show_all_course_categories', 'local_question_diagnostic'),
+            ['class' => 'btn btn-sm btn-secondary ml-2']
+        );
+        echo html_writer::end_div();
+    } else {
+        // Pas de filtre par catégorie de cours
+        $categories_with_stats = category_manager::get_all_categories_with_stats();
+    }
 }
 
 echo html_writer::start_tag('div', ['class' => 'qd-table-wrapper']);

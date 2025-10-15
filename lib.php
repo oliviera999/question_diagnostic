@@ -1103,4 +1103,134 @@ function local_question_diagnostic_get_olution_subcategories($parent_id = null) 
     }
 }
 
+/**
+ * Récupère toutes les catégories de cours disponibles
+ * 
+ * 🆕 v1.11.5 : Fonction pour lister les catégories de cours
+ * Cette fonction permet de récupérer toutes les catégories de cours
+ * pour permettre le filtrage des questions par catégorie de cours.
+ * 
+ * @return array Tableau des catégories de cours avec métadonnées
+ */
+function local_question_diagnostic_get_course_categories() {
+    global $DB;
+    
+    try {
+        $sql = "SELECT cc.id, cc.name, cc.description, cc.parent,
+                       COUNT(c.id) as course_count
+                FROM {course_categories} cc
+                LEFT JOIN {course} c ON c.category = cc.id
+                GROUP BY cc.id, cc.name, cc.description, cc.parent
+                ORDER BY cc.name ASC";
+        
+        $course_categories = $DB->get_records_sql($sql);
+        
+        // Enrichir avec les informations de contexte
+        foreach ($course_categories as $cat) {
+            $cat->formatted_name = format_string($cat->name);
+            $cat->has_courses = $cat->course_count > 0;
+        }
+        
+        return $course_categories;
+        
+    } catch (Exception $e) {
+        debugging('Error getting course categories: ' . $e->getMessage(), DEBUG_DEVELOPER);
+        return [];
+    }
+}
+
+/**
+ * Récupère les catégories de questions associées à une catégorie de cours
+ * 
+ * 🆕 v1.11.5 : Fonction pour filtrer les questions par catégorie de cours
+ * Cette fonction permet de voir toutes les catégories de questions
+ * et les questions associées à une catégorie de cours spécifique.
+ * 
+ * @param int $course_category_id ID de la catégorie de cours
+ * @return array Tableau des catégories de questions avec métadonnées
+ */
+function local_question_diagnostic_get_question_categories_by_course_category($course_category_id) {
+    global $DB;
+    
+    try {
+        // 1. Récupérer tous les cours dans cette catégorie de cours
+        $courses = $DB->get_records('course', ['category' => $course_category_id], 'fullname ASC');
+        
+        if (empty($courses)) {
+            return [];
+        }
+        
+        $course_ids = array_keys($courses);
+        list($course_ids_sql, $course_params) = $DB->get_in_or_equal($course_ids);
+        
+        // 2. Récupérer les contextes de cours
+        $contexts_sql = "SELECT id, instanceid
+                        FROM {context}
+                        WHERE contextlevel = :contextlevel
+                        AND instanceid " . $course_ids_sql;
+        
+        $contexts = $DB->get_records_sql($contexts_sql, array_merge(
+            ['contextlevel' => CONTEXT_COURSE],
+            $course_params
+        ));
+        
+        if (empty($contexts)) {
+            return [];
+        }
+        
+        $context_ids = array_keys($contexts);
+        list($context_ids_sql, $context_params) = $DB->get_in_or_equal($context_ids);
+        
+        // 3. Récupérer les catégories de questions dans ces contextes
+        $question_categories_sql = "SELECT qc.*, c.fullname as course_name, c.id as course_id
+                                   FROM {question_categories} qc
+                                   INNER JOIN {context} ctx ON ctx.id = qc.contextid
+                                   INNER JOIN {course} c ON c.id = ctx.instanceid
+                                   WHERE qc.contextid " . $context_ids_sql . "
+                                   ORDER BY c.fullname ASC, qc.name ASC";
+        
+        $question_categories = $DB->get_records_sql($question_categories_sql, $context_params);
+        
+        // 4. Enrichir avec les statistiques de questions
+        foreach ($question_categories as $cat) {
+            // Compter les questions dans cette catégorie (Moodle 4.5)
+            $questions_sql = "SELECT COUNT(DISTINCT q.id) as total_questions,
+                                     SUM(CASE WHEN qv.status != 'hidden' THEN 1 ELSE 0 END) as visible_questions
+                              FROM {question_bank_entries} qbe
+                              INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+                              INNER JOIN {question} q ON q.id = qv.questionid
+                              WHERE qbe.questioncategoryid = :categoryid";
+            
+            $question_stats = $DB->get_record_sql($questions_sql, ['categoryid' => $cat->id]);
+            
+            $cat->total_questions = $question_stats ? $question_stats->total_questions : 0;
+            $cat->visible_questions = $question_stats ? $question_stats->visible_questions : 0;
+            
+            // Compter les sous-catégories
+            $subcat_count = $DB->count_records('question_categories', ['parent' => $cat->id]);
+            $cat->subcategory_count = $subcat_count;
+            
+            // Déterminer le statut
+            if ($cat->total_questions == 0 && $cat->subcategory_count == 0) {
+                $cat->status = 'empty';
+            } else {
+                $cat->status = 'ok';
+            }
+            
+            // Vérifier si c'est une catégorie protégée
+            $cat->is_protected = (
+                stripos($cat->name, 'default for') === 0 ||
+                $cat->parent == 0 ||
+                !empty($cat->info)
+            );
+        }
+        
+        return $question_categories;
+        
+    } catch (Exception $e) {
+        debugging('Error getting question categories by course category: ' . $e->getMessage(), DEBUG_DEVELOPER);
+        return [];
+    }
+}
+
 

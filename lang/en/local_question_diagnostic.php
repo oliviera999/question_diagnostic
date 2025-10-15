@@ -515,3 +515,11 @@ $string['move_batch_result'] = '{$a->success} question(s) successfully moved, {$
 $string['invalid_parameters'] = 'Invalid parameters';
 $string['invalid_action'] = 'Invalid action';
 
+// 🆕 v1.11.5 : Course category filter
+$string['course_category_filter'] = 'Course category';
+$string['course_category_filter_desc'] = 'Filter question categories by course category';
+$string['all_course_categories'] = 'All course categories';
+$string['filter_active_course_category'] = 'Active filter: Course category';
+$string['show_all_course_categories'] = 'Show all course categories';
+$string['course_category_filter_info'] = 'Displaying question categories for course category';
+

@@ -515,3 +515,11 @@ $string['move_batch_result'] = '{$a->success} question(s) déplacée(s) avec suc
 $string['invalid_parameters'] = 'Paramètres invalides';
 $string['invalid_action'] = 'Action invalide';
 
+// 🆕 v1.11.5 : Filtre par catégorie de cours
+$string['course_category_filter'] = 'Catégorie de cours';
+$string['course_category_filter_desc'] = 'Filtrer les catégories de questions par catégorie de cours';
+$string['all_course_categories'] = 'Toutes les catégories de cours';
+$string['filter_active_course_category'] = 'Filtre actif : Catégorie de cours';
+$string['show_all_course_categories'] = 'Voir toutes les catégories de cours';
+$string['course_category_filter_info'] = 'Affichage des catégories de questions pour la catégorie de cours';
+
