@@ -1216,7 +1216,7 @@ function local_question_diagnostic_get_question_categories_by_course_category($c
         debugging('Found ' . count($courses) . ' courses in course category ID: ' . $course_category_id . ' (including subcategories)', DEBUG_DEVELOPER);
         
         $course_ids = array_keys($courses);
-        list($course_ids_sql, $course_params) = $DB->get_in_or_equal($course_ids);
+        list($course_ids_sql, $course_params) = $DB->get_in_or_equal($course_ids, SQL_PARAMS_NAMED);
         
         // 2. Récupérer les contextes de cours
         $contexts_sql = "SELECT id, instanceid
@@ -1261,7 +1261,7 @@ function local_question_diagnostic_get_question_categories_by_course_category($c
         $all_context_ids[] = $system_context->id; // Ajouter le contexte système
         
         $all_context_ids = array_unique($all_context_ids);
-        list($all_context_ids_sql, $all_context_params) = $DB->get_in_or_equal($all_context_ids);
+        list($all_context_ids_sql, $all_context_params) = $DB->get_in_or_equal($all_context_ids, SQL_PARAMS_NAMED);
         
         debugging('Total contexts to search: ' . count($all_context_ids), DEBUG_DEVELOPER);
         
@@ -1390,7 +1390,7 @@ function local_question_diagnostic_get_question_categories_by_course_category($c
             }
             
             $course_ids = array_keys($courses);
-            list($course_ids_sql, $course_params) = $DB->get_in_or_equal($course_ids);
+            list($course_ids_sql, $course_params) = $DB->get_in_or_equal($course_ids, SQL_PARAMS_NAMED);
             
             $fallback_sql = "SELECT qc.*, c.fullname as course_name, c.id as course_id
                              FROM {question_categories} qc
