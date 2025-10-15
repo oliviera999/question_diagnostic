@@ -1,0 +1,209 @@
+═══════════════════════════════════════════════════════════════
+  MOODLE QUESTION DIAGNOSTIC - LISTE DES MODIFICATIONS v1.10.3
+═══════════════════════════════════════════════════════════════
+
+Date : 14 octobre 2025
+Changement : Protection conditionnelle des catégories "Default for"
+
+───────────────────────────────────────────────────────────────
+ 📝 FICHIERS MODIFIÉS
+───────────────────────────────────────────────────────────────
+
+1. classes/category_manager.php
+   ├─ Ligne 156-163 : get_all_categories_with_stats()
+   ├─ Ligne 321-328 : get_category_stats()
+   └─ Ligne 412-427 : delete_category()
+   
+   Changement : Ajout condition "&& $context_valid" pour protection
+                conditionnelle des catégories "Default for"
+
+2. version.php
+   ├─ Version : 2025101402 → 2025101403
+   └─ Release : v1.10.1 → v1.10.3
+
+3. CHANGELOG.md
+   └─ Ajout section [1.10.3] (lignes 8-67)
+
+───────────────────────────────────────────────────────────────
+ 📄 FICHIERS CRÉÉS (Documentation)
+───────────────────────────────────────────────────────────────
+
+4. FEATURE_DEFAULT_CATEGORIES_PROTECTION.md
+   • Documentation technique complète (580 lignes)
+   • Explique la logique de protection conditionnelle
+   • Exemples de code, tests, migration
+
+5. QUICK_REFERENCE_DEFAULT_PROTECTION.md
+   • Référence rapide (150 lignes)
+   • Tableau de décision
+   • Workflow de nettoyage
+
+6. VISUAL_DEFAULT_CATEGORIES_LOGIC.md
+   • Schémas visuels ASCII (370 lignes)
+   • Arbre de décision
+   • Comparaison avant/après
+   • Indicateurs visuels interface
+
+7. SUMMARY_v1.10.3_CHANGES.md
+   • Résumé des modifications (250 lignes)
+   • Impact utilisateur
+   • Checklist de validation
+
+8. .changes_v1.10.3.txt
+   • Ce fichier (traçabilité)
+
+───────────────────────────────────────────────────────────────
+ 🎯 RÉSUMÉ TECHNIQUE
+───────────────────────────────────────────────────────────────
+
+Problème résolu :
+  Toutes les catégories "Default for" étaient protégées, même
+  les orphelines (contexte supprimé), empêchant le nettoyage.
+
+Solution implémentée :
+  Protection conditionnelle basée sur la validité du contexte :
+  • Contexte valide → PROTÉGÉE
+  • Contexte orphelin → SUPPRIMABLE (si vide)
+
+Impact :
+  • Nettoyage intelligent des catégories obsolètes ✅
+  • Protection maintenue pour catégories actives ✅
+  • Cohérence avec autres catégories orphelines ✅
+
+───────────────────────────────────────────────────────────────
+ 🔧 MODIFICATIONS PAR FONCTION
+───────────────────────────────────────────────────────────────
+
+get_all_categories_with_stats() :
+  AVANT :
+    if (stripos($cat->name, 'Default for') !== false) {
+        $is_protected = true;
+    }
+  
+  APRÈS :
+    if ((stripos($cat->name, 'Default for') !== false) 
+        && $context_valid) {
+        $is_protected = true;
+        $protection_reason = 'Catégorie par défaut Moodle (contexte actif)';
+    }
+
+get_category_stats() :
+  AVANT :
+    if (stripos($category->name, 'Default for') !== false) {
+        $stats->is_protected = true;
+    }
+  
+  APRÈS :
+    if ((stripos($category->name, 'Default for') !== false) 
+        && $stats->context_valid) {
+        $stats->is_protected = true;
+        $stats->protection_reason = 'Catégorie par défaut Moodle (contexte actif)';
+    }
+
+delete_category() :
+  AVANT :
+    if (stripos($category->name, 'Default for') !== false) {
+        return "❌ PROTÉGÉE : ...";
+    }
+  
+  APRÈS :
+    if (stripos($category->name, 'Default for') !== false) {
+        try {
+            $context = \context::instance_by_id($category->contextid, IGNORE_MISSING);
+            if ($context) {
+                return "❌ PROTÉGÉE : Cette catégorie par défaut est liée 
+                        à un contexte actif...";
+            }
+            // Sinon : contexte orphelin → continuer (supprimable si vide)
+        } catch (\Exception $e) {
+            // Erreur → orphelin → continuer
+        }
+    }
+
+───────────────────────────────────────────────────────────────
+ ✅ TESTS RECOMMANDÉS
+───────────────────────────────────────────────────────────────
+
+1. Test Protection Maintenue :
+   • Identifier catégorie "Default for" avec cours actif
+   • Vérifier statut : 🛡️ PROTÉGÉE
+   • Tenter suppression → doit refuser
+
+2. Test Suppression Orpheline :
+   • Identifier catégorie "Default for" orpheline (vide)
+   • Vérifier statut : Vide + Orpheline
+   • Vérifier supprimable : ✅ OUI
+   • Supprimer → doit réussir
+
+3. Test Dashboard :
+   • Comparer nombre catégories protégées avant/après
+   • Vérifier filtre "supprimables" inclut orphelines "Default"
+
+4. Test Messages :
+   • Vérifier messages d'erreur explicites
+   • Vérifier raisons de protection affichées
+
+───────────────────────────────────────────────────────────────
+ 📊 STATISTIQUES
+───────────────────────────────────────────────────────────────
+
+Fichiers modifiés : 3
+Fichiers créés    : 5 (documentation)
+Lignes ajoutées   : ~1500 (dont 1350 documentation)
+Lignes modifiées  : ~30 (code production)
+Fonctions mises à jour : 3
+
+Impact BDD : AUCUN (pas de migration)
+Impact config : AUCUN
+Impact cache : Recommandé de purger après déploiement
+
+───────────────────────────────────────────────────────────────
+ 🚀 COMMANDES DE DÉPLOIEMENT
+───────────────────────────────────────────────────────────────
+
+# 1. Backup (précaution)
+php admin/cli/backup.php
+
+# 2. Mise à jour plugin
+git pull origin main
+
+# 3. Upgrade Moodle
+php admin/cli/upgrade.php --non-interactive
+
+# 4. Purge caches
+php admin/cli/purge_caches.php
+
+# 5. Test interface
+# Aller sur : /local/question_diagnostic/categories.php
+# Vérifier le dashboard et les catégories "Default for"
+
+───────────────────────────────────────────────────────────────
+ 📚 DOCUMENTATION À CONSULTER
+───────────────────────────────────────────────────────────────
+
+Ordre de lecture recommandé :
+  1. SUMMARY_v1.10.3_CHANGES.md (ce qui a changé)
+  2. QUICK_REFERENCE_DEFAULT_PROTECTION.md (utilisation)
+  3. VISUAL_DEFAULT_CATEGORIES_LOGIC.md (schémas)
+  4. FEATURE_DEFAULT_CATEGORIES_PROTECTION.md (technique)
+  5. CHANGELOG.md (historique complet)
+
+───────────────────────────────────────────────────────────────
+ ✅ VALIDATION
+───────────────────────────────────────────────────────────────
+
+[✓] Code modifié et commenté
+[✓] Version incrémentée
+[✓] CHANGELOG mis à jour
+[✓] Documentation créée
+[✓] Compatibilité Moodle 4.5 maintenue
+[✓] Sécurité conservée
+[✓] Pas de breaking changes
+[✓] Messages utilisateur explicites
+[✓] Logs d'audit maintenus
+[✓] Standards Moodle respectés
+
+═══════════════════════════════════════════════════════════════
+  STATUS : ✅ PRÊT POUR TESTS ET DÉPLOIEMENT
+═══════════════════════════════════════════════════════════════
+

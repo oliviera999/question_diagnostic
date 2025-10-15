@@ -99,3 +99,4 @@ La catégorie Olution doit :
 ---
 
 **Note :** Cette version valide et documente le système de détection Olution déjà existant. Le plugin dispose d'une architecture complète et sophistiquée pour la gestion des catégories Olution.
+

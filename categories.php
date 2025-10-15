@@ -60,10 +60,41 @@ echo local_question_diagnostic_render_back_link('categories.php');
 echo html_writer::end_tag('div');
 
 // ======================================================================
-// STATISTIQUES GLOBALES (Dashboard)
+// STATISTIQUES GLOBALES (Dashboard) - Calculées après détection du type de vue
 // ======================================================================
 
-$globalstats = category_manager::get_global_stats();
+// Calculer les statistiques selon le type de vue
+if ($view_type === 'all') {
+    // Vue étendue : statistiques pour toutes les catégories
+    $all_categories = category_manager::get_all_site_categories_with_stats();
+    
+    // Calculer les statistiques manuellement pour éviter les problèmes avec array_column
+    $total_questions = 0;
+    $empty_categories = 0;
+    $orphan_categories = 0;
+    $duplicate_categories = 0;
+    $total_protected = 0;
+    
+    foreach ($all_categories as $cat) {
+        $total_questions += isset($cat->total_questions) ? $cat->total_questions : 0;
+        if (isset($cat->status) && $cat->status === 'empty') $empty_categories++;
+        if (isset($cat->status) && $cat->status === 'orphan') $orphan_categories++;
+        if (isset($cat->is_duplicate) && $cat->is_duplicate) $duplicate_categories++;
+        if (isset($cat->is_protected) && $cat->is_protected) $total_protected++;
+    }
+    
+    $globalstats = (object)[
+        'total_categories' => count($all_categories),
+        'total_questions' => $total_questions,
+        'empty_categories' => $empty_categories,
+        'orphan_categories' => $orphan_categories,
+        'duplicate_categories' => $duplicate_categories,
+        'total_protected' => $total_protected
+    ];
+} else {
+    // Vue normale : statistiques pour les catégories de questions uniquement
+    $globalstats = category_manager::get_global_stats();
+}
 
 echo html_writer::start_tag('div', ['class' => 'qd-dashboard']);
 
@@ -333,13 +364,9 @@ echo html_writer::end_tag('div');
 
 echo html_writer::tag('h3', '📂 Liste des catégories');
 
-// 🆕 v1.11.3 : Détecter le type de catégories demandé
-$category_type = optional_param('type', 'questions', PARAM_ALPHA);
-
-if ($category_type === 'all') {
-    // Récupérer toutes les catégories (questions + cours)
-    $all_categories = category_manager::get_all_site_categories_with_stats();
-    
+// Utiliser la variable déjà calculée plus haut
+if ($view_type === 'all') {
+    // Les catégories sont déjà récupérées dans $all_categories pour les statistiques
     // Convertir au format attendu par l'interface
     $categories_with_stats = [];
     foreach ($all_categories as $cat) {
@@ -388,8 +415,16 @@ echo html_writer::end_tag('thead');
 echo html_writer::start_tag('tbody');
 
 foreach ($categories_with_stats as $item) {
-    $cat = $item->category;
-    $stats = $item->stats;
+    // 🆕 v1.11.4 : Gérer les deux formats (vue normale vs vue étendue)
+    if (isset($item->category) && isset($item->stats)) {
+        // Format normal : {category: obj, stats: obj}
+        $cat = $item->category;
+        $stats = $item->stats;
+    } else {
+        // Format étendu : objet unifié avec toutes les propriétés
+        $cat = $item;
+        $stats = $item;
+    }
     
     // Déterminer le statut principal pour le tri (priorité)
     // Ordre de priorité : Protégée (5) > Orpheline (4) > Doublon (3) > Vide (2) > OK (1)
@@ -455,7 +490,7 @@ foreach ($categories_with_stats as $item) {
     
     // 🆕 v1.11.3 : Type de catégorie
     echo html_writer::start_tag('td');
-    if ($category_type === 'course') {
+    if (isset($cat->category_type) && $cat->category_type === 'course') {
         echo html_writer::tag('span', '📚', ['title' => 'Catégorie de cours']);
     } else {
         echo html_writer::tag('span', '❓', ['title' => 'Catégorie de questions']);
@@ -511,8 +546,8 @@ foreach ($categories_with_stats as $item) {
     
     // 🆕 v1.11.3 : Cours (pour les catégories de cours)
     echo html_writer::start_tag('td');
-    if ($category_type === 'course') {
-        echo $course_count;
+    if (isset($cat->category_type) && $cat->category_type === 'course') {
+        echo isset($cat->course_count) ? $cat->course_count : 0;
     } else {
         echo '-';
     }

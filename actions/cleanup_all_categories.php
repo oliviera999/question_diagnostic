@@ -430,20 +430,8 @@ function execute_cleanup_batch($batch) {
             // Supprimer la catégorie
             category_manager::delete_category($cat->id);
             
-            // Logger l'action
-            audit_logger::log_action(
-                audit_logger::ACTION_DELETE_CATEGORY,
-                'category',
-                $cat->id,
-                $cat->name,
-                $USER->id,
-                [
-                    'context' => 'Nettoyage global automatique',
-                    'contextid' => $cat->contextid,
-                    'was_empty' => $cat->stats->is_empty ? 1 : 0,
-                    'was_orphan' => $cat->stats->is_orphan ? 1 : 0
-                ]
-            );
+            // Note : L'audit logging est géré automatiquement par category_manager::delete_category()
+            // via audit_logger::log_category_deletion()
             
             $deleted_in_batch++;
             $_SESSION['cleanup_categories_deleted']++;
