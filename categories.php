@@ -607,24 +607,75 @@ foreach ($categories_with_stats as $item) {
     
     // Contexte (avec tooltip si cours/module disponible)
     echo html_writer::start_tag('td');
-    $context_display = $stats->context_name;
-    $tooltip_parts = [];
-    if (!empty($stats->course_name)) {
-        $tooltip_parts[] = '📚 Cours : ' . $stats->course_name;
-    }
-    if (!empty($stats->module_name)) {
-        $tooltip_parts[] = '📝 Module : ' . $stats->module_name;
-    }
-    $tooltip = !empty($tooltip_parts) ? implode("\n", $tooltip_parts) : '';
     
-    if ($tooltip) {
-        echo html_writer::tag('span', $context_display, [
-            'title' => $tooltip,
-            'style' => 'cursor: help; border-bottom: 1px dotted #666;'
-        ]);
+    // 🆕 v1.11.6 : Utiliser les nouvelles informations de contexte
+    if (isset($stats->context_display_name)) {
+        // Utiliser le nom de contexte enrichi de notre nouvelle fonction
+        $context_display = $stats->context_display_name;
+        $context_type = $stats->context_type ?? 'unknown';
+        
+        // Ajouter des icônes selon le type de contexte
+        $icon = '';
+        switch ($context_type) {
+            case 'system':
+                $icon = '🌐 ';
+                break;
+            case 'course':
+                $icon = '📚 ';
+                break;
+            case 'module':
+                $icon = '📝 ';
+                break;
+            default:
+                $icon = '❓ ';
+        }
+        
+        $context_display = $icon . $context_display;
+        
+        // Tooltip avec informations détaillées
+        $tooltip_parts = [];
+        if (!empty($stats->course_name)) {
+            $tooltip_parts[] = '📚 Cours : ' . $stats->course_name;
+        }
+        if (!empty($stats->module_name)) {
+            $tooltip_parts[] = '📝 Module : ' . $stats->module_name;
+        }
+        if ($context_type === 'system') {
+            $tooltip_parts[] = '🌐 Contexte système (accessible partout)';
+        }
+        
+        $tooltip = !empty($tooltip_parts) ? implode("\n", $tooltip_parts) : '';
+        
+        if ($tooltip) {
+            echo html_writer::tag('span', $context_display, [
+                'title' => $tooltip,
+                'style' => 'cursor: help; border-bottom: 1px dotted #666;'
+            ]);
+        } else {
+            echo $context_display;
+        }
     } else {
-        echo $context_display;
+        // Fallback vers l'ancienne méthode
+        $context_display = $stats->context_name;
+        $tooltip_parts = [];
+        if (!empty($stats->course_name)) {
+            $tooltip_parts[] = '📚 Cours : ' . $stats->course_name;
+        }
+        if (!empty($stats->module_name)) {
+            $tooltip_parts[] = '📝 Module : ' . $stats->module_name;
+        }
+        $tooltip = !empty($tooltip_parts) ? implode("\n", $tooltip_parts) : '';
+        
+        if ($tooltip) {
+            echo html_writer::tag('span', $context_display, [
+                'title' => $tooltip,
+                'style' => 'cursor: help; border-bottom: 1px dotted #666;'
+            ]);
+        } else {
+            echo $context_display;
+        }
     }
+    
     echo html_writer::end_tag('td');
     
     // Parent

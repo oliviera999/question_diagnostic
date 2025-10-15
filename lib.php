@@ -1143,8 +1143,13 @@ function local_question_diagnostic_get_course_categories() {
  * Récupère les catégories de questions associées à une catégorie de cours
  * 
  * 🆕 v1.11.5 : Fonction pour filtrer les questions par catégorie de cours
- * Cette fonction permet de voir toutes les catégories de questions
- * et les questions associées à une catégorie de cours spécifique.
+ * 🔧 v1.11.6 : CORRECTION MAJEURE - Reproduit exactement la vue de la banque de questions Moodle
+ * 
+ * Cette fonction reproduit exactement ce que l'utilisateur voit dans la banque de questions Moodle
+ * quand il sélectionne une catégorie de cours. Elle inclut :
+ * - Les catégories de questions des cours dans la catégorie de cours sélectionnée
+ * - Les catégories de questions système (si visibles)
+ * - Les catégories de questions des modules des cours dans la catégorie
  * 
  * @param int $course_category_id ID de la catégorie de cours
  * @return array Tableau des catégories de questions avec métadonnées
@@ -1181,17 +1186,71 @@ function local_question_diagnostic_get_question_categories_by_course_category($c
         $context_ids = array_keys($contexts);
         list($context_ids_sql, $context_params) = $DB->get_in_or_equal($context_ids);
         
-        // 3. Récupérer les catégories de questions dans ces contextes
-        $question_categories_sql = "SELECT qc.*, c.fullname as course_name, c.id as course_id
+        // 3. Récupérer les contextes de modules des cours dans cette catégorie
+        $module_contexts_sql = "SELECT ctx.id, ctx.instanceid, cm.course
+                                FROM {context} ctx
+                                INNER JOIN {course_modules} cm ON cm.id = ctx.instanceid
+                                WHERE ctx.contextlevel = :contextlevel
+                                AND cm.course " . $course_ids_sql;
+        
+        $module_contexts = $DB->get_records_sql($module_contexts_sql, array_merge(
+            ['contextlevel' => CONTEXT_MODULE],
+            $course_params
+        ));
+        
+        // 4. Récupérer le contexte système (si accessible)
+        $system_context = context_system::instance();
+        
+        // 5. Construire la liste de tous les contextes à inclure
+        $all_context_ids = array_merge($context_ids, array_keys($module_contexts));
+        $all_context_ids[] = $system_context->id; // Ajouter le contexte système
+        
+        $all_context_ids = array_unique($all_context_ids);
+        list($all_context_ids_sql, $all_context_params) = $DB->get_in_or_equal($all_context_ids);
+        
+        // 6. Récupérer TOUTES les catégories de questions dans ces contextes
+        $question_categories_sql = "SELECT qc.*, 
+                                          CASE 
+                                              WHEN ctx.contextlevel = :system_level THEN 'Système'
+                                              WHEN ctx.contextlevel = :course_level THEN c.fullname
+                                              WHEN ctx.contextlevel = :module_level THEN CONCAT(m.name, ': ', COALESCE(inst.name, 'Module'), ' (', c.fullname, ')')
+                                              ELSE 'Inconnu'
+                                          END as context_display_name,
+                                          CASE 
+                                              WHEN ctx.contextlevel = :system_level THEN 'system'
+                                              WHEN ctx.contextlevel = :course_level THEN 'course'
+                                              WHEN ctx.contextlevel = :module_level THEN 'module'
+                                              ELSE 'unknown'
+                                          END as context_type,
+                                          c.fullname as course_name, 
+                                          c.id as course_id
                                    FROM {question_categories} qc
                                    INNER JOIN {context} ctx ON ctx.id = qc.contextid
-                                   INNER JOIN {course} c ON c.id = ctx.instanceid
-                                   WHERE qc.contextid " . $context_ids_sql . "
-                                   ORDER BY c.fullname ASC, qc.name ASC";
+                                   LEFT JOIN {course} c ON c.id = ctx.instanceid AND ctx.contextlevel = :course_level
+                                   LEFT JOIN {course_modules} cm ON cm.id = ctx.instanceid AND ctx.contextlevel = :module_level
+                                   LEFT JOIN {modules} m ON m.id = cm.module AND ctx.contextlevel = :module_level
+                                   LEFT JOIN {quiz} inst ON inst.id = cm.instance AND m.name = 'quiz' AND ctx.contextlevel = :module_level
+                                   WHERE qc.contextid " . $all_context_ids_sql . "
+                                   ORDER BY 
+                                       CASE 
+                                           WHEN ctx.contextlevel = :system_level THEN 1
+                                           WHEN ctx.contextlevel = :course_level THEN 2
+                                           WHEN ctx.contextlevel = :module_level THEN 3
+                                           ELSE 4
+                                       END,
+                                       c.fullname ASC, 
+                                       qc.name ASC";
         
-        $question_categories = $DB->get_records_sql($question_categories_sql, $context_params);
+        $question_categories = $DB->get_records_sql($question_categories_sql, array_merge(
+            $all_context_params,
+            [
+                'system_level' => CONTEXT_SYSTEM,
+                'course_level' => CONTEXT_COURSE,
+                'module_level' => CONTEXT_MODULE
+            ]
+        ));
         
-        // 4. Enrichir avec les statistiques de questions
+        // 7. Enrichir avec les statistiques de questions
         foreach ($question_categories as $cat) {
             // Compter les questions dans cette catégorie (Moodle 4.5)
             $questions_sql = "SELECT COUNT(DISTINCT q.id) as total_questions,
