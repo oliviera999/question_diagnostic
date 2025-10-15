@@ -42,6 +42,11 @@ echo $OUTPUT->header();
 // Afficher le badge de version
 echo local_question_diagnostic_render_version_badge();
 
+// Afficher le bouton de purge des caches
+echo html_writer::start_div('text-right', ['style' => 'margin-bottom: 20px;']);
+echo local_question_diagnostic_render_cache_purge_button();
+echo html_writer::end_div();
+
 // 🆕 v1.9.44 : Lien retour hiérarchique et bouton de purge de cache
 echo html_writer::start_tag('div', ['style' => 'margin-bottom: 20px; display: flex; gap: 10px; align-items: center;']);
 echo local_question_diagnostic_render_back_link('questions_cleanup.php');

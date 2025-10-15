@@ -1140,6 +1140,33 @@ function local_question_diagnostic_get_course_categories() {
 }
 
 /**
+ * Affiche le bouton de purge des caches
+ * 
+ * 🔧 v1.11.10 : Fonction utilitaire pour ajouter le bouton de purge des caches
+ * à toutes les pages du plugin pour faciliter le débogage et la maintenance.
+ * 
+ * @return string HTML du bouton de purge des caches
+ */
+function local_question_diagnostic_render_cache_purge_button() {
+    global $OUTPUT;
+    
+    $purge_url = new moodle_url('/local/question_diagnostic/purge_cache.php', [
+        'sesskey' => sesskey(),
+        'return_url' => qualified_me()
+    ]);
+    
+    return html_writer::link(
+        $purge_url,
+        '🗑️ Purger les caches',
+        [
+            'class' => 'btn btn-warning btn-sm',
+            'title' => 'Purger tous les caches du plugin (recommandé après modifications)',
+            'style' => 'margin-left: 10px;'
+        ]
+    );
+}
+
+/**
  * Récupère tous les cours dans une catégorie de cours et ses sous-catégories (récursif)
  * 
  * 🔧 v1.11.8 : CORRECTION MAJEURE - Inclut les sous-catégories de cours

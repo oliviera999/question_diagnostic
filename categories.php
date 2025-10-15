@@ -59,6 +59,11 @@ echo $OUTPUT->header();
 // Afficher le badge de version
 echo local_question_diagnostic_render_version_badge();
 
+// Afficher le bouton de purge des caches
+echo html_writer::start_div('text-right', ['style' => 'margin-bottom: 20px;']);
+echo local_question_diagnostic_render_cache_purge_button();
+echo html_writer::end_div();
+
 // Alerte sécurité pour les suppressions
 echo html_writer::start_div('alert alert-warning', ['style' => 'margin-bottom: 20px; border-left: 4px solid #d9534f;']);
 echo '<strong>🛡️ ATTENTION</strong> : Cette page permet de supprimer des catégories. ';

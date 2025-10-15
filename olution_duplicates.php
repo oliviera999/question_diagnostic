@@ -42,6 +42,11 @@ echo $OUTPUT->header();
 // Badge de version
 echo local_question_diagnostic_render_version_badge();
 
+// Afficher le bouton de purge des caches
+echo html_writer::start_div('text-right', ['style' => 'margin-bottom: 20px;']);
+echo local_question_diagnostic_render_cache_purge_button();
+echo html_writer::end_div();
+
 // Bouton retour
 echo html_writer::div(
     local_question_diagnostic_render_back_link('olution_duplicates.php'),
