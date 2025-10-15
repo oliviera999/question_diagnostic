@@ -1140,6 +1140,52 @@ function local_question_diagnostic_get_course_categories() {
 }
 
 /**
+ * Récupère tous les cours dans une catégorie de cours et ses sous-catégories (récursif)
+ * 
+ * 🔧 v1.11.8 : CORRECTION MAJEURE - Inclut les sous-catégories de cours
+ * Cette fonction résout le problème où une catégorie parent (comme "Olution") 
+ * ne contient pas de cours directement mais a des sous-catégories avec des cours.
+ * 
+ * @param int $course_category_id ID de la catégorie de cours
+ * @return array Tableau des cours avec métadonnées
+ */
+function local_question_diagnostic_get_courses_in_category_recursive($course_category_id) {
+    global $DB;
+    
+    try {
+        $all_courses = [];
+        
+        // Fonction récursive pour parcourir les sous-catégories
+        $get_courses_recursive = function($category_id) use (&$get_courses_recursive, &$all_courses, $DB) {
+            // 1. Récupérer les cours directement dans cette catégorie
+            $direct_courses = $DB->get_records('course', ['category' => $category_id], 'fullname ASC');
+            foreach ($direct_courses as $course) {
+                $all_courses[$course->id] = $course;
+            }
+            
+            // 2. Récupérer les sous-catégories de cette catégorie
+            $subcategories = $DB->get_records('course_categories', ['parent' => $category_id], 'name ASC');
+            
+            // 3. Récursivement traiter chaque sous-catégorie
+            foreach ($subcategories as $subcategory) {
+                $get_courses_recursive($subcategory->id);
+            }
+        };
+        
+        // Démarrer la récursion
+        $get_courses_recursive($course_category_id);
+        
+        debugging('Recursive search found ' . count($all_courses) . ' courses in category ID: ' . $course_category_id, DEBUG_DEVELOPER);
+        
+        return $all_courses;
+        
+    } catch (Exception $e) {
+        debugging('Error getting courses recursively: ' . $e->getMessage(), DEBUG_DEVELOPER);
+        return [];
+    }
+}
+
+/**
  * Récupère les catégories de questions associées à une catégorie de cours
  * 
  * 🆕 v1.11.5 : Fonction pour filtrer les questions par catégorie de cours
@@ -1159,15 +1205,15 @@ function local_question_diagnostic_get_question_categories_by_course_category($c
     global $DB;
     
     try {
-        // 1. Récupérer tous les cours dans cette catégorie de cours
-        $courses = $DB->get_records('course', ['category' => $course_category_id], 'fullname ASC');
+        // 1. Récupérer tous les cours dans cette catégorie de cours ET ses sous-catégories
+        $courses = local_question_diagnostic_get_courses_in_category_recursive($course_category_id);
         
         if (empty($courses)) {
-            debugging('No courses found in course category ID: ' . $course_category_id, DEBUG_DEVELOPER);
+            debugging('No courses found in course category ID: ' . $course_category_id . ' (including subcategories)', DEBUG_DEVELOPER);
             return [];
         }
         
-        debugging('Found ' . count($courses) . ' courses in course category ID: ' . $course_category_id, DEBUG_DEVELOPER);
+        debugging('Found ' . count($courses) . ' courses in course category ID: ' . $course_category_id . ' (including subcategories)', DEBUG_DEVELOPER);
         
         $course_ids = array_keys($courses);
         list($course_ids_sql, $course_params) = $DB->get_in_or_equal($course_ids);

@@ -9,8 +9,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'local_question_diagnostic';
-$plugin->version = 2025101507;  // YYYYMMDDXX format (v1.11.7 - CORRECTION SQL: Simplification pour compatibilité multi-SGBD)
+$plugin->version = 2025101508;  // YYYYMMDDXX format (v1.11.8 - CORRECTION RÉCURSIVE: Inclut les sous-catégories de cours)
 $plugin->requires = 2022041900; // Moodle 4.0+ (architecture question_bank_entries requise)
 $plugin->maturity = MATURITY_STABLE;
-$plugin->release = 'v1.11.7';
+$plugin->release = 'v1.11.8';
 
