@@ -788,6 +788,7 @@ function local_question_diagnostic_render_back_link($current_page, $custom_text 
  * 🔄 v1.10.7 : CORRECTION MAJEURE - Olution est une catégorie de COURS, pas de questions
  * 🎯 v1.10.9 : CORRECTION FINALE - Olution est une catégorie de QUESTIONS système
  * 🔧 v1.11.1 : CORRECTION DÉFINITIVE - Olution peut être catégorie de COURS ou QUESTIONS
+ * 🔧 v1.11.2 : CORRECTION FINALE - Olution est une CATÉGORIE DE COURS (ID 78) contenant d'autres cours
  * 
  * Stratégie de recherche MULTI-CONTEXTES :
  * 
@@ -800,9 +801,11 @@ function local_question_diagnostic_render_back_link($current_page, $custom_text 
  * 6. Nom contenant "Olution" (plus flexible)
  * 7. En dernier recours : description contenant "olution"
  * 
- * PHASE 2 - Contextes de COURS (si Phase 1 échoue) :
- * 1. Rechercher les cours nommés "Olution"
- * 2. Chercher les catégories de questions dans ces contextes de cours
+ * PHASE 2 - CATÉGORIE DE COURS "Olution" (si Phase 1 échoue) :
+ * 1. Rechercher la catégorie de cours "Olution" (ID 78 prioritaire)
+ * 2. Récupérer tous les cours dans cette catégorie de cours
+ * 3. Chercher les catégories de questions dans les contextes de ces cours
+ * 4. Priorité : catégorie de questions nommée "Olution" puis première catégorie du cours
  * 
  * @return object|false Objet catégorie de questions Olution ou false si non trouvée
  */
@@ -959,25 +962,41 @@ function local_question_diagnostic_find_olution_category() {
         }
         
         // ==================================================================================
-        // PHASE 2 : Recherche dans les contextes de COURS (si Phase 1 échoue)
+        // PHASE 2 : Recherche dans la CATÉGORIE DE COURS "Olution" (si Phase 1 échoue)
         // ==================================================================================
-        debugging('🔄 Phase 1 failed, trying Phase 2: Search in course contexts', DEBUG_DEVELOPER);
+        debugging('🔄 Phase 1 failed, trying Phase 2: Search in course category "Olution"', DEBUG_DEVELOPER);
         
-        // 1. Rechercher les cours nommés "Olution"
-        $courses_sql = "SELECT c.id, c.fullname, c.shortname 
+        // 1. Rechercher la catégorie de cours "Olution" (ID 78 selon l'utilisateur)
+        $course_category_sql = "SELECT id, name 
+                               FROM {course_categories} 
+                               WHERE " . $DB->sql_like('name', ':pattern', false, false) . "
+                               OR id = 78
+                               ORDER BY CASE WHEN id = 78 THEN 0 ELSE 1 END, " . $DB->sql_position("'Olution'", 'name') . " ASC, LENGTH(name) ASC
+                               LIMIT 1";
+        
+        $olution_course_category = $DB->get_record_sql($course_category_sql, ['pattern' => '%Olution%']);
+        
+        if (!$olution_course_category) {
+            debugging('❌ No course category "Olution" found', DEBUG_DEVELOPER);
+            return false;
+        }
+        
+        debugging('✅ Found course category "Olution": ' . $olution_course_category->name . ' (ID: ' . $olution_course_category->id . ')', DEBUG_DEVELOPER);
+        
+        // 2. Rechercher tous les cours dans cette catégorie
+        $courses_sql = "SELECT c.id, c.fullname, c.shortname, c.category
                        FROM {course} c 
-                       WHERE " . $DB->sql_like('c.fullname', ':pattern', false, false) . "
-                       OR " . $DB->sql_like('c.shortname', ':pattern', false, false) . "
-                       ORDER BY " . $DB->sql_position("'Olution'", 'c.fullname') . " ASC, LENGTH(c.fullname) ASC";
+                       WHERE c.category = :category_id
+                       ORDER BY c.fullname ASC";
         
-        $courses = $DB->get_records_sql($courses_sql, ['pattern' => '%Olution%']);
+        $courses = $DB->get_records_sql($courses_sql, ['category_id' => $olution_course_category->id]);
         
-        debugging('🔍 Found ' . count($courses) . ' courses with "Olution" in name', DEBUG_DEVELOPER);
+        debugging('🔍 Found ' . count($courses) . ' courses in Olution category (ID: ' . $olution_course_category->id . ')', DEBUG_DEVELOPER);
         
         foreach ($courses as $course) {
             debugging('🎯 Checking course: ' . $course->fullname . ' (ID: ' . $course->id . ')', DEBUG_DEVELOPER);
             
-            // 2. Récupérer le contexte de ce cours
+            // 3. Récupérer le contexte de ce cours
             $course_context = $DB->get_record('context', [
                 'contextlevel' => CONTEXT_COURSE,
                 'instanceid' => $course->id
@@ -987,7 +1006,7 @@ function local_question_diagnostic_find_olution_category() {
                 continue;
             }
             
-            // 3. Chercher les catégories de questions dans ce contexte de cours
+            // 4. Chercher les catégories de questions dans ce contexte de cours
             $course_categories_sql = "SELECT *
                                      FROM {question_categories}
                                      WHERE contextid = :contextid
@@ -1000,36 +1019,40 @@ function local_question_diagnostic_find_olution_category() {
             
             debugging('📂 Found ' . count($course_categories) . ' question categories in course context', DEBUG_DEVELOPER);
             
-            // 4. Vérifier si une de ces catégories contient "Olution"
+            // 5. Vérifier si une de ces catégories contient "Olution"
             foreach ($course_categories as $cat) {
                 if (stripos($cat->name, 'olution') !== false) {
-                    debugging('✅ Olution category found in course context: ' . $cat->name . ' (Course: ' . $course->fullname . ')', DEBUG_DEVELOPER);
+                    debugging('✅ Olution question category found in course: ' . $cat->name . ' (Course: ' . $course->fullname . ')', DEBUG_DEVELOPER);
                     
-                    // Ajouter des informations sur le cours parent
+                    // Ajouter des informations sur le cours et la catégorie de cours parent
                     $cat->course_name = $course->fullname;
                     $cat->course_id = $course->id;
-                    $cat->context_type = 'course';
+                    $cat->course_category_name = $olution_course_category->name;
+                    $cat->course_category_id = $olution_course_category->id;
+                    $cat->context_type = 'course_category';
                     
                     return $cat;
                 }
             }
             
-            // 5. Si pas de catégorie nommée Olution, prendre la première catégorie du cours
+            // 6. Si pas de catégorie nommée Olution, prendre la première catégorie du cours
             if (!empty($course_categories)) {
                 $first_category = reset($course_categories);
-                debugging('✅ Using first category from Olution course: ' . $first_category->name, DEBUG_DEVELOPER);
+                debugging('✅ Using first question category from course in Olution: ' . $first_category->name . ' (Course: ' . $course->fullname . ')', DEBUG_DEVELOPER);
                 
-                // Ajouter des informations sur le cours parent
+                // Ajouter des informations sur le cours et la catégorie de cours parent
                 $first_category->course_name = $course->fullname;
                 $first_category->course_id = $course->id;
-                $first_category->context_type = 'course';
+                $first_category->course_category_name = $olution_course_category->name;
+                $first_category->course_category_id = $olution_course_category->id;
+                $first_category->context_type = 'course_category';
                 
                 return $first_category;
             }
         }
         
         // Aucune catégorie Olution trouvée dans aucun contexte
-        debugging('❌ No Olution category found in system or course contexts', DEBUG_DEVELOPER);
+        debugging('❌ No Olution category found in system, course, or course category contexts', DEBUG_DEVELOPER);
         return false;
         
     } catch (Exception $e) {

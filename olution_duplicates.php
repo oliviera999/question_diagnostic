@@ -74,9 +74,17 @@ echo html_writer::tag('span', format_string($olution->name));
 echo html_writer::tag('small', ' (ID: ' . $olution->id . ')', ['class' => 'text-muted ml-2']);
 echo html_writer::empty_tag('br');
 
-// Afficher le contexte (système ou cours)
-if (isset($olution->context_type) && $olution->context_type === 'course') {
-    echo html_writer::tag('small', '📚 Contexte : Cours "' . format_string($olution->course_name) . '" (ID: ' . $olution->course_id . ')', ['class' => 'text-muted']);
+// Afficher le contexte (système, cours ou catégorie de cours)
+if (isset($olution->context_type)) {
+    if ($olution->context_type === 'course_category') {
+        echo html_writer::tag('small', '📚 Contexte : Catégorie de cours "' . format_string($olution->course_category_name) . '" (ID: ' . $olution->course_category_id . ')', ['class' => 'text-muted']);
+        echo html_writer::empty_tag('br');
+        echo html_writer::tag('small', '   → Cours : "' . format_string($olution->course_name) . '" (ID: ' . $olution->course_id . ')', ['class' => 'text-muted']);
+    } else if ($olution->context_type === 'course') {
+        echo html_writer::tag('small', '📚 Contexte : Cours "' . format_string($olution->course_name) . '" (ID: ' . $olution->course_id . ')', ['class' => 'text-muted']);
+    } else {
+        echo html_writer::tag('small', '🌐 Contexte : Système', ['class' => 'text-muted']);
+    }
 } else {
     echo html_writer::tag('small', '🌐 Contexte : Système', ['class' => 'text-muted']);
 }
