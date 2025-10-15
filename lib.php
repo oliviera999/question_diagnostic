@@ -1144,6 +1144,7 @@ function local_question_diagnostic_get_course_categories() {
  * 
  * 🆕 v1.11.5 : Fonction pour filtrer les questions par catégorie de cours
  * 🔧 v1.11.6 : CORRECTION MAJEURE - Reproduit exactement la vue de la banque de questions Moodle
+ * 🔧 v1.11.7 : CORRECTION SQL - Simplification pour compatibilité multi-SGBD
  * 
  * Cette fonction reproduit exactement ce que l'utilisateur voit dans la banque de questions Moodle
  * quand il sélectionne une catégorie de cours. Elle inclut :
@@ -1162,8 +1163,11 @@ function local_question_diagnostic_get_question_categories_by_course_category($c
         $courses = $DB->get_records('course', ['category' => $course_category_id], 'fullname ASC');
         
         if (empty($courses)) {
+            debugging('No courses found in course category ID: ' . $course_category_id, DEBUG_DEVELOPER);
             return [];
         }
+        
+        debugging('Found ' . count($courses) . ' courses in course category ID: ' . $course_category_id, DEBUG_DEVELOPER);
         
         $course_ids = array_keys($courses);
         list($course_ids_sql, $course_params) = $DB->get_in_or_equal($course_ids);
@@ -1180,8 +1184,11 @@ function local_question_diagnostic_get_question_categories_by_course_category($c
         ));
         
         if (empty($contexts)) {
+            debugging('No course contexts found for courses in category ID: ' . $course_category_id, DEBUG_DEVELOPER);
             return [];
         }
+        
+        debugging('Found ' . count($contexts) . ' course contexts', DEBUG_DEVELOPER);
         
         $context_ids = array_keys($contexts);
         list($context_ids_sql, $context_params) = $DB->get_in_or_equal($context_ids);
@@ -1198,6 +1205,8 @@ function local_question_diagnostic_get_question_categories_by_course_category($c
             $course_params
         ));
         
+        debugging('Found ' . count($module_contexts) . ' module contexts', DEBUG_DEVELOPER);
+        
         // 4. Récupérer le contexte système (si accessible)
         $system_context = context_system::instance();
         
@@ -1208,50 +1217,85 @@ function local_question_diagnostic_get_question_categories_by_course_category($c
         $all_context_ids = array_unique($all_context_ids);
         list($all_context_ids_sql, $all_context_params) = $DB->get_in_or_equal($all_context_ids);
         
-        // 6. Récupérer TOUTES les catégories de questions dans ces contextes
+        debugging('Total contexts to search: ' . count($all_context_ids), DEBUG_DEVELOPER);
+        
+        // 6. Récupérer les catégories de questions avec informations de base (SANS CONCAT)
         $question_categories_sql = "SELECT qc.*, 
-                                          CASE 
-                                              WHEN ctx.contextlevel = :system_level THEN 'Système'
-                                              WHEN ctx.contextlevel = :course_level THEN c.fullname
-                                              WHEN ctx.contextlevel = :module_level THEN CONCAT(m.name, ': ', COALESCE(inst.name, 'Module'), ' (', c.fullname, ')')
-                                              ELSE 'Inconnu'
-                                          END as context_display_name,
-                                          CASE 
-                                              WHEN ctx.contextlevel = :system_level THEN 'system'
-                                              WHEN ctx.contextlevel = :course_level THEN 'course'
-                                              WHEN ctx.contextlevel = :module_level THEN 'module'
-                                              ELSE 'unknown'
-                                          END as context_type,
-                                          c.fullname as course_name, 
-                                          c.id as course_id
+                                          ctx.contextlevel,
+                                          ctx.instanceid
                                    FROM {question_categories} qc
                                    INNER JOIN {context} ctx ON ctx.id = qc.contextid
-                                   LEFT JOIN {course} c ON c.id = ctx.instanceid AND ctx.contextlevel = :course_level
-                                   LEFT JOIN {course_modules} cm ON cm.id = ctx.instanceid AND ctx.contextlevel = :module_level
-                                   LEFT JOIN {modules} m ON m.id = cm.module AND ctx.contextlevel = :module_level
-                                   LEFT JOIN {quiz} inst ON inst.id = cm.instance AND m.name = 'quiz' AND ctx.contextlevel = :module_level
                                    WHERE qc.contextid " . $all_context_ids_sql . "
-                                   ORDER BY 
-                                       CASE 
-                                           WHEN ctx.contextlevel = :system_level THEN 1
-                                           WHEN ctx.contextlevel = :course_level THEN 2
-                                           WHEN ctx.contextlevel = :module_level THEN 3
-                                           ELSE 4
-                                       END,
-                                       c.fullname ASC, 
-                                       qc.name ASC";
+                                   ORDER BY ctx.contextlevel ASC, qc.name ASC";
         
-        $question_categories = $DB->get_records_sql($question_categories_sql, array_merge(
-            $all_context_params,
-            [
-                'system_level' => CONTEXT_SYSTEM,
-                'course_level' => CONTEXT_COURSE,
-                'module_level' => CONTEXT_MODULE
-            ]
-        ));
+        $question_categories = $DB->get_records_sql($question_categories_sql, $all_context_params);
         
-        // 7. Enrichir avec les statistiques de questions
+        debugging('Found ' . count($question_categories) . ' question categories', DEBUG_DEVELOPER);
+        
+        // 7. Enrichir les données en PHP (plus robuste que SQL)
         foreach ($question_categories as $cat) {
+            // Déterminer le type de contexte et construire les informations
+            $context_type = 'unknown';
+            $context_display_name = 'Inconnu';
+            $course_name = '';
+            $course_id = 0;
+            
+            switch ($cat->contextlevel) {
+                case CONTEXT_SYSTEM:
+                    $context_type = 'system';
+                    $context_display_name = 'Système';
+                    break;
+                    
+                case CONTEXT_COURSE:
+                    $context_type = 'course';
+                    $course_id = $cat->instanceid;
+                    $course = $DB->get_record('course', ['id' => $course_id]);
+                    if ($course) {
+                        $course_name = $course->fullname;
+                        $context_display_name = $course->fullname;
+                    } else {
+                        $context_display_name = 'Cours ID: ' . $course_id;
+                    }
+                    break;
+                    
+                case CONTEXT_MODULE:
+                    $context_type = 'module';
+                    $module_id = $cat->instanceid;
+                    
+                    // Récupérer les informations du module
+                    $module_info = $DB->get_record_sql("
+                        SELECT cm.id, cm.course, m.name as module_name, 
+                               CASE 
+                                   WHEN m.name = 'quiz' THEN q.name
+                                   WHEN m.name = 'lesson' THEN l.name
+                                   ELSE 'Module'
+                               END as activity_name
+                        FROM {course_modules} cm
+                        INNER JOIN {modules} m ON m.id = cm.module
+                        LEFT JOIN {quiz} q ON q.id = cm.instance AND m.name = 'quiz'
+                        LEFT JOIN {lesson} l ON l.id = cm.instance AND m.name = 'lesson'
+                        WHERE cm.id = :module_id
+                    ", ['module_id' => $module_id]);
+                    
+                    if ($module_info) {
+                        $course_name = $DB->get_field('course', 'fullname', ['id' => $module_info->course]);
+                        $context_display_name = $module_info->module_name . ': ' . $module_info->activity_name;
+                        if ($course_name) {
+                            $context_display_name .= ' (' . $course_name . ')';
+                        }
+                        $course_id = $module_info->course;
+                    } else {
+                        $context_display_name = 'Module ID: ' . $module_id;
+                    }
+                    break;
+            }
+            
+            // Assigner les propriétés enrichies
+            $cat->context_type = $context_type;
+            $cat->context_display_name = $context_display_name;
+            $cat->course_name = $course_name;
+            $cat->course_id = $course_id;
+            
             // Compter les questions dans cette catégorie (Moodle 4.5)
             $questions_sql = "SELECT COUNT(DISTINCT q.id) as total_questions,
                                      SUM(CASE WHEN qv.status != 'hidden' THEN 1 ELSE 0 END) as visible_questions
@@ -1284,11 +1328,54 @@ function local_question_diagnostic_get_question_categories_by_course_category($c
             );
         }
         
+        debugging('Successfully processed ' . count($question_categories) . ' question categories', DEBUG_DEVELOPER);
         return $question_categories;
         
     } catch (Exception $e) {
         debugging('Error getting question categories by course category: ' . $e->getMessage(), DEBUG_DEVELOPER);
-        return [];
+        
+        // Fallback : essayer une requête plus simple (seulement contextes de cours)
+        try {
+            debugging('Attempting fallback with course contexts only', DEBUG_DEVELOPER);
+            
+            $courses = $DB->get_records('course', ['category' => $course_category_id], 'fullname ASC');
+            if (empty($courses)) {
+                return [];
+            }
+            
+            $course_ids = array_keys($courses);
+            list($course_ids_sql, $course_params) = $DB->get_in_or_equal($course_ids);
+            
+            $fallback_sql = "SELECT qc.*, c.fullname as course_name, c.id as course_id
+                             FROM {question_categories} qc
+                             INNER JOIN {context} ctx ON ctx.id = qc.contextid
+                             INNER JOIN {course} c ON c.id = ctx.instanceid
+                             WHERE ctx.contextlevel = :contextlevel
+                             AND c.id " . $course_ids_sql;
+            
+            $fallback_categories = $DB->get_records_sql($fallback_sql, array_merge(
+                ['contextlevel' => CONTEXT_COURSE],
+                $course_params
+            ));
+            
+            // Enrichir avec les propriétés de base
+            foreach ($fallback_categories as $cat) {
+                $cat->context_type = 'course';
+                $cat->context_display_name = $cat->course_name;
+                $cat->total_questions = 0;
+                $cat->visible_questions = 0;
+                $cat->subcategory_count = 0;
+                $cat->status = 'ok';
+                $cat->is_protected = false;
+            }
+            
+            debugging('Fallback successful: found ' . count($fallback_categories) . ' categories', DEBUG_DEVELOPER);
+            return $fallback_categories;
+            
+        } catch (Exception $fallback_error) {
+            debugging('Fallback also failed: ' . $fallback_error->getMessage(), DEBUG_DEVELOPER);
+            return [];
+        }
     }
 }
 
