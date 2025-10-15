@@ -73,6 +73,15 @@ echo html_writer::tag('strong', '✅ Catégorie de questions Olution détectée 
 echo html_writer::tag('span', format_string($olution->name));
 echo html_writer::tag('small', ' (ID: ' . $olution->id . ')', ['class' => 'text-muted ml-2']);
 echo html_writer::empty_tag('br');
+
+// Afficher le contexte (système ou cours)
+if (isset($olution->context_type) && $olution->context_type === 'course') {
+    echo html_writer::tag('small', '📚 Contexte : Cours "' . format_string($olution->course_name) . '" (ID: ' . $olution->course_id . ')', ['class' => 'text-muted']);
+} else {
+    echo html_writer::tag('small', '🌐 Contexte : Système', ['class' => 'text-muted']);
+}
+echo html_writer::empty_tag('br');
+
 $subcats_count = $DB->count_records('question_categories', ['parent' => $olution->id]);
 $all_subcats = local_question_diagnostic_get_olution_subcategories();
 echo html_writer::tag('small', 'Cette catégorie contient ' . count($all_subcats) . ' sous-catégorie(s) (toute profondeur)', ['class' => 'text-muted']);
