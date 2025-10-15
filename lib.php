@@ -818,6 +818,8 @@ function local_question_diagnostic_find_olution_category() {
         // ==================================================================================
         $systemcontext = context_system::instance();
         
+        debugging('🔍 Searching for Olution category in system context (ID: ' . $systemcontext->id . ')', DEBUG_DEVELOPER);
+        
         // ==================================================================================
         // PRIORITÉ 1 : Nom EXACT "Olution" (case-sensitive) au niveau SYSTÈME
         // ==================================================================================
@@ -828,9 +830,11 @@ function local_question_diagnostic_find_olution_category() {
         ]);
         
         if ($olution) {
-            debugging('✅ Olution category found - EXACT match: Olution', DEBUG_DEVELOPER);
+            debugging('✅ Olution category found - EXACT match: Olution (ID: ' . $olution->id . ')', DEBUG_DEVELOPER);
             return $olution;
         }
+        
+        debugging('❌ No exact match for "Olution" found', DEBUG_DEVELOPER);
         
         // ==================================================================================
         // PRIORITÉ 2 : Variantes de casse exactes (mot seul)
@@ -959,6 +963,23 @@ function local_question_diagnostic_find_olution_category() {
         if ($olution) {
             debugging('⚠️ Olution category found - Via description (last resort): ' . $olution->name, DEBUG_DEVELOPER);
             return $olution;
+        }
+        
+        debugging('❌ No Olution category found in system context after all searches', DEBUG_DEVELOPER);
+        
+        // ==================================================================================
+        // NOUVELLE OPTION : Créer automatiquement la catégorie Olution si elle n'existe pas
+        // ==================================================================================
+        debugging('🆕 No Olution category found, attempting to create one automatically', DEBUG_DEVELOPER);
+        
+        try {
+            $new_olution = local_question_diagnostic_create_olution_category();
+            if ($new_olution) {
+                debugging('✅ Successfully created Olution category: ' . $new_olution->name . ' (ID: ' . $new_olution->id . ')', DEBUG_DEVELOPER);
+                return $new_olution;
+            }
+        } catch (Exception $e) {
+            debugging('❌ Failed to create Olution category: ' . $e->getMessage(), DEBUG_DEVELOPER);
         }
         
         // ==================================================================================
@@ -1319,6 +1340,76 @@ function local_question_diagnostic_render_category_hierarchy($hierarchy, $level 
     }
     
     return $html;
+}
+
+/**
+ * Crée automatiquement la catégorie Olution au niveau système
+ * 
+ * 🔧 v1.11.14 : NOUVELLE FONCTION - Création automatique de la catégorie Olution
+ * Cette fonction crée automatiquement une catégorie système "Olution" si elle n'existe pas.
+ * 
+ * @return object|false Objet catégorie créée ou false en cas d'échec
+ */
+function local_question_diagnostic_create_olution_category() {
+    global $DB;
+    
+    try {
+        debugging('🆕 Creating Olution category in system context', DEBUG_DEVELOPER);
+        
+        // Récupérer le contexte système
+        $systemcontext = context_system::instance();
+        
+        // Vérifier qu'une catégorie Olution n'existe pas déjà
+        $existing = $DB->get_record('question_categories', [
+            'contextid' => $systemcontext->id,
+            'name' => 'Olution'
+        ]);
+        
+        if ($existing) {
+            debugging('⚠️ Olution category already exists (ID: ' . $existing->id . ')', DEBUG_DEVELOPER);
+            return $existing;
+        }
+        
+        // Créer la nouvelle catégorie
+        $new_category = new stdClass();
+        $new_category->name = 'Olution';
+        $new_category->info = 'Catégorie système pour les questions partagées Olution. Créée automatiquement par le plugin Question Diagnostic.';
+        $new_category->infoformat = FORMAT_HTML;
+        $new_category->contextid = $systemcontext->id;
+        $new_category->parent = 0; // Racine
+        $new_category->sortorder = 999; // À la fin
+        
+        // Insérer dans la base de données
+        $new_category->id = $DB->insert_record('question_categories', $new_category);
+        
+        if ($new_category->id) {
+            debugging('✅ Olution category created successfully (ID: ' . $new_category->id . ')', DEBUG_DEVELOPER);
+            
+            // Log d'audit
+            require_once(__DIR__ . '/classes/audit_logger.php');
+            if (class_exists('local_question_diagnostic\\audit_logger')) {
+                audit_logger::log_action(
+                    'olution_category_created',
+                    [
+                        'category_id' => $new_category->id,
+                        'category_name' => $new_category->name,
+                        'context_id' => $systemcontext->id,
+                        'message' => 'Catégorie Olution créée automatiquement'
+                    ],
+                    $new_category->id
+                );
+            }
+            
+            return $new_category;
+        } else {
+            debugging('❌ Failed to insert Olution category', DEBUG_DEVELOPER);
+            return false;
+        }
+        
+    } catch (Exception $e) {
+        debugging('❌ Error creating Olution category: ' . $e->getMessage(), DEBUG_DEVELOPER);
+        return false;
+    }
 }
 
 /**
