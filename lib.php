@@ -1179,84 +1179,26 @@ function local_question_diagnostic_get_question_categories_hierarchy($course_cat
     global $DB;
     
     try {
-        // Récupérer tous les cours dans la catégorie (récursif)
-        $courses = local_question_diagnostic_get_courses_in_category_recursive($course_category_id);
-        $course_ids = array_keys($courses);
+        // Utiliser la fonction existante qui fonctionne déjà
+        $categories_with_stats = local_question_diagnostic_get_question_categories_by_course_category($course_category_id);
         
-        if (empty($course_ids)) {
+        if (empty($categories_with_stats)) {
             return [];
         }
         
-        // Récupérer tous les contextes liés à ces cours
-        list($course_ids_sql, $course_params) = $DB->get_in_or_equal($course_ids, SQL_PARAMS_NAMED);
-        
-        // Contextes de cours
-        $course_contexts = $DB->get_records_sql(
-            "SELECT id, contextlevel, instanceid FROM {context} 
-             WHERE contextlevel = " . CONTEXT_COURSE . " 
-             AND instanceid " . $course_ids_sql,
-            $course_params
-        );
-        
-        // Contextes de modules (quiz, etc.) dans ces cours
-        $module_contexts = $DB->get_records_sql(
-            "SELECT c.id, c.contextlevel, c.instanceid, m.name as modulename, inst.name as instancename, co.fullname as coursename
-             FROM {context} c
-             INNER JOIN {course_modules} cm ON cm.id = c.instanceid
-             INNER JOIN {modules} m ON m.id = cm.module
-             INNER JOIN {course} co ON co.id = cm.course
-             LEFT JOIN {quiz} inst ON inst.id = cm.instance AND m.name = 'quiz'
-             WHERE c.contextlevel = " . CONTEXT_MODULE . " 
-             AND cm.course " . $course_ids_sql,
-            $course_params
-        );
-        
-        // Contexte système
-        $system_context = $DB->get_record('context', ['contextlevel' => CONTEXT_SYSTEM]);
-        
-        // Tous les contextes
-        $all_context_ids = array_merge(
-            array_keys($course_contexts),
-            array_keys($module_contexts),
-            $system_context ? [$system_context->id] : []
-        );
-        
-        if (empty($all_context_ids)) {
-            return [];
-        }
-        
-        // Récupérer toutes les catégories de questions
-        list($all_context_ids_sql, $all_context_params) = $DB->get_in_or_equal($all_context_ids, SQL_PARAMS_NAMED);
-        
-        $categories = $DB->get_records_sql(
-            "SELECT qc.*, ctx.contextlevel, ctx.instanceid,
-                    CASE 
-                        WHEN ctx.contextlevel = " . CONTEXT_SYSTEM . " THEN 'Système'
-                        WHEN ctx.contextlevel = " . CONTEXT_COURSE . " THEN co.fullname
-                        WHEN ctx.contextlevel = " . CONTEXT_MODULE . " THEN CONCAT(m.name, ': ', COALESCE(inst.name, 'Module'), ' (', co.fullname, ')')
-                        ELSE 'Inconnu'
-                    END as context_display_name,
-                    CASE 
-                        WHEN ctx.contextlevel = " . CONTEXT_SYSTEM . " THEN 'system'
-                        WHEN ctx.contextlevel = " . CONTEXT_COURSE . " THEN 'course'
-                        WHEN ctx.contextlevel = " . CONTEXT_MODULE . " THEN 'module'
-                        ELSE 'unknown'
-                    END as context_type
-             FROM {question_categories} qc
-             INNER JOIN {context} ctx ON ctx.id = qc.contextid
-             LEFT JOIN {course} co ON co.id = ctx.instanceid AND ctx.contextlevel = " . CONTEXT_COURSE . "
-             LEFT JOIN {course_modules} cm ON cm.id = ctx.instanceid AND ctx.contextlevel = " . CONTEXT_MODULE . "
-             LEFT JOIN {modules} m ON m.id = cm.module AND ctx.contextlevel = " . CONTEXT_MODULE . "
-             LEFT JOIN {quiz} inst ON inst.id = cm.instance AND m.name = 'quiz' AND ctx.contextlevel = " . CONTEXT_MODULE . "
-             WHERE qc.contextid " . $all_context_ids_sql . "
-             ORDER BY qc.parent, qc.sortorder, qc.name",
-            $all_context_params
-        );
-        
-        // Compter les questions pour chaque catégorie
-        foreach ($categories as $category) {
-            $question_count = $DB->count_records('question', ['category' => $category->id]);
-            $category->total_questions = $question_count;
+        // Convertir en objets simples pour la construction de la hiérarchie
+        $categories = [];
+        foreach ($categories_with_stats as $item) {
+            $category = new stdClass();
+            $category->id = $item->id;
+            $category->name = $item->name;
+            $category->info = $item->info ?? '';
+            $category->parent = $item->parent;
+            $category->sortorder = $item->sortorder ?? 0;
+            $category->total_questions = $item->total_questions ?? 0;
+            $category->context_display_name = $item->context_display_name ?? '';
+            $category->context_type = $item->context_type ?? 'unknown';
+            $categories[] = $category;
         }
         
         // Construire la hiérarchie
