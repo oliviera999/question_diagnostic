@@ -9,7 +9,7 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'local_question_diagnostic';
-$plugin->version = 2025101513;  // YYYYMMDDXX format (v1.11.13 - LOGIQUE OLUTION: Utilise même logique que déplacement vers Olution)
+$plugin->version = 2025101513;  // YYYYMMDDXX format (v1.11.13 - CORRECTION DÉPLACEMENT OLUTION: Logique cohérente et test automatique)
 $plugin->requires = 2022041900; // Moodle 4.0+ (architecture question_bank_entries requise)
 $plugin->maturity = MATURITY_STABLE;
 $plugin->release = 'v1.11.13';

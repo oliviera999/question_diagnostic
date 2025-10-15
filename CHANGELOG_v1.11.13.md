@@ -1,121 +1,204 @@
-# Changelog v1.11.13 - Correction Logique Olution
+# Changelog v1.11.13 - Correction Déplacement Automatique vers Olution
 
 ## 🎯 Problème Identifié
-La vue hiérarchique pour la catégorie "olution" ne trouvait aucune catégorie car elle cherchait dans les **mauvaises catégories** :
+Le déplacement automatique vers Olution ne fonctionnait pas à cause d'une logique incohérente entre l'arborescence et le système de déplacement automatique.
 
-- **Vue hiérarchique** : Cherchait les catégories de questions dans les **cours** de la catégorie "olution"
-- **Déplacement vers Olution** : Cherche la catégorie de **QUESTIONS** "Olution" (système)
+## 🔍 Diagnostic
+### Problèmes identifiés :
+1. **Fonction `is_in_olution()` privée** : Impossible de tester directement
+2. **Logique incohérente** : L'arborescence et le déplacement utilisaient des approches différentes
+3. **Manque de logs** : Difficile de diagnostiquer les échecs
+4. **Vérifications insuffisantes** : Pas de validation robuste des déplacements
 
-## 🔍 Analyse Comparative
+## 🔧 Solutions Appliquées
 
-### Logique Vue Hiérarchique (INCORRECTE)
+### 1. Correction de la fonction `is_in_olution()` dans `classes/olution_manager.php`
+
+#### Avant (problématique)
 ```php
-// Cherchait dans les cours de la catégorie "olution"
-$courses = local_question_diagnostic_get_courses_in_category_recursive($course_category_id);
-// Puis les contextes de ces cours
-// Puis les catégories de questions dans ces contextes
-```
-
-### Logique Déplacement vers Olution (CORRECTE)
-```php
-// Cherche directement la catégorie de QUESTIONS "Olution"
-$olution = local_question_diagnostic_find_olution_category();
-// Puis ses sous-catégories
-$subcategories = local_question_diagnostic_get_olution_subcategories();
-```
-
-## 🔧 Solution Appliquée
-
-### Modification de `lib.php`
-
-#### Fonction `local_question_diagnostic_get_question_categories_hierarchy()`
-- **Détection automatique** : Si la catégorie de cours est "olution"
-- **Logique spéciale** : Utilise la même logique que le déplacement vers Olution
-- **Logique standard** : Pour les autres catégories, utilise l'ancienne logique
-
-#### Nouvelle logique pour "olution"
-```php
-// 1. Vérifier si c'est la catégorie "olution"
-if ($course_category_name === 'olution') {
-    // 2. Chercher la catégorie de QUESTIONS "Olution" (système)
-    $olution_category = local_question_diagnostic_find_olution_category();
-    
-    // 3. Récupérer toutes ses sous-catégories
-    $olution_subcategories = local_question_diagnostic_get_olution_subcategories($olution_category->id);
-    
-    // 4. Construire la hiérarchie complète
-    return local_question_diagnostic_build_category_hierarchy($all_categories);
+private static function is_in_olution($categoryid) {
+    // Logique basique sans logs
+    // Fonction privée impossible à tester
 }
 ```
 
-## ✅ Avantages de la Correction
+#### Après (corrigé)
+```php
+public static function is_in_olution($categoryid) {
+    // 🔧 v1.11.13 : CORRECTION - Fonction publique et logique améliorée
+    // Utilise la même logique que l'arborescence pour garantir la cohérence
+    
+    debugging('🔍 Checking if category ' . $categoryid . ' is in Olution', DEBUG_DEVELOPER);
+    
+    // Remonter l'arborescence avec logs détaillés
+    $current_id = $categoryid;
+    $visited = [];
+    $path = []; // Pour le debug
+    
+    while ($current_id > 0) {
+        // Éviter les boucles infinies
+        if (in_array($current_id, $visited)) {
+            debugging('⚠️ Loop detected in is_in_olution()', DEBUG_DEVELOPER);
+            break;
+        }
+        
+        // Si on trouve Olution, c'est gagné !
+        if ($current_id == $olution->id) {
+            debugging('✅ Found Olution in path: ' . implode(' -> ', $path), DEBUG_DEVELOPER);
+            return true;
+        }
+        
+        // Logique de remontée avec logs
+        // ...
+    }
+    
+    debugging('❌ Category ' . $categoryid . ' is NOT in Olution', DEBUG_DEVELOPER);
+    return false;
+}
+```
 
-### 1. Cohérence
-- **Même logique** que le déplacement vers Olution
-- **Même source de données** : catégorie de QUESTIONS "Olution" (système)
-- **Même hiérarchie** : racine + sous-catégories
+### 2. Amélioration de la fonction `move_question_to_olution()`
 
-### 2. Précision
-- **Cherche au bon endroit** : catégories de questions, pas cours
-- **Résultat attendu** : hiérarchie complète d'Olution
-- **Correspondance** avec la banque de questions Moodle
+#### Nouvelles fonctionnalités :
+- **Logs détaillés** : Traçabilité complète de chaque étape
+- **Vérifications robustes** : Validation de chaque étape du déplacement
+- **Récupération de catégorie actuelle** : Vérification via `question_bank_entries`
+- **Vérification post-déplacement** : Confirmation que le déplacement a réussi
+- **Logs d'audit enrichis** : Plus d'informations dans les logs
 
-### 3. Maintenabilité
-- **Réutilise les fonctions existantes** qui fonctionnent
-- **Logique conditionnelle** : spéciale pour "olution", standard pour les autres
-- **Code documenté** avec explications claires
+#### Code ajouté :
+```php
+// Récupérer la catégorie actuelle de la question
+$current_category_sql = "SELECT qc.*
+                        FROM {question_categories} qc
+                        INNER JOIN {question_bank_entries} qbe ON qbe.questioncategoryid = qc.id
+                        INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+                        WHERE qv.questionid = :questionid
+                        LIMIT 1";
 
-## 🧪 Tests
+// Vérifier que la mise à jour a fonctionné
+$verify_sql = "SELECT qc.name as category_name
+              FROM {question_categories} qc
+              INNER JOIN {question_bank_entries} qbe ON qbe.questioncategoryid = qc.id
+              INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+              WHERE qv.questionid = :questionid
+              LIMIT 1";
+```
+
+### 3. Nouvelle fonction de test `test_automatic_movement_to_olution()`
+
+#### Fonctionnalités :
+- **Test automatique** : Déplace réellement des questions vers Olution
+- **Sélection intelligente** : Choisit des questions hors Olution
+- **Cibles aléatoires** : Teste avec différentes sous-catégories Olution
+- **Résultats détaillés** : Rapport complet des succès et échecs
+- **Mode debug** : Logs détaillés de chaque opération
+
+#### Utilisation :
+```php
+// Tester le déplacement automatique avec 3 questions
+$test_result = olution_manager::test_automatic_movement_to_olution(3);
+
+// Résultats disponibles :
+// - success: bool
+// - message: string
+// - tested_questions: int
+// - moved_questions: int
+// - failed_questions: int
+// - details: array (détails de chaque test)
+```
+
+### 4. Script de test complet `test_olution_logic_comparison.php`
+
+#### Tests effectués :
+1. **Recherche de la catégorie Olution** : Vérification de `find_olution_category()`
+2. **Sous-catégories Olution** : Test de `get_olution_subcategories()`
+3. **Détection de doublons** : Test de `find_all_duplicates_for_olution()`
+4. **Fonction `is_in_olution()`** : Test avec catégorie racine et sous-catégories
+5. **Déplacement automatique** : Test réel avec déplacement de questions
+
+## ✅ Résultats des Corrections
+
+### 1. Cohérence de la logique
+- **Avant** : Logique différente entre arborescence et déplacement
+- **Après** : Logique unifiée utilisant les mêmes fonctions de base
+
+### 2. Visibilité et débogage
+- **Avant** : Fonctions privées, pas de logs
+- **Après** : Fonctions publiques, logs détaillés, traçabilité complète
+
+### 3. Robustesse
+- **Avant** : Vérifications minimales
+- **Après** : Validation à chaque étape, vérification post-déplacement
+
+### 4. Testabilité
+- **Avant** : Impossible de tester le déplacement automatique
+- **Après** : Fonction de test complète avec rapport détaillé
+
+## 🧪 Tests et Validation
 
 ### Script de test créé
-- **Fichier** : `test_olution_logic_fix.php`
+- **Fichier** : `test_olution_logic_comparison.php`
 - **Fonctionnalités** :
-  - Test de la nouvelle logique spéciale Olution
-  - Vérification de la catégorie Olution directe
-  - Rendu complet de l'arbre hiérarchique
-  - Instructions de test utilisateur
+  - Test de toutes les fonctions Olution
+  - Test du déplacement automatique réel
+  - Rapport détaillé des résultats
+  - Logs de debug complets
 
 ### Résultats attendus
-- ✅ La hiérarchie récupère maintenant les catégories d'Olution
-- ✅ L'arbre s'affiche avec la structure complète
-- ✅ Les boutons de purge fonctionnent
-- ✅ Cohérent avec le déplacement vers Olution
+- ✅ La fonction `is_in_olution()` fonctionne correctement
+- ✅ Le déplacement automatique fonctionne
+- ✅ Les logs permettent de diagnostiquer les problèmes
+- ✅ La logique est cohérente avec l'arborescence
 
 ## 📋 Checklist de déploiement
 
-- [x] Logique spéciale Olution implémentée
-- [x] Détection automatique de la catégorie "olution"
-- [x] Utilisation des fonctions existantes (find_olution_category, get_olution_subcategories)
-- [x] Logique conditionnelle pour autres catégories
+- [x] Fonction `is_in_olution()` rendue publique et améliorée
+- [x] Fonction `move_question_to_olution()` améliorée avec logs
+- [x] Nouvelle fonction `test_automatic_movement_to_olution()` créée
+- [x] Script de test complet créé
 - [x] Version incrémentée vers `v1.11.13`
-- [x] Script de test créé
 - [x] Changelog documenté
 
-## 🎯 Résultat
-
-Après cette correction, la vue hiérarchique pour la catégorie "olution" :
-- **Affiche la catégorie de QUESTIONS "Olution"** (système)
-- **Montre toutes ses sous-catégories** en arbre hiérarchique
-- **Utilise la même logique** que le déplacement vers Olution
-- **Correspond à la banque de questions** Moodle native
-
-## 🔮 Impact
+## 🎯 Impact
 
 ### Pour les utilisateurs
-- **Vue hiérarchique fonctionnelle** : Plus de message "Aucune catégorie trouvée"
-- **Structure claire** : Arbre hiérarchique d'Olution visible
-- **Actions disponibles** : Boutons de purge sur chaque catégorie
-- **Expérience cohérente** : Identique au déplacement vers Olution
+- **Déplacement automatique fonctionnel** : Le système de déplacement vers Olution fonctionne maintenant
+- **Cohérence** : Même logique que l'arborescence affichée
+- **Fiabilité** : Vérifications robustes à chaque étape
 
 ### Pour les développeurs
-- **Logique unifiée** : Même approche pour hiérarchie et déplacement
-- **Code réutilisable** : Fonctions existantes réutilisées
-- **Maintenance simplifiée** : Logique conditionnelle claire
-- **Extensibilité** : Facile d'ajouter d'autres catégories spéciales
+- **Code testable** : Fonctions publiques avec tests complets
+- **Debugging facilité** : Logs détaillés pour diagnostiquer les problèmes
+- **Maintenabilité** : Logique unifiée et cohérente
+
+## 🔮 Utilisation
+
+### Test du déplacement automatique
+1. Aller sur `/local/question_diagnostic/test_olution_logic_comparison.php`
+2. Le script teste automatiquement toutes les fonctions
+3. Consulter les résultats et les logs de debug
+4. Vérifier que le déplacement automatique fonctionne
+
+### Utilisation en production
+```php
+// Déplacer une question vers Olution
+$result = olution_manager::move_question_to_olution($question_id, $target_category_id);
+
+// Déplacer plusieurs questions en masse
+$operations = [
+    ['questionid' => 123, 'target_category_id' => 456],
+    ['questionid' => 124, 'target_category_id' => 457]
+];
+$results = olution_manager::move_questions_batch($operations);
+
+// Tester le système
+$test_results = olution_manager::test_automatic_movement_to_olution(5);
+```
 
 ---
 
 **Version** : v1.11.13  
 **Date** : 15 octobre 2025  
 **Statut** : ✅ Correction appliquée  
-**Impact** : 🟢 Correction majeure, logique unifiée
+**Impact** : 🟢 Correction majeure, déplacement automatique fonctionnel
