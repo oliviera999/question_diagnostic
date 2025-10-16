@@ -55,9 +55,10 @@ $PAGE->requires->js('/local/question_diagnostic/scripts/main.js', true);
 // Traitement de l'action
 $action = optional_param('action', '', PARAM_ALPHA);
 $confirm = optional_param('confirm', 0, PARAM_INT);
+$question_ids = optional_param('question_ids', '', PARAM_TEXT);
 
 // 🔍 DEBUG : Afficher les paramètres reçus
-debugging('unhide_questions.php: action=' . $action . ', confirm=' . $confirm, DEBUG_DEVELOPER);
+debugging('unhide_questions.php: action=' . $action . ', confirm=' . $confirm . ', question_ids=' . $question_ids, DEBUG_DEVELOPER);
 
 if ($action === 'unhide_all' && $confirm) {
     require_sesskey();
@@ -101,6 +102,92 @@ if ($action === 'unhide_all' && $confirm) {
         $message,
         null,
         $result['failed'] > 0 ? \core\output\notification::NOTIFY_WARNING : \core\output\notification::NOTIFY_SUCCESS
+    );
+}
+
+// 🆕 Nouvelle action : Rendre visibles les questions sélectionnées
+if ($action === 'unhide_selected' && $confirm && !empty($question_ids)) {
+    require_sesskey();
+    
+    debugging('unhide_questions.php: Starting unhide selected process...', DEBUG_DEVELOPER);
+    
+    // Parser les IDs des questions sélectionnées
+    $selected_ids = array_filter(array_map('intval', explode(',', $question_ids)));
+    
+    debugging('unhide_questions.php: Selected ' . count($selected_ids) . ' questions to unhide', DEBUG_DEVELOPER);
+    
+    if (empty($selected_ids)) {
+        redirect(
+            new moodle_url('/local/question_diagnostic/unhide_questions.php'),
+            '❌ Aucune question sélectionnée.',
+            null,
+            \core\output\notification::NOTIFY_ERROR
+        );
+    }
+    
+    // Exécuter en masse sur les questions sélectionnées
+    debugging('unhide_questions.php: Calling unhide_questions_batch...', DEBUG_DEVELOPER);
+    $result = question_analyzer::unhide_questions_batch($selected_ids);
+    debugging('unhide_questions.php: Result - success=' . $result['success'] . ', failed=' . $result['failed'], DEBUG_DEVELOPER);
+    
+    // Purger le cache
+    question_analyzer::purge_all_caches();
+    
+    $message = '✅ Opération terminée : ' . $result['success'] . ' question(s) rendues visibles.';
+    if ($result['failed'] > 0) {
+        $message .= ' ' . $result['failed'] . ' échec(s). Détails : ' . implode('; ', array_slice($result['errors'], 0, 5));
+    }
+    
+    debugging('unhide_questions.php: Redirecting with message: ' . $message, DEBUG_DEVELOPER);
+    
+    redirect(
+        new moodle_url('/local/question_diagnostic/unhide_questions.php'),
+        $message,
+        null,
+        $result['failed'] > 0 ? \core\output\notification::NOTIFY_WARNING : \core\output\notification::NOTIFY_SUCCESS
+    );
+}
+
+// 🆕 Nouvelle action : Rendre visible une seule question
+if ($action === 'unhide_single' && $confirm && !empty($question_ids)) {
+    require_sesskey();
+    
+    debugging('unhide_questions.php: Starting unhide single process...', DEBUG_DEVELOPER);
+    
+    $question_id = intval($question_ids);
+    
+    debugging('unhide_questions.php: Unhiding single question ID: ' . $question_id, DEBUG_DEVELOPER);
+    
+    if ($question_id <= 0) {
+        redirect(
+            new moodle_url('/local/question_diagnostic/unhide_questions.php'),
+            '❌ ID de question invalide.',
+            null,
+            \core\output\notification::NOTIFY_ERROR
+        );
+    }
+    
+    // Exécuter sur une seule question
+    $result = question_analyzer::unhide_question($question_id);
+    
+    // Purger le cache
+    question_analyzer::purge_all_caches();
+    
+    if ($result === true) {
+        $message = '✅ Question ID ' . $question_id . ' rendue visible avec succès.';
+        $notification_type = \core\output\notification::NOTIFY_SUCCESS;
+    } else {
+        $message = '❌ Échec pour la question ID ' . $question_id . ': ' . $result;
+        $notification_type = \core\output\notification::NOTIFY_ERROR;
+    }
+    
+    debugging('unhide_questions.php: Single unhide result: ' . $message, DEBUG_DEVELOPER);
+    
+    redirect(
+        new moodle_url('/local/question_diagnostic/unhide_questions.php'),
+        $message,
+        null,
+        $notification_type
     );
 }
 
@@ -213,9 +300,46 @@ echo html_writer::end_tag('div');
 
 echo html_writer::end_tag('div');
 
-// Bouton pour rendre TOUTES visibles (avec avertissement sur soft delete)
+// 🆕 Boutons d'action pour la sélection et l'action en masse
 if ($total_hidden > 0) {
     echo html_writer::start_tag('div', ['style' => 'margin: 30px 0; text-align: center;']);
+    
+    // Boutons d'action pour la sélection
+    echo html_writer::start_tag('div', ['class' => 'qd-action-buttons', 'style' => 'margin-bottom: 20px;']);
+    
+    // Bouton "Sélectionner tout"
+    echo html_writer::tag('button', '☑️ Sélectionner tout', [
+        'type' => 'button',
+        'class' => 'btn btn-secondary btn-sm',
+        'onclick' => 'selectAllQuestions()',
+        'style' => 'margin-right: 10px;'
+    ]);
+    
+    // Bouton "Désélectionner tout"
+    echo html_writer::tag('button', '☐ Désélectionner tout', [
+        'type' => 'button',
+        'class' => 'btn btn-secondary btn-sm',
+        'onclick' => 'deselectAllQuestions()',
+        'style' => 'margin-right: 10px;'
+    ]);
+    
+    // Bouton "Rendre visibles les sélectionnées"
+    echo html_writer::tag('button', '👁️ Rendre visibles les sélectionnées', [
+        'type' => 'button',
+        'class' => 'btn btn-primary btn-sm',
+        'onclick' => 'unhideSelectedQuestions()',
+        'style' => 'margin-right: 10px;'
+    ]);
+    
+    echo html_writer::end_tag('div');
+    
+    // Compteur de sélection
+    echo html_writer::start_tag('div', ['id' => 'selection-counter', 'class' => 'alert alert-info', 'style' => 'margin-bottom: 20px;']);
+    echo html_writer::tag('span', '0 question(s) sélectionnée(s)', ['id' => 'selection-count']);
+    echo html_writer::end_tag('div');
+    
+    // Bouton pour rendre TOUTES visibles (avec avertissement sur soft delete)
+    echo html_writer::start_tag('div', ['style' => 'border-top: 2px solid #dee2e6; padding-top: 20px; margin-top: 20px;']);
     
     // 🔧 Utiliser un FORMULAIRE POST pour que ça fonctionne
     $confirm_message = "⚠️ ATTENTION CRITIQUE\n\n";
@@ -255,6 +379,7 @@ if ($total_hidden > 0) {
     echo html_writer::end_tag('div');
     
     echo html_writer::end_tag('div');
+    echo html_writer::end_tag('div');
 }
 
 if ($total_hidden > 0) {
@@ -264,6 +389,7 @@ if ($total_hidden > 0) {
     echo html_writer::start_tag('table', ['class' => 'qd-table', 'style' => 'width: 100%;']);
     echo html_writer::start_tag('thead');
     echo html_writer::start_tag('tr');
+    echo html_writer::tag('th', '☑️', ['style' => 'width: 40px; text-align: center;']);
     echo html_writer::tag('th', 'ID');
     echo html_writer::tag('th', 'Nom');
     echo html_writer::tag('th', 'Type');
@@ -271,6 +397,7 @@ if ($total_hidden > 0) {
     echo html_writer::tag('th', 'Quiz', ['title' => 'Nombre de quiz utilisant cette question']);
     echo html_writer::tag('th', 'Catégorie');
     echo html_writer::tag('th', 'Créée le');
+    echo html_writer::tag('th', 'Actions', ['style' => 'width: 120px; text-align: center;']);
     echo html_writer::end_tag('tr');
     echo html_writer::end_tag('thead');
     
@@ -289,7 +416,19 @@ if ($total_hidden > 0) {
         
         $row_style = $is_used ? 'background: #f8d7da;' : 'background: #fff3cd;';
         
-        echo html_writer::start_tag('tr', ['style' => $row_style]);
+        echo html_writer::start_tag('tr', ['style' => $row_style, 'data-question-id' => $question->id]);
+        
+        // 🆕 Colonne checkbox de sélection
+        echo html_writer::start_tag('td', ['style' => 'text-align: center;']);
+        echo html_writer::empty_tag('input', [
+            'type' => 'checkbox',
+            'class' => 'question-select-checkbox',
+            'value' => $question->id,
+            'data-question-id' => $question->id,
+            'onchange' => 'updateSelectionCounter()'
+        ]);
+        echo html_writer::end_tag('td');
+        
         echo html_writer::tag('td', $question->id);
         echo html_writer::tag('td', format_string($question->name));
         echo html_writer::tag('td', $question->qtype);
@@ -314,6 +453,31 @@ if ($total_hidden > 0) {
         
         echo html_writer::tag('td', isset($stats->category_name) ? format_string($stats->category_name) : '-');
         echo html_writer::tag('td', userdate($question->timecreated, '%d/%m/%Y'));
+        
+        // 🆕 Colonne actions individuelles
+        echo html_writer::start_tag('td', ['style' => 'text-align: center;']);
+        
+        // Bouton pour rendre visible cette question individuellement
+        $confirm_single = "Êtes-vous sûr de vouloir rendre visible la question ID " . $question->id . " ?";
+        echo html_writer::start_tag('form', [
+            'method' => 'post',
+            'action' => new moodle_url('/local/question_diagnostic/unhide_questions.php'),
+            'style' => 'display: inline-block;',
+            'onsubmit' => 'return confirm(' . json_encode($confirm_single) . ')'
+        ]);
+        echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'action', 'value' => 'unhide_single']);
+        echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'question_ids', 'value' => $question->id]);
+        echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'confirm', 'value' => '1']);
+        echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]);
+        echo html_writer::empty_tag('input', [
+            'type' => 'submit',
+            'value' => '👁️',
+            'class' => 'btn btn-sm btn-success',
+            'title' => 'Rendre visible cette question'
+        ]);
+        echo html_writer::end_tag('form');
+        
+        echo html_writer::end_tag('td');
         echo html_writer::end_tag('tr');
     }
     
@@ -343,4 +507,111 @@ if ($total_hidden > 0 && $manually_hidden == 0 && $soft_deleted > 0) {
 
 // Pied de page Moodle standard
 echo $OUTPUT->footer();
+
+// 🆕 JavaScript pour la gestion de la sélection et des actions en masse
+if ($total_hidden > 0) {
+    echo html_writer::start_tag('script', ['type' => 'text/javascript']);
+    echo "
+    // Fonction pour sélectionner toutes les questions
+    function selectAllQuestions() {
+        const checkboxes = document.querySelectorAll('.question-select-checkbox');
+        checkboxes.forEach(checkbox => {
+            checkbox.checked = true;
+        });
+        updateSelectionCounter();
+    }
+    
+    // Fonction pour désélectionner toutes les questions
+    function deselectAllQuestions() {
+        const checkboxes = document.querySelectorAll('.question-select-checkbox');
+        checkboxes.forEach(checkbox => {
+            checkbox.checked = false;
+        });
+        updateSelectionCounter();
+    }
+    
+    // Fonction pour mettre à jour le compteur de sélection
+    function updateSelectionCounter() {
+        const checkboxes = document.querySelectorAll('.question-select-checkbox:checked');
+        const count = checkboxes.length;
+        const counterElement = document.getElementById('selection-count');
+        
+        if (counterElement) {
+            counterElement.textContent = count + ' question(s) sélectionnée(s)';
+            
+            // Changer la couleur selon le nombre sélectionné
+            const counterDiv = document.getElementById('selection-counter');
+            if (counterDiv) {
+                if (count === 0) {
+                    counterDiv.className = 'alert alert-info';
+                } else if (count < 10) {
+                    counterDiv.className = 'alert alert-warning';
+                } else {
+                    counterDiv.className = 'alert alert-danger';
+                }
+            }
+        }
+    }
+    
+    // Fonction pour rendre visibles les questions sélectionnées
+    function unhideSelectedQuestions() {
+        const checkboxes = document.querySelectorAll('.question-select-checkbox:checked');
+        
+        if (checkboxes.length === 0) {
+            alert('❌ Veuillez sélectionner au moins une question à rendre visible.');
+            return;
+        }
+        
+        const questionIds = Array.from(checkboxes).map(cb => cb.value);
+        const count = questionIds.length;
+        
+        let confirmMessage = '⚠️ CONFIRMATION\\n\\n';
+        confirmMessage += 'Vous allez rendre visible ' + count + ' question(s) sélectionnée(s).\\n\\n';
+        confirmMessage += 'IDs des questions : ' + questionIds.join(', ') + '\\n\\n';
+        confirmMessage += 'Êtes-vous sûr de vouloir continuer ?';
+        
+        if (confirm(confirmMessage)) {
+            // Créer un formulaire dynamique pour soumettre les IDs sélectionnés
+            const form = document.createElement('form');
+            form.method = 'post';
+            form.action = window.location.href;
+            
+            // Ajouter les champs cachés
+            const actionField = document.createElement('input');
+            actionField.type = 'hidden';
+            actionField.name = 'action';
+            actionField.value = 'unhide_selected';
+            form.appendChild(actionField);
+            
+            const questionIdsField = document.createElement('input');
+            questionIdsField.type = 'hidden';
+            questionIdsField.name = 'question_ids';
+            questionIdsField.value = questionIds.join(',');
+            form.appendChild(questionIdsField);
+            
+            const confirmField = document.createElement('input');
+            confirmField.type = 'hidden';
+            confirmField.name = 'confirm';
+            confirmField.value = '1';
+            form.appendChild(confirmField);
+            
+            const sesskeyField = document.createElement('input');
+            sesskeyField.type = 'hidden';
+            sesskeyField.name = 'sesskey';
+            sesskeyField.value = '" . sesskey() . "';
+            form.appendChild(sesskeyField);
+            
+            // Soumettre le formulaire
+            document.body.appendChild(form);
+            form.submit();
+        }
+    }
+    
+    // Initialiser le compteur au chargement de la page
+    document.addEventListener('DOMContentLoaded', function() {
+        updateSelectionCounter();
+    });
+    ";
+    echo html_writer::end_tag('script');
+}
 
