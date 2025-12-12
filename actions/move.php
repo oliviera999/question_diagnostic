@@ -69,8 +69,7 @@ if ($confirm) {
         'id' => $categoryid,
         'parent' => $newparentid,
         'confirm' => 1,
-        'sesskey' => sesskey(),
-        'return' => $return
+        'sesskey' => sesskey()
     ]);
     
     echo html_writer::start_tag('div', ['style' => 'margin-top: 20px;']);

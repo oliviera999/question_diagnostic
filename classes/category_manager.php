@@ -404,7 +404,7 @@ class category_manager {
      * @return bool|string true si succès, message d'erreur sinon
      */
     public static function delete_category($categoryid) {
-        global $DB;
+        global $DB, $CFG;
 
         try {
             $category = $DB->get_record('question_categories', ['id' => $categoryid], '*', MUST_EXIST);
@@ -461,12 +461,25 @@ class category_manager {
                 return "❌ IMPOSSIBLE : La catégorie contient $subcatcount sous-catégorie(s).";
             }
             
-            // Supprimer la catégorie
-            $result = $DB->delete_records('question_categories', ['id' => $categoryid]);
+            // 🆕 v1.11.5 : Transaction et API Native Moodle
+            $transaction = $DB->start_delegated_transaction();
             
-            if (!$result) {
-                debugging("Échec suppression catégorie $categoryid via delete_records", DEBUG_DEVELOPER);
-                return "❌ Échec de la suppression dans la base de données (ID: $categoryid)";
+            try {
+                // Utiliser l'API native si disponible (recommandé Moodle 4.5)
+                require_once($CFG->libroot . '/questionlib.php');
+                
+                if (function_exists('question_delete_category')) {
+                    question_delete_category($categoryid);
+                } else {
+                    // Fallback manuel sécurisé (mais ne devrait pas arriver sur Moodle standard)
+                    $DB->delete_records('question_categories', ['id' => $categoryid]);
+                }
+                
+                $transaction->allow_commit();
+                
+            } catch (\Exception $e) {
+                $transaction->rollback($e);
+                throw $e;
             }
             
             // 🆕 v1.9.39 : Log d'audit pour traçabilité
@@ -519,7 +532,7 @@ class category_manager {
      * @return bool|string true si succès, message d'erreur sinon
      */
     public static function merge_categories($sourceid, $destid) {
-        global $DB;
+        global $DB, $CFG;
 
         // 🛡️ v1.9.30 : Validation préalable (avant transaction)
         if ($sourceid == $destid) {
@@ -527,6 +540,8 @@ class category_manager {
         }
 
         try {
+            require_once($CFG->libroot . '/questionlib.php');
+
             // Vérifier que les catégories existent
             $source = $DB->get_record('question_categories', ['id' => $sourceid], '*', MUST_EXIST);
             $dest = $DB->get_record('question_categories', ['id' => $destid], '*', MUST_EXIST);
@@ -547,14 +562,39 @@ class category_manager {
             $transaction = $DB->start_delegated_transaction();
             
             try {
-                // Étape 1 : Déplacer toutes les questions de source vers dest
+                // Étape 1 : Récupérer les IDs des questions à déplacer pour les événements
+                // ⚠️ MOODLE 4.5 : Structure question -> question_versions -> question_bank_entries
+                $sql_q_ids = "SELECT DISTINCT q.id 
+                              FROM {question} q
+                              JOIN {question_versions} qv ON qv.questionid = q.id
+                              JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
+                              WHERE qbe.questioncategoryid = :sourceid";
+                $question_ids = $DB->get_fieldset_sql($sql_q_ids, ['sourceid' => $sourceid]);
+
+                // Étape 2 : Déplacer toutes les questions de source vers dest (SQL rapide)
                 // Compatible Moodle 4.x (question_bank_entries)
                 $sql = "UPDATE {question_bank_entries} SET questioncategoryid = :destid WHERE questioncategoryid = :sourceid";
                 $moved_questions = $DB->execute($sql, ['destid' => $destid, 'sourceid' => $sourceid]);
                 
-                debugging('Fusion catégories v1.9.30 : ' . ($moved_questions ? 'Questions déplacées' : 'Aucune question') . ' de cat ' . $sourceid . ' vers ' . $destid, DEBUG_DEVELOPER);
+                debugging('Fusion catégories v1.11.5 : ' . ($moved_questions ? 'Questions déplacées' : 'Aucune question') . ' de cat ' . $sourceid . ' vers ' . $destid, DEBUG_DEVELOPER);
                 
-                // Étape 2 : Déplacer les sous-catégories
+                // Étape 3 : Déclencher les événements question_moved
+                if (!empty($question_ids)) {
+                    $context = \context::instance_by_id($source->contextid);
+                    foreach ($question_ids as $qid) {
+                        $event = \core\event\question_moved::create([
+                            'objectid' => $qid,
+                            'context' => $context,
+                            'other' => [
+                                'oldcategoryid' => $sourceid,
+                                'newcategoryid' => $destid
+                            ]
+                        ]);
+                        $event->trigger();
+                    }
+                }
+
+                // Étape 4 : Déplacer les sous-catégories
                 $subcats = $DB->get_records('question_categories', ['parent' => $sourceid]);
                 $moved_subcats = 0;
                 
@@ -562,14 +602,21 @@ class category_manager {
                     $subcat->parent = $destid;
                     $DB->update_record('question_categories', $subcat);
                     $moved_subcats++;
+                    
+                    // Trigger event for category update
+                    $event = \core\event\question_category_updated::create([
+                        'objectid' => $subcat->id,
+                        'context' => \context::instance_by_id($subcat->contextid)
+                    ]);
+                    $event->trigger();
                 }
                 
-                debugging('Fusion catégories v1.9.30 : ' . $moved_subcats . ' sous-catégorie(s) déplacée(s)', DEBUG_DEVELOPER);
+                debugging('Fusion catégories v1.11.5 : ' . $moved_subcats . ' sous-catégorie(s) déplacée(s)', DEBUG_DEVELOPER);
                 
-                // Étape 3 : Supprimer la catégorie source (maintenant vide)
-                $DB->delete_records('question_categories', ['id' => $sourceid]);
+                // Étape 5 : Supprimer la catégorie source (maintenant vide) via API Moodle
+                question_delete_category($sourceid);
                 
-                debugging('Fusion catégories v1.9.30 : Catégorie source ' . $sourceid . ' supprimée', DEBUG_DEVELOPER);
+                debugging('Fusion catégories v1.11.5 : Catégorie source ' . $sourceid . ' supprimée', DEBUG_DEVELOPER);
                 
                 // ✅ TOUT S'EST BIEN PASSÉ : VALIDER LA TRANSACTION
                 $transaction->allow_commit();
@@ -604,7 +651,7 @@ class category_manager {
      * @return bool|string true si succès, message d'erreur sinon
      */
     public static function move_category($categoryid, $newparentid) {
-        global $DB;
+        global $DB, $CFG;
 
         // 🛡️ v1.9.30 : Validation préalable (avant transaction)
         if ($categoryid == $newparentid) {
@@ -641,6 +688,13 @@ class category_manager {
             try {
                 $category->parent = $newparentid;
                 $DB->update_record('question_categories', $category);
+                
+                // 🆕 v1.11.5 : Trigger event for Moodle consistency
+                $event = \core\event\question_category_updated::create([
+                    'objectid' => $category->id,
+                    'context' => \context::instance_by_id($category->contextid)
+                ]);
+                $event->trigger();
                 
                 debugging('Déplacement catégorie v1.9.30 : Cat ' . $categoryid . ' déplacée vers parent ' . $newparentid, DEBUG_DEVELOPER);
                 

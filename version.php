@@ -9,8 +9,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'local_question_diagnostic';
-$plugin->version = 2025101514;  // YYYYMMDDXX format (v1.11.14 - CRÉATION AUTOMATIQUE OLUTION: Crée la catégorie si elle n'existe pas)
+$plugin->version = 2025101516;  // YYYYMMDDXX format (v1.11.16 - AUDIT FIX: Moodle 4.5 Compatibility & Security)
 $plugin->requires = 2022041900; // Moodle 4.0+ (architecture question_bank_entries requise)
 $plugin->maturity = MATURITY_STABLE;
-$plugin->release = 'v1.11.14';
+$plugin->release = 'v1.11.16';
 
