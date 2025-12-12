@@ -25,8 +25,10 @@
 require_once(__DIR__ . '/../../config.php');
 require_once(__DIR__ . '/lib.php');
 require_once(__DIR__ . '/classes/question_analyzer.php');
+require_once(__DIR__ . '/classes/debug_manager.php');
 
 use local_question_diagnostic\question_analyzer;
+use local_question_diagnostic\debug_manager;
 
 // Charger les bibliothèques Moodle nécessaires.
 require_login();
@@ -52,28 +54,32 @@ $PAGE->set_pagelayout('report');
 $PAGE->requires->css('/local/question_diagnostic/styles/main.css');
 $PAGE->requires->js('/local/question_diagnostic/scripts/main.js', true);
 
+// Initialiser le système de debugging
+debug_manager::init();
+debug_manager::set_context('unhide_questions');
+
 // Traitement de l'action
 $action = optional_param('action', '', PARAM_ALPHA);
 $confirm = optional_param('confirm', 0, PARAM_INT);
 $question_ids = optional_param('question_ids', '', PARAM_TEXT);
 
-// 🔍 DEBUG : Afficher les paramètres reçus
-debugging('unhide_questions.php: action=' . $action . ', confirm=' . $confirm . ', question_ids=' . $question_ids, DEBUG_DEVELOPER);
+// Log des paramètres reçus
+debug_manager::verbose("Action: {$action}, Confirm: {$confirm}, Question IDs: {$question_ids}");
 
 if ($action === 'unhide_all' && $confirm) {
     require_sesskey();
     
-    debugging('unhide_questions.php: Starting unhide process...', DEBUG_DEVELOPER);
+    debug_manager::progress('Starting unhide process...');
     
     // Exécuter l'action : Rendre TOUTES les questions cachées visibles
     // 🔧 v1.9.60 : false = inclure TOUTES (même soft delete si l'utilisateur le demande)
     $all_hidden_questions = question_analyzer::get_hidden_questions(false, 0);
     $question_ids = array_map(function($q) { return $q->id; }, $all_hidden_questions);
     
-    debugging('unhide_questions.php: Found ' . count($question_ids) . ' hidden questions to unhide', DEBUG_DEVELOPER);
+    debug_manager::info('Found ' . count($question_ids) . ' hidden questions to unhide');
     
     if (empty($question_ids)) {
-        debugging('unhide_questions.php: No hidden questions found, redirecting...', DEBUG_DEVELOPER);
+        debug_manager::info('No hidden questions found, redirecting...');
         redirect(
             new moodle_url('/local/question_diagnostic/unhide_questions.php'),
             '✅ Aucune question cachée trouvée.',
@@ -263,6 +269,11 @@ try {
          FROM {question_versions} qv 
          WHERE qv.status = 'hidden'"
     );
+
+    // #region agent log
+    file_put_contents('c:\Users\olivi\OneDrive\Bureau\moodle_dev-questions\.cursor\debug.log', json_encode(['location'=>'unhide_questions.php:271','message'=>'direct_count verification','data'=>['direct_count'=>$direct_count, 'total_hidden_var'=>$total_hidden],'timestamp'=>time()*1000,'sessionId'=>'debug-session','hypothesisId'=>'7'])."\n", FILE_APPEND);
+    // #endregion
+
     echo '<strong>Vérification directe BDD :</strong> ' . $direct_count . ' question(s) avec status=\'hidden\'<br>';
     
     if ($direct_count != $total_hidden) {

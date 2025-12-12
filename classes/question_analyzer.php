@@ -1574,6 +1574,11 @@ class question_analyzer {
             
             // 🔧 DEBUG : Ajouter un log pour voir combien on en trouve
             $hidden_question_ids = $DB->get_fieldset_sql($sql, [], 0, $limit > 0 ? $limit : 0);
+            
+            // #region agent log
+            file_put_contents('c:\Users\olivi\OneDrive\Bureau\moodle_dev-questions\.cursor\debug.log', json_encode(['location'=>'classes/question_analyzer.php:1577','message'=>'get_hidden_questions counts','data'=>['found_ids'=>count($hidden_question_ids)],'timestamp'=>time()*1000,'sessionId'=>'debug-session','hypothesisId'=>'7'])."\n", FILE_APPEND);
+            // #endregion
+
             debugging('get_hidden_questions: Found ' . count($hidden_question_ids) . ' hidden question IDs', DEBUG_DEVELOPER);
             
             if (empty($hidden_question_ids)) {
@@ -1583,6 +1588,10 @@ class question_analyzer {
             // Récupérer les détails des questions
             list($insql, $params) = $DB->get_in_or_equal($hidden_question_ids);
             $questions = $DB->get_records_select('question', "id $insql", $params);
+
+            // #region agent log
+            file_put_contents('c:\Users\olivi\OneDrive\Bureau\moodle_dev-questions\.cursor\debug.log', json_encode(['location'=>'classes/question_analyzer.php:1586','message'=>'get_hidden_questions records','data'=>['questions_retrieved'=>count($questions), 'missing'=>count($hidden_question_ids)-count($questions)],'timestamp'=>time()*1000,'sessionId'=>'debug-session','hypothesisId'=>'7'])."\n", FILE_APPEND);
+            // #endregion
             
             // Si on exclut les questions utilisées, charger les infos d'usage
             if ($exclude_used) {
