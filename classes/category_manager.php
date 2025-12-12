@@ -398,12 +398,84 @@ class category_manager {
     // Utiliser find_duplicates($limit) à la place (version optimisée avec SQL)
 
     /**
-     * Supprime une catégorie vide
+     * Identifie les catégories "Default for" redondantes à nettoyer
+     * 
+     * 🆕 v1.11.18 : Feature "Nettoyage redondant"
+     * 
+     * @return array Structure: ['contextid' => ['context_name' => str, 'keep' => object, 'delete' => array]]
+     */
+    public static function get_redundant_default_categories() {
+        global $DB;
+        
+        $redundant_groups = [];
+        
+        // 1. Récupérer toutes les catégories potentielles (vides + nom type défaut)
+        // Optimisation : On filtre d'abord grossièrement par nom
+        $sql = "SELECT qc.*, ctx.contextlevel, ctx.instanceid
+                FROM {question_categories} qc
+                JOIN {context} ctx ON ctx.id = qc.contextid
+                WHERE (qc.name " . $DB->sql_like('?', false) . " 
+                   OR qc.name " . $DB->sql_like('?', false) . ")
+                ORDER BY qc.contextid, qc.id ASC";
+                
+        $candidates = $DB->get_records_sql($sql, ['%Default for%', '%Défaut pour%']);
+        
+        // Grouper par contexte
+        $by_context = [];
+        foreach ($candidates as $cat) {
+            // Vérification stricte : doit être VIDE (0 questions, 0 sous-cats)
+            $stats = self::get_category_stats($cat);
+            if ($stats->is_empty) {
+                if (!isset($by_context[$cat->contextid])) {
+                    $by_context[$cat->contextid] = [];
+                }
+                $by_context[$cat->contextid][] = $cat;
+            }
+        }
+        
+        // Analyser chaque contexte pour trouver les redondances
+        foreach ($by_context as $contextid => $cats) {
+            // S'il n'y a qu'une seule catégorie défaut vide, on ne touche pas (c'est la normale)
+            if (count($cats) < 2) {
+                continue;
+            }
+            
+            // S'il y a plusieurs candidats :
+            // 1. On garde le premier (le plus ancien par ID, car ORDER BY id ASC)
+            // 2. On marque les autres comme supprimables
+            
+            $keep = array_shift($cats); // Le premier est gardé
+            $delete = $cats;            // Le reste est à supprimer
+            
+            // Enrichir les infos du contexte pour l'affichage
+            $context_info = 'Contexte ID: ' . $contextid;
+            try {
+                $ctx_obj = \context::instance_by_id($contextid);
+                $context_info = $ctx_obj->get_context_name();
+            } catch (\Exception $e) {
+                $context_info .= ' (Invalide)';
+            }
+            
+            $redundant_groups[$contextid] = [
+                'context_id' => $contextid,
+                'context_name' => $context_info,
+                'keep' => $keep,
+                'delete' => $delete,
+                'count' => count($delete)
+            ];
+        }
+        
+        return $redundant_groups;
+    }
+
+    /**
+     * Supprime une catégorie vide (VERSION AVANCÉE avec bypass sécurité conditionnel)
      *
      * @param int $categoryid ID de la catégorie
+     * @param bool $bypass_default_protection Si true, autorise la suppression d'une "Default for" (pour nettoyage redondance)
      * @return bool|string true si succès, message d'erreur sinon
      */
-    public static function delete_category($categoryid) {
+    public static function delete_category($categoryid, $bypass_default_protection = false) {
         global $DB, $CFG;
 
         try {
@@ -412,7 +484,7 @@ class category_manager {
             // 🛡️ PROTECTION 1 : Catégories "Default for..." AVEC contexte valide
             // 🔧 v1.10.3 : Protection conditionnelle - protéger SEULEMENT si contexte actif
             // Les catégories "Default for" orphelines (contexte supprimé) peuvent être supprimées
-            if (stripos($category->name, 'Default for') !== false || stripos($category->name, 'Par défaut pour') !== false) {
+            if (!$bypass_default_protection && (stripos($category->name, 'Default for') !== false || stripos($category->name, 'Par défaut pour') !== false)) {
                 // Vérifier si le contexte est valide
                 try {
                     $context = \context::instance_by_id($category->contextid, IGNORE_MISSING);

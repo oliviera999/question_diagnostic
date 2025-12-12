@@ -1023,11 +1023,21 @@ echo html_writer::link(
     ]
 );
 
-$exporturl = new moodle_url('/local/question_diagnostic/actions/export.php', [
+    $exporturl = new moodle_url('/local/question_diagnostic/actions/export.php', [
     'type' => 'questions_csv',
     'sesskey' => sesskey()
 ]);
 echo html_writer::link($exporturl, '📥 ' . get_string('export_questions_csv', 'local_question_diagnostic'), ['class' => 'btn btn-success']);
+
+// 🆕 v1.11.18 : Bouton de nettoyage des catégories redondantes
+$redundant_groups = \local_question_diagnostic\category_manager::get_redundant_default_categories();
+if (!empty($redundant_groups)) {
+    echo html_writer::tag('button', '🧹 Nettoyer catégories par défaut redondantes (' . count($redundant_groups) . ')', [
+        'id' => 'cleanup-redundant-btn',
+        'class' => 'btn btn-danger',
+        'onclick' => 'document.getElementById("redundant-cleanup-modal").style.display="block";'
+    ]);
+}
 
 echo html_writer::tag('button', '⚙️ ' . get_string('toggle_columns', 'local_question_diagnostic'), [
     'id' => 'toggle-columns-btn',
@@ -1036,6 +1046,35 @@ echo html_writer::tag('button', '⚙️ ' . get_string('toggle_columns', 'local_
 ]);
 
 echo html_writer::end_tag('div');
+
+// ======================================================================
+// MODAL NETTOYAGE REDONDANCE (v1.11.18)
+// ======================================================================
+if (!empty($redundant_groups)) {
+    echo html_writer::start_tag('div', ['id' => 'redundant-cleanup-modal', 'class' => 'qd-modal', 'style' => 'display:none;']);
+    echo html_writer::start_tag('div', ['class' => 'qd-modal-content']);
+    echo html_writer::start_tag('div', ['class' => 'qd-modal-header']);
+    echo html_writer::tag('h3', 'Nettoyage des catégories "Défaut" redondantes');
+    echo html_writer::tag('button', '&times;', ['class' => 'qd-modal-close', 'onclick' => 'document.getElementById("redundant-cleanup-modal").style.display="none";']);
+    echo html_writer::end_tag('div');
+    
+    echo html_writer::start_tag('div', ['class' => 'qd-modal-body']);
+    echo html_writer::tag('p', 'Les contextes suivants contiennent plusieurs catégories "Défaut" vides. Seule la plus ancienne sera conservée, les autres seront supprimées.');
+    
+    echo html_writer::start_tag('ul');
+    foreach ($redundant_groups as $group) {
+        echo html_writer::tag('li', "<strong>{$group['context_name']}</strong> : {$group['count']} catégorie(s) inutile(s) détectée(s).");
+    }
+    echo html_writer::end_tag('ul');
+    
+    echo html_writer::tag('p', '⚠️ <strong>Attention :</strong> Cette action est irréversible.');
+    
+    $cleanup_url = new moodle_url('/local/question_diagnostic/actions/cleanup_redundant_defaults.php', ['action' => 'cleanup_all', 'sesskey' => sesskey()]);
+    echo html_writer::link($cleanup_url, 'Confirmer le nettoyage', ['class' => 'btn btn-danger btn-lg']);
+    echo html_writer::end_tag('div');
+    echo html_writer::end_tag('div');
+    echo html_writer::end_tag('div');
+}
 
 // ======================================================================
 // PANNEAU DE GESTION DES COLONNES
