@@ -317,11 +317,13 @@ class olution_manager {
      * @return bool|string True si succès, message d'erreur sinon
      */
     public static function move_question_to_olution($questionid, $target_category_id) {
-        global $DB;
+        global $DB, $CFG;
         
         try {
             debugging('🚀 Starting move_question_to_olution: question=' . $questionid . ', target=' . $target_category_id, DEBUG_DEVELOPER);
             
+            require_once($CFG->libroot . '/questionlib.php');
+
             // Vérifier que la question existe
             $question = $DB->get_record('question', ['id' => $questionid]);
             if (!$question) {
@@ -369,21 +371,42 @@ class olution_manager {
             $transaction = $DB->start_delegated_transaction();
             
             try {
-                // Mettre à jour question_bank_entries (Moodle 4.x)
-                $sql_update = "UPDATE {question_bank_entries}
-                              SET questioncategoryid = :newcatid
-                              WHERE id IN (
-                                  SELECT questionbankentryid
-                                  FROM {question_versions}
-                                  WHERE questionid = :questionid
-                              )";
-                
-                $affected_rows = $DB->execute($sql_update, [
-                    'newcatid' => $target_category_id,
-                    'questionid' => $questionid
-                ]);
-                
-                debugging('✅ Updated ' . $affected_rows . ' question_bank_entries', DEBUG_DEVELOPER);
+                // Utiliser l'API native Moodle pour déplacer la question
+                // Cette fonction gère automatiquement les événements, les contextes et les entrées/versions
+                if (function_exists('question_move_questions_to_category')) {
+                    // Moodle 4.x standard API
+                    // question_move_questions_to_category(array $questionids, int $newcategoryid)
+                    question_move_questions_to_category([$questionid], $target_category_id);
+                    debugging('✅ Moved using native question_move_questions_to_category', DEBUG_DEVELOPER);
+                } else {
+                    // Fallback manuel si la fonction n'existe pas (versions très anciennes ou modifiées)
+                    // Mettre à jour question_bank_entries (Moodle 4.x)
+                    $sql_update = "UPDATE {question_bank_entries}
+                                  SET questioncategoryid = :newcatid
+                                  WHERE id IN (
+                                      SELECT questionbankentryid
+                                      FROM {question_versions}
+                                      WHERE questionid = :questionid
+                                  )";
+                    
+                    $affected_rows = $DB->execute($sql_update, [
+                        'newcatid' => $target_category_id,
+                        'questionid' => $questionid
+                    ]);
+                    
+                    debugging('✅ Updated ' . $affected_rows . ' question_bank_entries (Manual fallback)', DEBUG_DEVELOPER);
+                    
+                    // Déclencher l'événement manuellement car on n'a pas utilisé l'API
+                    $event = \core\event\question_moved::create([
+                        'objectid' => $questionid,
+                        'context' => \context::instance_by_id($current_category->contextid),
+                        'other' => [
+                            'oldcategoryid' => $current_category->id,
+                            'newcategoryid' => $target_category_id
+                        ]
+                    ]);
+                    $event->trigger();
+                }
                 
                 // Vérifier que la mise à jour a fonctionné
                 $verify_sql = "SELECT qc.name as category_name
