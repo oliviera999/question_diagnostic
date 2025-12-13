@@ -115,7 +115,9 @@ if ($view_type === 'all') {
     ];
 } else {
     // Vue normale : statistiques pour les catégories de questions uniquement
-    if ($course_category_filter !== 'all') {
+    // $course_category_filter est un INT (0 = toutes les catégories de cours)
+    // ⚠️ Bugfix : ne pas comparer à la string 'all', sinon on déclenche un scan massif pour course_category=0.
+    if ($course_category_filter !== 0) {
         // Filtrer par catégorie de cours spécifique
         $filtered_categories = local_question_diagnostic_get_question_categories_by_course_category($course_category_filter);
         

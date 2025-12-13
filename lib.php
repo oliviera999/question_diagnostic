@@ -21,6 +21,39 @@ require_once(__DIR__ . '/classes/debug_manager.php');
 require_once(__DIR__ . '/classes/error_manager.php');
 
 /**
+ * Debug contrôlé du plugin (désactivé par défaut).
+ *
+ * Objectif : éviter de polluer l'UI en mode DEBUG_DEVELOPER, tout en gardant
+ * la possibilité d'activer des traces au besoin.
+ *
+ * Activation :
+ * - via config : get_config('local_question_diagnostic', 'debuglogs') = 1
+ * - ou via URL : ?qddebug=1 (admin uniquement)
+ *
+ * @param string $message Message à logger
+ * @param int $level Niveau Moodle (ex: DEBUG_DEVELOPER)
+ * @return void
+ */
+function local_question_diagnostic_debug_log(string $message, int $level = DEBUG_DEVELOPER): void {
+    // Sécurité : logs uniquement pour admin.
+    if (!is_siteadmin()) {
+        return;
+    }
+
+    $enabled = (bool)get_config('local_question_diagnostic', 'debuglogs');
+
+    // Option de debug ponctuel via URL.
+    $urlenabled = false;
+    if (function_exists('optional_param')) {
+        $urlenabled = (bool)optional_param('qddebug', 0, PARAM_BOOL);
+    }
+
+    if ($enabled || $urlenabled) {
+        debugging($message, $level);
+    }
+}
+
+/**
  * Add navigation links for the plugin
  *
  * @param global_navigation $nav
@@ -1489,12 +1522,12 @@ function local_question_diagnostic_get_courses_in_category_recursive($course_cat
         // Démarrer la récursion
         $get_courses_recursive($course_category_id);
         
-        debugging('Recursive search found ' . count($all_courses) . ' courses in category ID: ' . $course_category_id, DEBUG_DEVELOPER);
+        local_question_diagnostic_debug_log('Recursive search found ' . count($all_courses) . ' courses in category ID: ' . $course_category_id);
         
         return $all_courses;
         
     } catch (Exception $e) {
-        debugging('Error getting courses recursively: ' . $e->getMessage(), DEBUG_DEVELOPER);
+        local_question_diagnostic_debug_log('Error getting courses recursively: ' . $e->getMessage());
         return [];
     }
 }
@@ -1523,11 +1556,11 @@ function local_question_diagnostic_get_question_categories_by_course_category($c
         $courses = local_question_diagnostic_get_courses_in_category_recursive($course_category_id);
         
         if (empty($courses)) {
-            debugging('No courses found in course category ID: ' . $course_category_id . ' (including subcategories)', DEBUG_DEVELOPER);
+            local_question_diagnostic_debug_log('No courses found in course category ID: ' . $course_category_id . ' (including subcategories)');
             return [];
         }
         
-        debugging('Found ' . count($courses) . ' courses in course category ID: ' . $course_category_id . ' (including subcategories)', DEBUG_DEVELOPER);
+        local_question_diagnostic_debug_log('Found ' . count($courses) . ' courses in course category ID: ' . $course_category_id . ' (including subcategories)');
         
         $course_ids = array_keys($courses);
         list($course_ids_sql, $course_params) = $DB->get_in_or_equal($course_ids, SQL_PARAMS_NAMED);
@@ -1544,11 +1577,11 @@ function local_question_diagnostic_get_question_categories_by_course_category($c
         ));
         
         if (empty($contexts)) {
-            debugging('No course contexts found for courses in category ID: ' . $course_category_id, DEBUG_DEVELOPER);
+            local_question_diagnostic_debug_log('No course contexts found for courses in category ID: ' . $course_category_id);
             return [];
         }
         
-        debugging('Found ' . count($contexts) . ' course contexts', DEBUG_DEVELOPER);
+        local_question_diagnostic_debug_log('Found ' . count($contexts) . ' course contexts');
         
         $context_ids = array_keys($contexts);
         list($context_ids_sql, $context_params) = $DB->get_in_or_equal($context_ids);
@@ -1565,7 +1598,7 @@ function local_question_diagnostic_get_question_categories_by_course_category($c
             $course_params
         ));
         
-        debugging('Found ' . count($module_contexts) . ' module contexts', DEBUG_DEVELOPER);
+        local_question_diagnostic_debug_log('Found ' . count($module_contexts) . ' module contexts');
         
         // 4. Récupérer le contexte système (si accessible)
         $system_context = context_system::instance();
@@ -1577,7 +1610,7 @@ function local_question_diagnostic_get_question_categories_by_course_category($c
         $all_context_ids = array_unique($all_context_ids);
         list($all_context_ids_sql, $all_context_params) = $DB->get_in_or_equal($all_context_ids, SQL_PARAMS_NAMED);
         
-        debugging('Total contexts to search: ' . count($all_context_ids), DEBUG_DEVELOPER);
+        local_question_diagnostic_debug_log('Total contexts to search: ' . count($all_context_ids));
         
         // 6. Récupérer les catégories de questions avec informations de base (SANS CONCAT)
         $question_categories_sql = "SELECT qc.*, 
@@ -1590,7 +1623,7 @@ function local_question_diagnostic_get_question_categories_by_course_category($c
         
         $question_categories = $DB->get_records_sql($question_categories_sql, $all_context_params);
         
-        debugging('Found ' . count($question_categories) . ' question categories', DEBUG_DEVELOPER);
+        local_question_diagnostic_debug_log('Found ' . count($question_categories) . ' question categories');
         
         // 7. Enrichir les données en PHP (plus robuste que SQL)
         foreach ($question_categories as $cat) {
@@ -1688,15 +1721,15 @@ function local_question_diagnostic_get_question_categories_by_course_category($c
             );
         }
         
-        debugging('Successfully processed ' . count($question_categories) . ' question categories', DEBUG_DEVELOPER);
+        local_question_diagnostic_debug_log('Successfully processed ' . count($question_categories) . ' question categories');
         return $question_categories;
         
     } catch (Exception $e) {
-        debugging('Error getting question categories by course category: ' . $e->getMessage(), DEBUG_DEVELOPER);
+        local_question_diagnostic_debug_log('Error getting question categories by course category: ' . $e->getMessage());
         
         // Fallback : essayer une requête plus simple (seulement contextes de cours)
         try {
-            debugging('Attempting fallback with course contexts only', DEBUG_DEVELOPER);
+            local_question_diagnostic_debug_log('Attempting fallback with course contexts only');
             
             $courses = $DB->get_records('course', ['category' => $course_category_id], 'fullname ASC');
             if (empty($courses)) {
@@ -1729,11 +1762,11 @@ function local_question_diagnostic_get_question_categories_by_course_category($c
                 $cat->is_protected = false;
             }
             
-            debugging('Fallback successful: found ' . count($fallback_categories) . ' categories', DEBUG_DEVELOPER);
+            local_question_diagnostic_debug_log('Fallback successful: found ' . count($fallback_categories) . ' categories');
             return $fallback_categories;
             
         } catch (Exception $fallback_error) {
-            debugging('Fallback also failed: ' . $fallback_error->getMessage(), DEBUG_DEVELOPER);
+            local_question_diagnostic_debug_log('Fallback also failed: ' . $fallback_error->getMessage());
             return [];
         }
     }
