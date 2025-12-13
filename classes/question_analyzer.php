@@ -329,14 +329,14 @@ class question_analyzer {
             
             // Quiz usage - UNIQUEMENT pour les IDs demandés
             // ⚠️ v1.6.4 : Vérifier quelle colonne existe dans quiz_slots
-            $quiz_usage = [];
             try {
                 // Vérifier si questionbankentryid existe (Moodle 4.1+)
                 $columns = $DB->get_columns('quiz_slots');
+                $quiz_usage_sql = null;
                 
                 if (isset($columns['questionbankentryid'])) {
                     // Moodle 4.1-4.4 : utilise questionbankentryid
-                    $quiz_usage = $DB->get_records_sql("
+                    $quiz_usage_sql = "
                         SELECT qv.questionid, qu.id as quiz_id, qu.name as quiz_name, qu.course
                         FROM {quiz_slots} qs
                         INNER JOIN {quiz} qu ON qu.id = qs.quizid
@@ -344,20 +344,20 @@ class question_analyzer {
                         INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
                         WHERE qv.questionid $insql
                         ORDER BY qv.questionid, qu.id
-                    ", $params);
+                    ";
                 } else if (isset($columns['questionid'])) {
                     // Moodle 4.0 uniquement : utilise questionid directement
                     // ⚠️ Note : Moodle 3.x NON supporté (architecture incompatible)
-                    $quiz_usage = $DB->get_records_sql("
+                    $quiz_usage_sql = "
                         SELECT qs.questionid, qu.id as quiz_id, qu.name as quiz_name, qu.course
                         FROM {quiz_slots} qs
                         INNER JOIN {quiz} qu ON qu.id = qs.quizid
                         WHERE qs.questionid $insql
                         ORDER BY qs.questionid, qu.id
-                    ", $params);
+                    ";
                 } else {
                     // 🔧 v1.9.22 FIX : Moodle 4.5+ utilise question_references
-                    $quiz_usage = $DB->get_records_sql("
+                    $quiz_usage_sql = "
                         SELECT qv.questionid, qu.id as quiz_id, qu.name as quiz_name, qu.course
                         FROM {quiz_slots} qs
                         INNER JOIN {quiz} qu ON qu.id = qs.quizid
@@ -368,42 +368,52 @@ class question_analyzer {
                         INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
                         WHERE qv.questionid $insql
                         ORDER BY qv.questionid, qu.id
-                    ", $params);
+                    ";
+                }
+                
+                if (!empty($quiz_usage_sql)) {
+                    // get_recordset_sql() ne nécessite pas de 1ère colonne unique (contrairement à get_records_sql()).
+                    $quiz_usage_rs = null;
+                    try {
+                        $quiz_usage_rs = $DB->get_recordset_sql($quiz_usage_sql, $params);
+                        foreach ($quiz_usage_rs as $record) {
+                            $qid = $record->questionid;
+                            
+                            if (!isset($usage_map[$qid])) {
+                                $usage_map[$qid] = [
+                                    'quiz_count' => 0,
+                                    'quiz_list' => [],
+                                    'attempt_count' => 0,
+                                    'is_used' => true
+                                ];
+                            }
+                            
+                            // Vérifier si ce quiz n'est pas déjà dans la liste
+                            $already_added = false;
+                            foreach ($usage_map[$qid]['quiz_list'] as $existing_quiz) {
+                                if ($existing_quiz->id == $record->quiz_id) {
+                                    $already_added = true;
+                                    break;
+                                }
+                            }
+                            
+                            if (!$already_added) {
+                                $usage_map[$qid]['quiz_list'][] = (object)[
+                                    'id' => $record->quiz_id,
+                                    'name' => $record->quiz_name,
+                                    'course' => $record->course
+                                ];
+                                $usage_map[$qid]['quiz_count']++;
+                            }
+                        }
+                    } finally {
+                        if ($quiz_usage_rs) {
+                            $quiz_usage_rs->close();
+                        }
+                    }
                 }
             } catch (\Exception $e) {
                 debugging('Error in get_questions_usage_by_ids: ' . $e->getMessage(), DEBUG_DEVELOPER);
-                $quiz_usage = [];
-            }
-
-            foreach ($quiz_usage as $record) {
-                $qid = $record->questionid;
-                
-                if (!isset($usage_map[$qid])) {
-                    $usage_map[$qid] = [
-                        'quiz_count' => 0,
-                        'quiz_list' => [],
-                        'attempt_count' => 0,
-                        'is_used' => true
-                    ];
-                }
-                
-                // Vérifier si ce quiz n'est pas déjà dans la liste
-                $already_added = false;
-                foreach ($usage_map[$qid]['quiz_list'] as $existing_quiz) {
-                    if ($existing_quiz->id == $record->quiz_id) {
-                        $already_added = true;
-                        break;
-                    }
-                }
-                
-                if (!$already_added) {
-                    $usage_map[$qid]['quiz_list'][] = (object)[
-                        'id' => $record->quiz_id,
-                        'name' => $record->quiz_name,
-                        'course' => $record->course
-                    ];
-                    $usage_map[$qid]['quiz_count']++;
-                }
             }
 
             // Attempts - UNIQUEMENT pour les IDs demandés
@@ -530,57 +540,68 @@ class question_analyzer {
             // Approche compatible avec tous les SGBD: requête simple + traitement en PHP
             // ⚠️ v1.6.4 : Compatibilité multi-version Moodle
             $columns = $DB->get_columns('quiz_slots');
-            $quiz_usage = [];
+            $quiz_usage_sql = null;
             
             if (isset($columns['questionbankentryid'])) {
                 // Moodle 4.1+ : utilise questionbankentryid
-                $quiz_usage = $DB->get_records_sql("
+                $quiz_usage_sql = "
                     SELECT qv.questionid, qu.id as quiz_id, qu.name as quiz_name, qu.course
                     FROM {quiz_slots} qs
                     INNER JOIN {quiz} qu ON qu.id = qs.quizid
                     INNER JOIN {question_bank_entries} qbe ON qbe.id = qs.questionbankentryid
                     INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
                     ORDER BY qv.questionid, qu.id
-                ");
+                ";
             } else if (isset($columns['questionid'])) {
                 // Moodle 4.0 uniquement : utilise questionid directement
                 // ⚠️ Note : Moodle 3.x NON supporté (architecture incompatible)
-                $quiz_usage = $DB->get_records_sql("
+                $quiz_usage_sql = "
                     SELECT qs.questionid, qu.id as quiz_id, qu.name as quiz_name, qu.course
                     FROM {quiz_slots} qs
                     INNER JOIN {quiz} qu ON qu.id = qs.quizid
                     ORDER BY qs.questionid, qu.id
-                ");
+                ";
             }
 
-            foreach ($quiz_usage as $record) {
-                $qid = $record->questionid;
-                
-                if (!isset($usage_map[$qid])) {
-                    $usage_map[$qid] = [
-                        'quiz_count' => 0,
-                        'quiz_list' => [],
-                        'attempt_count' => 0,
-                        'is_used' => true
-                    ];
-                }
-                
-                // Vérifier si ce quiz n'est pas déjà dans la liste
-                $already_added = false;
-                foreach ($usage_map[$qid]['quiz_list'] as $existing_quiz) {
-                    if ($existing_quiz->id == $record->quiz_id) {
-                        $already_added = true;
-                        break;
+            if (!empty($quiz_usage_sql)) {
+                // get_recordset_sql() ne nécessite pas de 1ère colonne unique (contrairement à get_records_sql()).
+                $quiz_usage_rs = null;
+                try {
+                    $quiz_usage_rs = $DB->get_recordset_sql($quiz_usage_sql);
+                    foreach ($quiz_usage_rs as $record) {
+                        $qid = $record->questionid;
+                        
+                        if (!isset($usage_map[$qid])) {
+                            $usage_map[$qid] = [
+                                'quiz_count' => 0,
+                                'quiz_list' => [],
+                                'attempt_count' => 0,
+                                'is_used' => true
+                            ];
+                        }
+                        
+                        // Vérifier si ce quiz n'est pas déjà dans la liste
+                        $already_added = false;
+                        foreach ($usage_map[$qid]['quiz_list'] as $existing_quiz) {
+                            if ($existing_quiz->id == $record->quiz_id) {
+                                $already_added = true;
+                                break;
+                            }
+                        }
+                        
+                        if (!$already_added) {
+                            $usage_map[$qid]['quiz_list'][] = (object)[
+                                'id' => $record->quiz_id,
+                                'name' => $record->quiz_name,
+                                'course' => $record->course
+                            ];
+                            $usage_map[$qid]['quiz_count']++;
+                        }
                     }
-                }
-                
-                if (!$already_added) {
-                    $usage_map[$qid]['quiz_list'][] = (object)[
-                        'id' => $record->quiz_id,
-                        'name' => $record->quiz_name,
-                        'course' => $record->course
-                    ];
-                    $usage_map[$qid]['quiz_count']++;
+                } finally {
+                    if ($quiz_usage_rs) {
+                        $quiz_usage_rs->close();
+                    }
                 }
             }
 
@@ -1530,17 +1551,24 @@ class question_analyzer {
                             WHERE qv.questionid $insql
                             ORDER BY qv.questionid, qv.version DESC";
             
-            $version_records = $DB->get_records_sql($version_sql, $params);
-            
-            foreach ($version_records as $record) {
-                $qid = $record->questionid;
-                
-                // Ne prendre que la première occurrence (version la plus récente)
-                if (!isset($results[$qid]) || $results[$qid]->status === 'unknown') {
-                    $results[$qid]->is_hidden = ($record->status === 'hidden');
-                    $results[$qid]->status = $record->status;
-                    $results[$qid]->version_count = (int)$record->version_count;
-                    $results[$qid]->latest_version = (int)$record->latest_version;
+            // get_recordset_sql() ne nécessite pas de 1ère colonne unique (contrairement à get_records_sql()).
+            $version_rs = null;
+            try {
+                $version_rs = $DB->get_recordset_sql($version_sql, $params);
+                foreach ($version_rs as $record) {
+                    $qid = $record->questionid;
+                    
+                    // Ne prendre que la première occurrence (version la plus récente)
+                    if (!isset($results[$qid]) || $results[$qid]->status === 'unknown') {
+                        $results[$qid]->is_hidden = ($record->status === 'hidden');
+                        $results[$qid]->status = $record->status;
+                        $results[$qid]->version_count = (int)$record->version_count;
+                        $results[$qid]->latest_version = (int)$record->latest_version;
+                    }
+                }
+            } finally {
+                if ($version_rs) {
+                    $version_rs->close();
                 }
             }
             
@@ -1822,7 +1850,19 @@ class question_analyzer {
                 HAVING COUNT(*) > 1
                 ORDER BY dup_count DESC";
         
-        $all_groups = $DB->get_records_sql($sql);
+        // get_recordset_sql() ne nécessite pas de 1ère colonne unique (contrairement à get_records_sql()).
+        $all_groups = [];
+        $groups_rs = null;
+        try {
+            $groups_rs = $DB->get_recordset_sql($sql);
+            foreach ($groups_rs as $group) {
+                $all_groups[] = $group;
+            }
+        } finally {
+            if ($groups_rs) {
+                $groups_rs->close();
+            }
+        }
         
         if (empty($all_groups)) {
             return [];
@@ -1940,7 +1980,19 @@ class question_analyzer {
                 GROUP BY q.name, q.qtype
                 HAVING COUNT(*) > 1";
         
-        $all_groups = $DB->get_records_sql($sql);
+        // get_recordset_sql() ne nécessite pas de 1ère colonne unique (contrairement à get_records_sql()).
+        $all_groups = [];
+        $groups_rs = null;
+        try {
+            $groups_rs = $DB->get_recordset_sql($sql);
+            foreach ($groups_rs as $group) {
+                $all_groups[] = $group;
+            }
+        } finally {
+            if ($groups_rs) {
+                $groups_rs->close();
+            }
+        }
         
         // Si aucun filtre, retourner le total
         if (!$used_only && !$deletable_only) {
