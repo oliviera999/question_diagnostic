@@ -437,16 +437,26 @@ function execute_cleanup_batch($batch) {
 
         try {
             // Supprimer la catégorie
-            category_manager::delete_category($catid);
+            $result = category_manager::delete_category($catid);
             
             // Note : L'audit logging est géré automatiquement par category_manager::delete_category()
             // via audit_logger::log_category_deletion()
-            
-            $deleted_in_batch++;
-            $_SESSION['cleanup_categories_deleted']++;
-            
-            echo html_writer::tag('p', '✅ Supprimée : ' . format_string($catname) . ' (ID: ' . $catid . ')', 
-                                 ['style' => 'margin: 5px 0; color: #28a745;']);
+
+            if ($result === true) {
+                $deleted_in_batch++;
+                $_SESSION['cleanup_categories_deleted']++;
+                
+                echo html_writer::tag('p', '✅ Supprimée : ' . format_string($catname) . ' (ID: ' . $catid . ')', 
+                                     ['style' => 'margin: 5px 0; color: #28a745;']);
+            } else {
+                // delete_category() renvoie une string explicative en cas d'échec (pas d'exception).
+                $errors_in_batch++;
+                $_SESSION['cleanup_categories_errors']++;
+                
+                $msg = is_string($result) ? $result : 'Erreur inconnue';
+                echo html_writer::tag('p', '❌ Échec : ' . format_string($catname) . ' (ID: ' . $catid . ') - ' . $msg,
+                                     ['style' => 'margin: 5px 0; color: #d9534f;']);
+            }
         } catch (Exception $e) {
             $errors_in_batch++;
             $_SESSION['cleanup_categories_errors']++;

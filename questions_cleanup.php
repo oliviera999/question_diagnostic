@@ -1059,7 +1059,7 @@ if (!empty($redundant_groups)) {
     echo html_writer::end_tag('div');
     
     echo html_writer::start_tag('div', ['class' => 'qd-modal-body']);
-    echo html_writer::tag('p', 'Les contextes suivants contiennent plusieurs catégories "Défaut" vides. Seule la plus ancienne sera conservée, les autres seront supprimées.');
+    echo html_writer::tag('p', 'Les contextes suivants contiennent plusieurs catégories "Défaut" (Default for / Par défaut pour). Le plugin conservera celle réellement utilisée par Moodle comme catégorie par défaut, et supprimera uniquement les doublons vides et sans sous-catégories (même si une description est présente).');
     
     echo html_writer::start_tag('ul');
     foreach ($redundant_groups as $group) {

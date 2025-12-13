@@ -405,48 +405,90 @@ class category_manager {
      * @return array Structure: ['contextid' => ['context_name' => str, 'keep' => object, 'delete' => array]]
      */
     public static function get_redundant_default_categories() {
-        global $DB;
+        global $DB, $CFG;
         
         $redundant_groups = [];
         
-        // 1. Récupérer toutes les catégories potentielles (vides + nom type défaut)
-        // Optimisation : On filtre d'abord grossièrement par nom
-        $likeen = $DB->sql_like('qc.name', '?', false);
-        $likefr = $DB->sql_like('qc.name', '?', false);
+        // 1. Récupérer toutes les catégories candidates par NOM (par défaut Moodle)
+        // ⚠️ On ne filtre pas "vide" ici : on doit d'abord savoir quelle catégorie Moodle utilise réellement.
+        // Ensuite seulement, on supprime les doublons réellement inutiles (vides, sans sous-catégories).
+        //
+        // Variantes :
+        // - EN: "Default for ..."
+        // - FR: "Par défaut pour ..." (avec/sans accent selon encodage/exports)
+        $patterns = ['%Default for%', '%Par défaut pour%', '%Defaut pour%'];
+        $likesql = [];
+        $params = [];
+        foreach ($patterns as $p) {
+            $likesql[] = $DB->sql_like('qc.name', '?', false);
+            $params[] = $p;
+        }
         $sql = "SELECT qc.*, ctx.contextlevel, ctx.instanceid
                 FROM {question_categories} qc
                 JOIN {context} ctx ON ctx.id = qc.contextid
-                WHERE ($likeen OR $likefr)
+                WHERE (" . implode(' OR ', $likesql) . ")
                 ORDER BY qc.contextid, qc.id ASC";
-                
-        $candidates = $DB->get_records_sql($sql, ['%Default for%', '%Défaut pour%']);
+        $candidates = $DB->get_records_sql($sql, $params);
         
         // Grouper par contexte
         $by_context = [];
         foreach ($candidates as $cat) {
-            // Vérification stricte : doit être VIDE (0 questions, 0 sous-cats)
-            $stats = self::get_category_stats($cat);
-            if ($stats->is_empty) {
-                if (!isset($by_context[$cat->contextid])) {
-                    $by_context[$cat->contextid] = [];
-                }
-                $by_context[$cat->contextid][] = $cat;
+            if (!isset($by_context[$cat->contextid])) {
+                $by_context[$cat->contextid] = [];
             }
+            $by_context[$cat->contextid][] = $cat;
         }
         
         // Analyser chaque contexte pour trouver les redondances
         foreach ($by_context as $contextid => $cats) {
-            // S'il n'y a qu'une seule catégorie défaut vide, on ne touche pas (c'est la normale)
+            // S'il n'y a qu'une seule catégorie "par défaut" dans ce contexte, rien à nettoyer.
             if (count($cats) < 2) {
                 continue;
             }
             
-            // S'il y a plusieurs candidats :
-            // 1. On garde le premier (le plus ancien par ID, car ORDER BY id ASC)
-            // 2. On marque les autres comme supprimables
+            // Déterminer LA catégorie par défaut réellement utilisée par Moodle pour ce contexte.
+            // Moodle (core) choisit la catégorie "Default for ..." du contexte (souvent la plus ancienne),
+            // mais on s'aligne explicitement sur l'API pour éviter toute surprise.
+            $keepid = null;
+            $keep_reason = '';
+            try {
+                require_once($CFG->libdir . '/questionlib.php');
+                if (function_exists('question_get_default_category')) {
+                    $defaultcat = question_get_default_category((int)$contextid, false);
+                    if ($defaultcat && !empty($defaultcat->id)) {
+                        $keepid = (int)$defaultcat->id;
+                        $keep_reason = 'Catégorie par défaut utilisée par Moodle (API question_get_default_category)';
+                    }
+                }
+            } catch (\Exception $e) {
+                // Fallback ci-dessous.
+            }
+            if (empty($keepid)) {
+                // Fallback sûr : la liste est triée par id asc, donc le premier est le plus ancien.
+                $keepid = (int)$cats[0]->id;
+                $keep_reason = 'Fallback : plus ancienne (id minimal)';
+            }
             
-            $keep = array_shift($cats); // Le premier est gardé
-            $delete = $cats;            // Le reste est à supprimer
+            // Déterminer quelles catégories supprimer :
+            // - garder celle choisie par Moodle
+            // - supprimer uniquement les doublons VIDES (0 questions, 0 sous-cats)
+            $keep = null;
+            $delete = [];
+            foreach ($cats as $cat) {
+                if ((int)$cat->id === (int)$keepid) {
+                    $keep = $cat;
+                    continue;
+                }
+                $stats = self::get_category_stats($cat);
+                if (!empty($stats->is_empty)) {
+                    $delete[] = $cat;
+                }
+            }
+            
+            // Si rien n'est supprimable, ne pas afficher un groupe "bruyant".
+            if (empty($delete)) {
+                continue;
+            }
             
             // Enrichir les infos du contexte pour l'affichage
             $context_info = 'Contexte ID: ' . $contextid;
@@ -462,7 +504,9 @@ class category_manager {
                 'context_name' => $context_info,
                 'keep' => $keep,
                 'delete' => $delete,
-                'count' => count($delete)
+                'count' => count($delete),
+                'total_in_context' => count($cats),
+                'keep_reason' => $keep_reason,
             ];
         }
         
@@ -476,7 +520,7 @@ class category_manager {
      * @param bool $bypass_default_protection Si true, autorise la suppression d'une "Default for" (pour nettoyage redondance)
      * @return bool|string true si succès, message d'erreur sinon
      */
-    public static function delete_category($categoryid, $bypass_default_protection = false) {
+    public static function delete_category($categoryid, $bypass_default_protection = false, $bypass_info_protection = false) {
         global $DB, $CFG;
 
         try {
@@ -500,7 +544,9 @@ class category_manager {
             }
             
             // 🛡️ PROTECTION 2 : Catégories avec description (usage intentionnel)
-            if (!empty($category->info)) {
+            // Exception contrôlée : certains nettoyages automatisés peuvent contourner cette protection
+            // (ex: suppression de doublons "Default for" vides), avec confirmation admin.
+            if (!$bypass_info_protection && !empty($category->info)) {
                 return "❌ PROTÉGÉE : Cette catégorie a une description, indiquant un usage intentionnel. Supprimez d'abord la description si vous êtes certain de vouloir la supprimer.";
             }
             
@@ -544,8 +590,9 @@ class category_manager {
                 if (function_exists('question_delete_category')) {
                     question_delete_category($categoryid);
                 } else {
-                    // Fallback manuel sécurisé (mais ne devrait pas arriver sur Moodle standard)
-                    $DB->delete_records('question_categories', ['id' => $categoryid]);
+                    // Sécurité : ne JAMAIS supprimer directement en base si l'API core n'est pas disponible.
+                    // Cela pourrait laisser des références orphelines et casser la banque de questions.
+                    throw new \moodle_exception('question_delete_category not available in this Moodle installation.');
                 }
                 
                 $transaction->allow_commit();

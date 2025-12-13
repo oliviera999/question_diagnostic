@@ -33,7 +33,8 @@ if ($action === 'cleanup_all') {
     foreach ($groups as $contextid => $group) {
         foreach ($group['delete'] as $cat_to_delete) {
             // Appel avec le flag bypass_default_protection = true
-            $result = category_manager::delete_category($cat_to_delete->id, true);
+            // et bypass_info_protection = true (les doublons "Default for" vides peuvent avoir une description).
+            $result = category_manager::delete_category($cat_to_delete->id, true, true);
             
             if ($result === true) {
                 $count++;
