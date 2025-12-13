@@ -284,6 +284,11 @@ function get_cleanup_stats() {
     $stats->categories_list = [];
     
     foreach ($all_categories as $cat) {
+        // category_manager::get_all_categories_with_stats() retourne des objets:
+        // (object)['category' => <record question_categories>, 'stats' => <stats>]
+        // Conserver un fallback si une autre source fournit déjà un record "plat".
+        $category = (isset($cat->category) && is_object($cat->category)) ? $cat->category : $cat;
+
         $can_delete = can_delete_category($cat);
         
         if ($can_delete) {
@@ -298,11 +303,11 @@ function get_cleanup_stats() {
             
             // Ajouter à la liste pour CSV
             $stats->categories_list[] = (object)[
-                'id' => $cat->id,
-                'name' => $cat->name,
-                'contextid' => $cat->contextid,
+                'id' => $category->id ?? 0,
+                'name' => $category->name ?? '',
+                'contextid' => $category->contextid ?? 0,
                 'context_name' => $cat->stats->context_name ?? 'Inconnu',
-                'parent' => $cat->parent,
+                'parent' => $category->parent ?? 0,
                 'is_empty' => $cat->stats->is_empty,
                 'is_orphan' => $cat->stats->is_orphan,
                 'action' => 'delete'
@@ -426,9 +431,13 @@ function execute_cleanup_batch($batch) {
     echo html_writer::tag('h4', '📝 Traitement en cours...', ['style' => 'margin-top: 0;']);
     
     foreach ($batch_categories as $cat) {
+        $category = (isset($cat->category) && is_object($cat->category)) ? $cat->category : $cat;
+        $catid = $category->id ?? 0;
+        $catname = $category->name ?? 'Inconnu';
+
         try {
             // Supprimer la catégorie
-            category_manager::delete_category($cat->id);
+            category_manager::delete_category($catid);
             
             // Note : L'audit logging est géré automatiquement par category_manager::delete_category()
             // via audit_logger::log_category_deletion()
@@ -436,13 +445,13 @@ function execute_cleanup_batch($batch) {
             $deleted_in_batch++;
             $_SESSION['cleanup_categories_deleted']++;
             
-            echo html_writer::tag('p', '✅ Supprimée : ' . format_string($cat->name) . ' (ID: ' . $cat->id . ')', 
+            echo html_writer::tag('p', '✅ Supprimée : ' . format_string($catname) . ' (ID: ' . $catid . ')', 
                                  ['style' => 'margin: 5px 0; color: #28a745;']);
         } catch (Exception $e) {
             $errors_in_batch++;
             $_SESSION['cleanup_categories_errors']++;
             
-            echo html_writer::tag('p', '❌ Erreur : ' . format_string($cat->name) . ' (ID: ' . $cat->id . ') - ' . $e->getMessage(), 
+            echo html_writer::tag('p', '❌ Erreur : ' . format_string($catname) . ' (ID: ' . $catid . ') - ' . $e->getMessage(), 
                                  ['style' => 'margin: 5px 0; color: #d9534f;']);
         }
     }
