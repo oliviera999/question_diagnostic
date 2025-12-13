@@ -16,6 +16,10 @@
 
 defined('MOODLE_INTERNAL') || die();
 
+// Charger les gestionnaires centralisés
+require_once(__DIR__ . '/classes/debug_manager.php');
+require_once(__DIR__ . '/classes/error_manager.php');
+
 /**
  * Add navigation links for the plugin
  *
@@ -820,12 +824,35 @@ function local_question_diagnostic_find_olution_category() {
         
         debugging('🔍 Searching for Olution category in system context (ID: ' . $systemcontext->id . ')', DEBUG_DEVELOPER);
         
+        // Dans Moodle, la catégorie racine visible est généralement "Top" (parent=0).
+        // Les catégories réelles (ex: "Olution") sont souvent sous "Top" (parent != 0).
+        // Ne pas supposer que parent = 0 pour "Olution".
+        $system_root_category = $DB->get_record('question_categories', [
+            'contextid' => $systemcontext->id,
+            'parent' => 0
+        ]);
+        $system_top_id = $system_root_category ? (int)$system_root_category->id : 0;
+        
         // ==================================================================================
         // PRIORITÉ 1 : Nom EXACT "Olution" (case-sensitive) au niveau SYSTÈME
         // ==================================================================================
+        // Essayer d'abord sous "Top" si connu (cas standard Moodle)
+        if ($system_top_id > 0) {
+            $olution = $DB->get_record('question_categories', [
+                'contextid' => $systemcontext->id,
+                'parent' => $system_top_id,
+                'name' => 'Olution'
+            ]);
+            
+            if ($olution) {
+                debugging('✅ Olution category found - EXACT match under Top: Olution (ID: ' . $olution->id . ')', DEBUG_DEVELOPER);
+                return $olution;
+            }
+        }
+        
+        // Fallback : n'importe quel parent (ex: si "Olution" n'est pas directement sous Top)
         $olution = $DB->get_record('question_categories', [
             'contextid' => $systemcontext->id,
-            'parent' => 0,
             'name' => 'Olution'
         ]);
         
@@ -842,9 +869,23 @@ function local_question_diagnostic_find_olution_category() {
         $variants = ['olution', 'OLUTION'];
         
         foreach ($variants as $variant) {
+            // Essayer d'abord sous "Top"
+            if ($system_top_id > 0) {
+                $olution = $DB->get_record('question_categories', [
+                    'contextid' => $systemcontext->id,
+                    'parent' => $system_top_id,
+                    'name' => $variant
+                ]);
+                
+                if ($olution) {
+                    debugging('✅ Olution question category found - Case variant under Top: ' . $variant, DEBUG_DEVELOPER);
+                    return $olution;
+                }
+            }
+            
+            // Fallback : n'importe quel parent
             $olution = $DB->get_record('question_categories', [
                 'contextid' => $systemcontext->id,
-                'parent' => 0,
                 'name' => $variant
             ]);
             
@@ -861,13 +902,13 @@ function local_question_diagnostic_find_olution_category() {
         $sql = "SELECT *
                 FROM {question_categories}
                 WHERE contextid = :contextid
-                AND parent = 0
                 AND " . $DB->sql_like('name', ':pattern', false, false) . "
-                ORDER BY LENGTH(name) ASC
+                ORDER BY CASE WHEN parent = :topid THEN 0 ELSE 1 END, LENGTH(name) ASC
                 LIMIT 1";
         
         $olution = $DB->get_record_sql($sql, [
             'contextid' => $systemcontext->id,
+            'topid' => $system_top_id,
             'pattern' => 'Olution %'
         ]);
         
@@ -883,13 +924,13 @@ function local_question_diagnostic_find_olution_category() {
         $sql = "SELECT *
                 FROM {question_categories}
                 WHERE contextid = :contextid
-                AND parent = 0
                 AND " . $DB->sql_like('name', ':pattern', false, false) . "
-                ORDER BY LENGTH(name) ASC
+                ORDER BY CASE WHEN parent = :topid THEN 0 ELSE 1 END, LENGTH(name) ASC
                 LIMIT 1";
         
         $olution = $DB->get_record_sql($sql, [
             'contextid' => $systemcontext->id,
+            'topid' => $system_top_id,
             'pattern' => '% Olution'
         ]);
         
@@ -905,13 +946,13 @@ function local_question_diagnostic_find_olution_category() {
         $sql = "SELECT *
                 FROM {question_categories}
                 WHERE contextid = :contextid
-                AND parent = 0
                 AND " . $DB->sql_like('name', ':pattern', false, false) . "
-                ORDER BY LENGTH(name) ASC
+                ORDER BY CASE WHEN parent = :topid THEN 0 ELSE 1 END, LENGTH(name) ASC
                 LIMIT 1";
         
         $olution = $DB->get_record_sql($sql, [
             'contextid' => $systemcontext->id,
+            'topid' => $system_top_id,
             'pattern' => '% Olution %'
         ]);
         
@@ -927,13 +968,13 @@ function local_question_diagnostic_find_olution_category() {
         $sql = "SELECT *
                 FROM {question_categories}
                 WHERE contextid = :contextid
-                AND parent = 0
                 AND " . $DB->sql_like('name', ':pattern', false, false) . "
-                ORDER BY " . $DB->sql_position("'Olution'", 'name') . " ASC, LENGTH(name) ASC
+                ORDER BY CASE WHEN parent = :topid THEN 0 ELSE 1 END, " . $DB->sql_position("'Olution'", 'name') . " ASC, LENGTH(name) ASC
                 LIMIT 1";
         
         $olution = $DB->get_record_sql($sql, [
             'contextid' => $systemcontext->id,
+            'topid' => $system_top_id,
             'pattern' => '%Olution%'
         ]);
         
@@ -949,14 +990,14 @@ function local_question_diagnostic_find_olution_category() {
         $sql = "SELECT *
                 FROM {question_categories}
                 WHERE contextid = :contextid
-                AND parent = 0
                 AND " . $DB->sql_like('info', ':pattern', false, false) . "
                 AND LENGTH(name) <= 50
-                ORDER BY " . $DB->sql_position("'olution'", 'info') . " ASC
+                ORDER BY CASE WHEN parent = :topid THEN 0 ELSE 1 END, " . $DB->sql_position("'olution'", 'info') . " ASC
                 LIMIT 1";
         
         $olution = $DB->get_record_sql($sql, [
             'contextid' => $systemcontext->id,
+            'topid' => $system_top_id,
             'pattern' => '%olution%'
         ]);
         
@@ -968,19 +1009,11 @@ function local_question_diagnostic_find_olution_category() {
         debugging('❌ No Olution category found in system context after all searches', DEBUG_DEVELOPER);
         
         // ==================================================================================
-        // NOUVELLE OPTION : Créer automatiquement la catégorie Olution si elle n'existe pas
+        // IMPORTANT : Ne pas créer automatiquement la catégorie Olution.
+        // La création automatique peut masquer un problème de configuration (ex: Olution existe sous "Top")
+        // et fausser la détection des doublons / déplacements.
         // ==================================================================================
-        debugging('🆕 No Olution category found, attempting to create one automatically', DEBUG_DEVELOPER);
-        
-        try {
-            $new_olution = local_question_diagnostic_create_olution_category();
-            if ($new_olution) {
-                debugging('✅ Successfully created Olution category: ' . $new_olution->name . ' (ID: ' . $new_olution->id . ')', DEBUG_DEVELOPER);
-                return $new_olution;
-            }
-        } catch (Exception $e) {
-            debugging('❌ Failed to create Olution category: ' . $e->getMessage(), DEBUG_DEVELOPER);
-        }
+        debugging('ℹ️ Not auto-creating Olution category (manual setup required)', DEBUG_DEVELOPER);
         
         // ==================================================================================
         // PHASE 2 : Recherche dans la CATÉGORIE DE COURS "Olution" (si Phase 1 échoue)
@@ -1359,6 +1392,13 @@ function local_question_diagnostic_create_olution_category() {
         // Récupérer le contexte système
         $systemcontext = context_system::instance();
         
+        // Déterminer la catégorie racine ("Top") pour créer Olution au bon endroit.
+        $system_root_category = $DB->get_record('question_categories', [
+            'contextid' => $systemcontext->id,
+            'parent' => 0
+        ]);
+        $system_top_id = $system_root_category ? (int)$system_root_category->id : 0;
+        
         // Vérifier qu'une catégorie Olution n'existe pas déjà
         $existing = $DB->get_record('question_categories', [
             'contextid' => $systemcontext->id,
@@ -1376,7 +1416,8 @@ function local_question_diagnostic_create_olution_category() {
         $new_category->info = 'Catégorie système pour les questions partagées Olution. Créée automatiquement par le plugin Question Diagnostic.';
         $new_category->infoformat = FORMAT_HTML;
         $new_category->contextid = $systemcontext->id;
-        $new_category->parent = 0; // Racine
+        // Créer sous "Top" si possible (comportement Moodle standard), sinon fallback racine.
+        $new_category->parent = $system_top_id > 0 ? $system_top_id : 0;
         $new_category->sortorder = 999; // À la fin
         
         // Insérer dans la base de données

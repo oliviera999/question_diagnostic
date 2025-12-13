@@ -1,0 +1,59 @@
+<?xml version="1.0"?>
+<ruleset name="Moodle Question Diagnostic">
+    <description>Coding standard for Moodle Question Diagnostic plugin</description>
+
+    <!-- Fichiers à analyser -->
+    <file>./</file>
+    
+    <!-- Exclusions -->
+    <exclude-pattern>*/vendor/*</exclude-pattern>
+    <exclude-pattern>*/node_modules/*</exclude-pattern>
+    <exclude-pattern>*/tests/*</exclude-pattern>
+    <exclude-pattern>*/docs/*</exclude-pattern>
+    <exclude-pattern>*/moodledata/*</exclude-pattern>
+    <exclude-pattern>*.min.js</exclude-pattern>
+    <exclude-pattern>*.min.css</exclude-pattern>
+
+    <!-- Standards Moodle -->
+    <rule ref="Moodle"/>
+    
+    <!-- Règles personnalisées -->
+    <rule ref="Generic.Files.LineLength">
+        <properties>
+            <property name="lineLimit" value="132"/>
+            <property name="absoluteLineLimit" value="180"/>
+        </properties>
+    </rule>
+    
+    <rule ref="Generic.Commenting.DocComment">
+        <properties>
+            <property name="required" value="false"/>
+        </properties>
+    </rule>
+    
+    <rule ref="Squiz.Commenting.FunctionComment">
+        <properties>
+            <property name="required" value="false"/>
+        </properties>
+    </rule>
+    
+    <rule ref="Squiz.Commenting.ClassComment">
+        <properties>
+            <property name="required" value="false"/>
+        </properties>
+    </rule>
+    
+    <!-- Configuration des couleurs -->
+    <arg name="colors"/>
+    <arg name="parallel" value="8"/>
+    <arg name="cache"/>
+    
+    <!-- Format de sortie -->
+    <arg value="n"/>
+    <arg value="p"/>
+    <arg value="s"/>
+    
+    <!-- Configuration des rapports -->
+    <arg name="report" value="full"/>
+    
+</ruleset>

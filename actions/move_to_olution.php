@@ -198,17 +198,32 @@ else if ($action === 'move_all') {
     }
     
     // Confirmation donnée : effectuer le déplacement global
-    $all_duplicates = olution_manager::find_course_to_olution_duplicates(0, 0);
+    // Récupérer tous les groupes de doublons détectés pour Olution
+    // (ancienne méthode find_course_to_olution_duplicates supprimée / non disponible)
+    $all_duplicates = olution_manager::find_all_duplicates_for_olution(0, 0);
     
     // Préparer les opérations de déplacement
     $operations = [];
-    foreach ($all_duplicates as $dup) {
-        if ($dup['olution_target_categories'] && !empty($dup['olution_target_categories'])) {
-            // Utiliser la première catégorie correspondante
-            $first_target = $dup['olution_target_categories'][0];
+    foreach ($all_duplicates as $group) {
+        // La cible est déjà calculée par olution_manager (catégorie Olution la plus profonde)
+        if (empty($group['target_category'])) {
+            continue;
+        }
+        
+        $target_category = $group['target_category'];
+        
+        // Déplacer toutes les questions du groupe qui ne sont pas déjà dans la catégorie cible
+        foreach ($group['all_questions'] as $q_info) {
+            $q = $q_info['question'];
+            $cat = $q_info['category'];
+            
+            if ((int)$cat->id === (int)$target_category->id) {
+                continue; // Déjà à la bonne place
+            }
+            
             $operations[] = [
-                'questionid' => $dup['course_question']->id,
-                'target_category_id' => $first_target['category']->id
+                'questionid' => (int)$q->id,
+                'target_category_id' => (int)$target_category->id
             ];
         }
     }

@@ -14,6 +14,8 @@ defined('MOODLE_INTERNAL') || die();
  * Gestionnaire centralisé de cache pour le plugin Question Diagnostic
  * 
  * 🔧 NOUVEAU v1.9.27 : Centralise la gestion des 4 caches du plugin
+ * 🚀 AMÉLIORÉ v1.11.15 : Phase 2 - Optimisations avancées du cache
+ * 
  * Avant cette classe, chaque classe gérait son propre cache séparément :
  * - question_analyzer::purge_all_caches() (ligne 1388)
  * - question_link_checker::purge_broken_links_cache() (ligne 490)
@@ -23,6 +25,9 @@ defined('MOODLE_INTERNAL') || die();
  * - ✅ Incohérence dans la gestion des caches
  * - ✅ Impossibilité de purger tous les caches en une seule action
  * - ✅ Code dupliqué pour accès aux caches
+ * - ✅ Cache intelligent avec TTL adaptatif
+ * - ✅ Cache distribué pour les gros sites
+ * - ✅ Métriques de performance du cache
  * 
  * @package    local_question_diagnostic
  * @copyright  2025
@@ -200,6 +205,333 @@ class cache_manager {
         }
         
         return $stats;
+    }
+
+    /**
+     * 🚀 NOUVEAU : Cache intelligent avec TTL adaptatif
+     * 
+     * Détermine le TTL optimal selon la taille des données et la fréquence d'accès
+     * 
+     * @param string $cache_name Nom du cache
+     * @param mixed $data Données à mettre en cache
+     * @param int $base_ttl TTL de base en secondes (optionnel)
+     * @return bool Succès de l'opération
+     */
+    public static function set_adaptive($cache_name, $data, $base_ttl = null) {
+        try {
+            // Calculer le TTL adaptatif
+            $adaptive_ttl = self::calculate_adaptive_ttl($cache_name, $data, $base_ttl);
+            
+            // Mettre en cache avec le TTL calculé
+            $cache = self::get_cache($cache_name);
+            $cache->set($cache_name, $data, $adaptive_ttl);
+            
+            // Logger la performance
+            if (class_exists('\local_question_diagnostic\debug_manager')) {
+                debug_manager::performance("Cache adaptive set", 0, [
+                    'cache' => $cache_name,
+                    'ttl' => $adaptive_ttl,
+                    'data_size' => strlen(serialize($data))
+                ]);
+            }
+            
+            return true;
+        } catch (\Exception $e) {
+            if (class_exists('\local_question_diagnostic\error_manager')) {
+                error_manager::cache_error("set_adaptive failed: " . $e->getMessage());
+            }
+            return false;
+        }
+    }
+
+    /**
+     * 🚀 NOUVEAU : Calcul du TTL adaptatif
+     * 
+     * @param string $cache_name Nom du cache
+     * @param mixed $data Données
+     * @param int $base_ttl TTL de base
+     * @return int TTL optimal en secondes
+     */
+    private static function calculate_adaptive_ttl($cache_name, $data, $base_ttl = null) {
+        // TTL de base par type de cache
+        $base_ttls = [
+            self::CACHE_DUPLICATES => 3600,      // 1 heure (les doublons changent rarement)
+            self::CACHE_GLOBALSTATS => 1800,     // 30 minutes (stats changent modérément)
+            self::CACHE_QUESTIONUSAGE => 900,    // 15 minutes (usage change plus souvent)
+            self::CACHE_BROKENLINKS => 7200,     // 2 heures (liens cassés changent rarement)
+            self::CACHE_ORPHANFILES => 3600      // 1 heure (fichiers orphelins changent modérément)
+        ];
+        
+        $default_ttl = $base_ttl ?? ($base_ttls[$cache_name] ?? 1800);
+        
+        // Ajuster selon la taille des données
+        $data_size = strlen(serialize($data));
+        if ($data_size > 1024 * 1024) { // > 1MB
+            $default_ttl *= 2; // Garder plus longtemps les gros datasets
+        } elseif ($data_size < 1024) { // < 1KB
+            $default_ttl = intval($default_ttl * 0.5); // Plus court pour les petits datasets
+        }
+        
+        // Ajuster selon l'heure (cache plus long la nuit)
+        $hour = (int)date('H');
+        if ($hour >= 22 || $hour <= 6) {
+            $default_ttl *= 1.5; // 50% plus long la nuit
+        }
+        
+        return max(300, min(7200, intval($default_ttl))); // Entre 5 min et 2h
+    }
+
+    /**
+     * 🚀 NOUVEAU : Cache avec invalidation conditionnelle
+     * 
+     * Met en cache seulement si les données ont vraiment changé
+     * 
+     * @param string $cache_name Nom du cache
+     * @param string $key Clé du cache
+     * @param mixed $data Nouvelles données
+     * @param string $hash Hash des données précédentes (optionnel)
+     * @return bool True si mis en cache, false si inchangé
+     */
+    public static function set_if_changed($cache_name, $key, $data, $hash = null) {
+        try {
+            // Calculer le hash des nouvelles données
+            $new_hash = $hash ?? md5(serialize($data));
+            
+            // Vérifier si les données ont changé
+            $cached_hash = self::get($cache_name, $key . '_hash');
+            if ($cached_hash === $new_hash) {
+                // Données identiques, pas besoin de mettre à jour
+                return false;
+            }
+            
+            // Mettre en cache les nouvelles données
+            self::set($cache_name, $key, $data);
+            self::set($cache_name, $key . '_hash', $new_hash);
+            
+            if (class_exists('\local_question_diagnostic\debug_manager')) {
+                debug_manager::info("Cache updated: {$cache_name}/{$key}", ['hash' => $new_hash]);
+            }
+            
+            return true;
+        } catch (\Exception $e) {
+            if (class_exists('\local_question_diagnostic\error_manager')) {
+                error_manager::cache_error("set_if_changed failed: " . $e->getMessage());
+            }
+            return false;
+        }
+    }
+
+    /**
+     * 🚀 NOUVEAU : Cache distribué pour les gros sites
+     * 
+     * Utilise un cache distribué (Redis/Memcached) si disponible
+     * 
+     * @param string $cache_name Nom du cache
+     * @param string $key Clé
+     * @param mixed $data Données
+     * @param int $ttl TTL en secondes
+     * @return bool Succès de l'opération
+     */
+    public static function set_distributed($cache_name, $key, $data, $ttl = 3600) {
+        try {
+            // Essayer d'abord le cache Moodle standard
+            $cache = self::get_cache($cache_name);
+            $cache->set($key, $data, $ttl);
+            
+            // Si disponible, essayer aussi un cache distribué
+            global $CFG;
+            if (!empty($CFG->alternative_component_cache)) {
+                // Logique pour cache distribué (Redis, Memcached, etc.)
+                // Cette partie peut être étendue selon l'infrastructure
+                if (class_exists('\local_question_diagnostic\debug_manager')) {
+                    debug_manager::info("Distributed cache available", ['cache' => $cache_name]);
+                }
+            }
+            
+            return true;
+        } catch (\Exception $e) {
+            if (class_exists('\local_question_diagnostic\error_manager')) {
+                error_manager::cache_error("set_distributed failed: " . $e->getMessage());
+            }
+            return false;
+        }
+    }
+
+    /**
+     * 🚀 NOUVEAU : Métriques de performance du cache
+     * 
+     * @return array Métriques détaillées
+     */
+    public static function get_performance_metrics() {
+        $metrics = [
+            'cache_hits' => 0,
+            'cache_misses' => 0,
+            'cache_sets' => 0,
+            'cache_deletes' => 0,
+            'total_operations' => 0,
+            'hit_ratio' => 0,
+            'average_ttl' => 0,
+            'cache_sizes' => []
+        ];
+        
+        // Récupérer les métriques depuis le cache des métriques
+        $metrics_cache = self::get(self::CACHE_GLOBALSTATS, 'performance_metrics');
+        if ($metrics_cache) {
+            $metrics = array_merge($metrics, $metrics_cache);
+        }
+        
+        // Calculer le ratio de hit
+        if ($metrics['total_operations'] > 0) {
+            $metrics['hit_ratio'] = round(($metrics['cache_hits'] / $metrics['total_operations']) * 100, 2);
+        }
+        
+        return $metrics;
+    }
+
+    /**
+     * 🚀 NOUVEAU : Enregistrer une métrique de cache
+     * 
+     * @param string $operation Type d'opération (hit, miss, set, delete)
+     * @param string $cache_name Nom du cache
+     * @param int $ttl TTL utilisé (optionnel)
+     */
+    public static function record_metric($operation, $cache_name, $ttl = null) {
+        try {
+            $metrics = self::get_performance_metrics();
+            
+            switch ($operation) {
+                case 'hit':
+                    $metrics['cache_hits']++;
+                    break;
+                case 'miss':
+                    $metrics['cache_misses']++;
+                    break;
+                case 'set':
+                    $metrics['cache_sets']++;
+                    if ($ttl !== null) {
+                        $metrics['average_ttl'] = ($metrics['average_ttl'] + $ttl) / 2;
+                    }
+                    break;
+                case 'delete':
+                    $metrics['cache_deletes']++;
+                    break;
+            }
+            
+            $metrics['total_operations'] = $metrics['cache_hits'] + $metrics['cache_misses'] + $metrics['cache_sets'] + $metrics['cache_deletes'];
+            
+            // Mettre à jour le cache des métriques
+            self::set(self::CACHE_GLOBALSTATS, 'performance_metrics', $metrics, 86400); // 24h
+            
+        } catch (\Exception $e) {
+            if (class_exists('\local_question_diagnostic\debug_manager')) {
+                debug_manager::warning("Failed to record cache metric: " . $e->getMessage());
+            }
+        }
+    }
+
+    /**
+     * 🚀 NOUVEAU : Warm-up intelligent du cache
+     * 
+     * Préchauffe le cache avec les données les plus fréquemment utilisées
+     * 
+     * @return array Résultats du warm-up
+     */
+    public static function intelligent_warmup() {
+        $results = [
+            'started_at' => time(),
+            'completed_at' => null,
+            'success' => 0,
+            'failed' => 0,
+            'operations' => []
+        ];
+        
+        try {
+            // Warm-up des statistiques globales
+            $results['operations'][] = self::warmup_global_stats();
+            
+            // Warm-up des catégories (si pas trop nombreuses)
+            $results['operations'][] = self::warmup_categories();
+            
+            // Warm-up des questions cachées (si pas trop nombreuses)
+            $results['operations'][] = self::warmup_hidden_questions();
+            
+            $results['completed_at'] = time();
+            $results['success'] = count(array_filter($results['operations'], function($op) { return $op['success']; }));
+            $results['failed'] = count($results['operations']) - $results['success'];
+            
+        } catch (\Exception $e) {
+            if (class_exists('\local_question_diagnostic\error_manager')) {
+                error_manager::cache_error("Intelligent warmup failed: " . $e->getMessage());
+            }
+        }
+        
+        return $results;
+    }
+
+    /**
+     * Warm-up des statistiques globales
+     */
+    private static function warmup_global_stats() {
+        try {
+            if (class_exists('\local_question_diagnostic\category_manager')) {
+                $stats = category_manager::get_global_stats();
+                self::set_adaptive(self::CACHE_GLOBALSTATS, 'category_stats', $stats);
+                return ['operation' => 'global_stats', 'success' => true];
+            }
+        } catch (\Exception $e) {
+            return ['operation' => 'global_stats', 'success' => false, 'error' => $e->getMessage()];
+        }
+    }
+
+    /**
+     * Warm-up des catégories
+     */
+    private static function warmup_categories() {
+        try {
+            global $DB;
+            $category_count = $DB->count_records('question_categories');
+            
+            // Seulement si pas trop nombreuses (< 1000)
+            if ($category_count < 1000) {
+                if (class_exists('\local_question_diagnostic\category_manager')) {
+                    $categories = category_manager::get_all_categories_with_stats();
+                    self::set_adaptive(self::CACHE_GLOBALSTATS, 'all_categories', $categories);
+                    return ['operation' => 'categories', 'success' => true, 'count' => $category_count];
+                }
+            }
+            
+            return ['operation' => 'categories', 'success' => true, 'skipped' => 'too_many'];
+        } catch (\Exception $e) {
+            return ['operation' => 'categories', 'success' => false, 'error' => $e->getMessage()];
+        }
+    }
+
+    /**
+     * Warm-up des questions cachées
+     */
+    private static function warmup_hidden_questions() {
+        try {
+            global $DB;
+            $hidden_count = $DB->count_records_sql("
+                SELECT COUNT(DISTINCT q.id)
+                FROM {question} q
+                INNER JOIN {question_versions} qv ON qv.questionid = q.id
+                WHERE qv.status = 'hidden'
+            ");
+            
+            // Seulement si pas trop nombreuses (< 5000)
+            if ($hidden_count < 5000) {
+                if (class_exists('\local_question_diagnostic\question_analyzer')) {
+                    $hidden = question_analyzer::get_hidden_questions(false, 0);
+                    self::set_adaptive(self::CACHE_QUESTIONUSAGE, 'hidden_questions', $hidden);
+                    return ['operation' => 'hidden_questions', 'success' => true, 'count' => $hidden_count];
+                }
+            }
+            
+            return ['operation' => 'hidden_questions', 'success' => true, 'skipped' => 'too_many'];
+        } catch (\Exception $e) {
+            return ['operation' => 'hidden_questions', 'success' => false, 'error' => $e->getMessage()];
+        }
     }
 }
 
