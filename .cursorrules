@@ -4,7 +4,7 @@
 
 Ce projet est un **plugin Moodle** (local plugin) pour le diagnostic et la gestion de la banque de questions.
 - **Nom du plugin** : `local_question_diagnostic`
-- **Version actuelle** : v1.2.1
+- **Version actuelle** : v1.11.19
 - **Version Moodle CIBLE** : **Moodle 4.5** (compatible 4.5+), c'est très important
 - **Langues** : Français (FR) et Anglais (EN)
 

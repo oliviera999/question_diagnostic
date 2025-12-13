@@ -67,7 +67,7 @@
     "extra": {
         "moodle-plugin": {
             "component": "local_question_diagnostic",
-            "release": "v1.11.15",
+            "release": "v1.11.19",
             "maturity": "MATURITY_STABLE",
             "requires": "2022041900",
             "supported": [
