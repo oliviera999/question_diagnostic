@@ -411,11 +411,12 @@ class category_manager {
         
         // 1. Récupérer toutes les catégories potentielles (vides + nom type défaut)
         // Optimisation : On filtre d'abord grossièrement par nom
+        $likeen = $DB->sql_like('qc.name', '?', false);
+        $likefr = $DB->sql_like('qc.name', '?', false);
         $sql = "SELECT qc.*, ctx.contextlevel, ctx.instanceid
                 FROM {question_categories} qc
                 JOIN {context} ctx ON ctx.id = qc.contextid
-                WHERE (qc.name " . $DB->sql_like('?', false) . " 
-                   OR qc.name " . $DB->sql_like('?', false) . ")
+                WHERE ($likeen OR $likefr)
                 ORDER BY qc.contextid, qc.id ASC";
                 
         $candidates = $DB->get_records_sql($sql, ['%Default for%', '%Défaut pour%']);
