@@ -539,7 +539,7 @@ class category_manager {
             
             try {
                 // Utiliser l'API native si disponible (recommandé Moodle 4.5)
-                require_once($CFG->libroot . '/questionlib.php');
+                require_once($CFG->libdir . '/questionlib.php');
                 
                 if (function_exists('question_delete_category')) {
                     question_delete_category($categoryid);
@@ -613,7 +613,7 @@ class category_manager {
         }
 
         try {
-            require_once($CFG->libroot . '/questionlib.php');
+            require_once($CFG->libdir . '/questionlib.php');
 
             // Vérifier que les catégories existent
             $source = $DB->get_record('question_categories', ['id' => $sourceid], '*', MUST_EXIST);

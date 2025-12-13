@@ -322,7 +322,7 @@ class olution_manager {
         try {
             debugging('🚀 Starting move_question_to_olution: question=' . $questionid . ', target=' . $target_category_id, DEBUG_DEVELOPER);
             
-            require_once($CFG->libroot . '/questionlib.php');
+            require_once($CFG->libdir . '/questionlib.php');
 
             // Vérifier que la question existe
             $question = $DB->get_record('question', ['id' => $questionid]);
