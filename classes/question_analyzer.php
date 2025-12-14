@@ -2299,6 +2299,424 @@ class question_analyzer {
         
         return $stats;
     }
+
+    /**
+     * 🆕 Diagnostic : Vérifie la cohérence des QUESTIONS (lecture seule).
+     *
+     * Objectif : détecter des incohérences structurelles susceptibles de casser la banque de questions
+     * (liens orphelins, versioning incohérent, types de questions inconnus, etc.).
+     *
+     * ⚠️ IMPORTANT : aucun changement n'est effectué. Le diagnostic s'adapte à la structure réelle
+     * de la base (Moodle 4.5+) via $DB->get_manager() et $DB->get_columns().
+     *
+     * @param int $samplelimit Nombre maximum d'éléments listés par check
+     * @return \stdClass Rapport structuré
+     */
+    public static function get_questions_integrity_report(int $samplelimit = 50): \stdClass {
+        global $DB;
+
+        $report = (object)[
+            'generatedat' => time(),
+            'summary' => (object)[
+                'questions' => 0,
+                'entries' => 0,
+                'versions' => 0,
+                'errors' => 0,
+                'warnings' => 0,
+            ],
+            'checks' => [],
+        ];
+
+        $dbman = $DB->get_manager();
+
+        // Vérifier que les tables de la nouvelle architecture existent (Moodle 4.0+).
+        if (!$dbman->table_exists('question_bank_entries') || !$dbman->table_exists('question_versions')) {
+            $report->checks['missing_question_bank_tables'] = (object)[
+                'severity' => 'error',
+                'title' => 'Architecture Question Bank manquante',
+                'description' => 'Les tables question_bank_entries et/ou question_versions n’existent pas. Ce plugin cible Moodle 4.5+ (architecture de versioning).',
+                'count' => 1,
+                'sample' => [],
+            ];
+            $report->summary->errors = 1;
+            return $report;
+        }
+
+        // Stats de base (rapides).
+        try {
+            $report->summary->questions = (int)$DB->count_records('question');
+            $report->summary->entries = (int)$DB->count_records('question_bank_entries');
+            $report->summary->versions = (int)$DB->count_records('question_versions');
+        } catch (\Exception $e) {
+            // Ne pas bloquer l'affichage.
+        }
+
+        $addcheck = function(string $key, string $severity, string $title, string $description, array $items, ?int $countoverride = null) use (&$report, $samplelimit) {
+            $count = $countoverride !== null ? (int)$countoverride : count($items);
+            $sample = $items;
+            if ($samplelimit > 0 && count($items) > $samplelimit) {
+                $sample = array_slice($items, 0, $samplelimit);
+            }
+            $report->checks[$key] = (object)[
+                'severity' => $severity, // error|warning|info
+                'title' => $title,
+                'description' => $description,
+                'count' => $count,
+                'sample' => $sample,
+            ];
+            if ($severity === 'error') {
+                $report->summary->errors += $count;
+            } else if ($severity === 'warning') {
+                $report->summary->warnings += $count;
+            }
+        };
+
+        $qvcols = $DB->get_columns('question_versions');
+        $hasqvstatus = isset($qvcols['status']);
+
+        // 1) question_versions → question manquant.
+        try {
+            $count = (int)$DB->count_records_sql("
+                SELECT COUNT(1)
+                  FROM {question_versions} qv
+             LEFT JOIN {question} q ON q.id = qv.questionid
+                 WHERE q.id IS NULL
+            ");
+
+            $fields = "qv.id, qv.questionid, qv.questionbankentryid, qv.version";
+            if ($hasqvstatus) {
+                $fields .= ", qv.status";
+            }
+            $sample = array_values($DB->get_records_sql("
+                SELECT $fields
+                  FROM {question_versions} qv
+             LEFT JOIN {question} q ON q.id = qv.questionid
+                 WHERE q.id IS NULL
+              ORDER BY qv.id ASC
+            ", [], 0, $samplelimit));
+
+            $addcheck(
+                'orphan_question_versions_missing_question',
+                'error',
+                'Versions orphelines (question manquante)',
+                'Des enregistrements dans question_versions pointent vers une question inexistante (incohérence critique).',
+                $sample,
+                $count
+            );
+        } catch (\Exception $e) {
+            // Ignore.
+        }
+
+        // 2) question_versions → question_bank_entries manquante.
+        try {
+            $count = (int)$DB->count_records_sql("
+                SELECT COUNT(1)
+                  FROM {question_versions} qv
+             LEFT JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
+                 WHERE qbe.id IS NULL
+            ");
+
+            $fields = "qv.id, qv.questionid, qv.questionbankentryid, qv.version";
+            if ($hasqvstatus) {
+                $fields .= ", qv.status";
+            }
+            $sample = array_values($DB->get_records_sql("
+                SELECT $fields
+                  FROM {question_versions} qv
+             LEFT JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
+                 WHERE qbe.id IS NULL
+              ORDER BY qv.id ASC
+            ", [], 0, $samplelimit));
+
+            $addcheck(
+                'orphan_question_versions_missing_entry',
+                'error',
+                'Versions orphelines (entrée QBE manquante)',
+                'Des enregistrements dans question_versions pointent vers une entrée inexistante (question_bank_entries).',
+                $sample,
+                $count
+            );
+        } catch (\Exception $e) {
+            // Ignore.
+        }
+
+        // 3) question_bank_entries → catégorie manquante.
+        try {
+            $count = (int)$DB->count_records_sql("
+                SELECT COUNT(1)
+                  FROM {question_bank_entries} qbe
+             LEFT JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
+                 WHERE qc.id IS NULL
+            ");
+
+            $sample = array_values($DB->get_records_sql("
+                SELECT qbe.id AS entryid, qbe.questioncategoryid
+                  FROM {question_bank_entries} qbe
+             LEFT JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
+                 WHERE qc.id IS NULL
+              ORDER BY qbe.id ASC
+            ", [], 0, $samplelimit));
+
+            $addcheck(
+                'orphan_entries_missing_category',
+                'error',
+                'Entrées orphelines (catégorie manquante)',
+                'Des entrées de banque de questions pointent vers une catégorie inexistante (question_categories).',
+                $sample,
+                $count
+            );
+        } catch (\Exception $e) {
+            // Ignore.
+        }
+
+        // 4) Questions sans version (question non référencée dans question_versions).
+        try {
+            $count = (int)$DB->count_records_sql("
+                SELECT COUNT(1)
+                  FROM {question} q
+             LEFT JOIN {question_versions} qv ON qv.questionid = q.id
+                 WHERE qv.questionid IS NULL
+            ");
+
+            $sample = array_values($DB->get_records_sql("
+                SELECT q.id, q.name, q.qtype, q.timecreated
+                  FROM {question} q
+             LEFT JOIN {question_versions} qv ON qv.questionid = q.id
+                 WHERE qv.questionid IS NULL
+              ORDER BY q.id ASC
+            ", [], 0, $samplelimit));
+
+            $addcheck(
+                'orphan_questions_missing_version',
+                'warning',
+                'Questions orphelines (sans version)',
+                'Des enregistrements dans {question} ne sont référencés par aucune version (question_versions). Cela peut venir d’imports/erreurs anciennes.',
+                $sample,
+                $count
+            );
+        } catch (\Exception $e) {
+            // Ignore.
+        }
+
+        // 5) Entrées sans versions (question_bank_entries sans question_versions).
+        try {
+            $count = (int)$DB->count_records_sql("
+                SELECT COUNT(1)
+                  FROM {question_bank_entries} qbe
+             LEFT JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+                 WHERE qv.questionbankentryid IS NULL
+            ");
+
+            $sample = array_values($DB->get_records_sql("
+                SELECT qbe.id AS entryid, qbe.questioncategoryid
+                  FROM {question_bank_entries} qbe
+             LEFT JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+                 WHERE qv.questionbankentryid IS NULL
+              ORDER BY qbe.id ASC
+            ", [], 0, $samplelimit));
+
+            $addcheck(
+                'orphan_entries_missing_versions',
+                'warning',
+                'Entrées orphelines (sans versions)',
+                'Des entrées de banque de questions ne possèdent aucune version (question_versions).',
+                $sample,
+                $count
+            );
+        } catch (\Exception $e) {
+            // Ignore.
+        }
+
+        // 6) Plusieurs "dernières versions" pour une même entrée (version max dupliquée).
+        try {
+            // Base query (sans ORDER BY) pour rester portable dans les sous-requêtes.
+            $basesql = "
+                SELECT qv.questionbankentryid AS entryid,
+                       mv.maxversion AS maxversion,
+                       COUNT(1) AS cnt
+                  FROM {question_versions} qv
+                  JOIN (
+                        SELECT questionbankentryid, MAX(version) AS maxversion
+                          FROM {question_versions}
+                      GROUP BY questionbankentryid
+                       ) mv
+                    ON mv.questionbankentryid = qv.questionbankentryid
+                   AND mv.maxversion = qv.version
+              GROUP BY qv.questionbankentryid, mv.maxversion
+                HAVING COUNT(1) > 1
+            ";
+
+            $samplesql = $basesql . " ORDER BY cnt DESC, entryid ASC";
+
+            $rows = array_values($DB->get_records_sql($samplesql, [], 0, $samplelimit));
+            $count = (int)$DB->count_records_sql("SELECT COUNT(1) FROM ($basesql) t", []);
+
+            $addcheck(
+                'duplicate_latest_versions_per_entry',
+                'error',
+                'Versioning incohérent (plusieurs dernières versions)',
+                'Pour une même entrée (question_bank_entries), plusieurs lignes partagent la version maximale. Cela peut provoquer des comportements inattendus.',
+                $rows,
+                $count
+            );
+        } catch (\Exception $e) {
+            // Ignore.
+        }
+
+        // 7) question_references → entrée QBE manquante (Moodle 4.5+).
+        if ($dbman->table_exists('question_references')) {
+            try {
+                $qrcols = $DB->get_columns('question_references');
+                if (isset($qrcols['questionbankentryid'])) {
+                    $count = (int)$DB->count_records_sql("
+                        SELECT COUNT(1)
+                          FROM {question_references} qr
+                     LEFT JOIN {question_bank_entries} qbe ON qbe.id = qr.questionbankentryid
+                         WHERE qbe.id IS NULL
+                    ");
+
+                    $sample = array_values($DB->get_records_sql("
+                        SELECT qr.id, qr.component, qr.questionarea, qr.itemid, qr.questionbankentryid
+                          FROM {question_references} qr
+                     LEFT JOIN {question_bank_entries} qbe ON qbe.id = qr.questionbankentryid
+                         WHERE qbe.id IS NULL
+                      ORDER BY qr.id ASC
+                    ", [], 0, $samplelimit));
+
+                    $addcheck(
+                        'orphan_question_references_missing_entry',
+                        'error',
+                        'Références orphelines (question_references → entrée manquante)',
+                        'Des références déclaratives (question_references) pointent vers une entrée inexistante.',
+                        $sample,
+                        $count
+                    );
+                }
+
+                if (isset($qrcols['contextid'])) {
+                    $count = (int)$DB->count_records_sql("
+                        SELECT COUNT(1)
+                          FROM {question_references} qr
+                     LEFT JOIN {context} ctx ON ctx.id = qr.contextid
+                         WHERE ctx.id IS NULL
+                    ");
+
+                    $sample = array_values($DB->get_records_sql("
+                        SELECT qr.id, qr.contextid, qr.component, qr.questionarea, qr.itemid, qr.questionbankentryid
+                          FROM {question_references} qr
+                     LEFT JOIN {context} ctx ON ctx.id = qr.contextid
+                         WHERE ctx.id IS NULL
+                      ORDER BY qr.id ASC
+                    ", [], 0, $samplelimit));
+
+                    $addcheck(
+                        'orphan_question_references_missing_context',
+                        'warning',
+                        'Références avec contexte manquant',
+                        'Des références déclaratives portent un contextid inexistant (souvent dû à suppression de cours/module).',
+                        $sample,
+                        $count
+                    );
+                }
+            } catch (\Exception $e) {
+                // Ignore.
+            }
+        }
+
+        // 8) Types de questions inconnus (plugin qtype manquant).
+        try {
+            $installed = [];
+            if (class_exists('\\core_component')) {
+                $installed = array_keys((array)\core_component::get_plugin_list('qtype'));
+            }
+
+            $qtypes = $DB->get_records_sql("
+                SELECT q.qtype, COUNT(1) AS cnt
+                  FROM {question} q
+              GROUP BY q.qtype
+              ORDER BY cnt DESC, q.qtype ASC
+            ");
+
+            $unknown = [];
+            foreach ($qtypes as $row) {
+                $qtype = (string)($row->qtype ?? '');
+                if ($qtype === '') {
+                    continue;
+                }
+                if (!empty($installed) && !in_array($qtype, $installed, true)) {
+                    $unknown[] = (object)[
+                        'qtype' => $qtype,
+                        'count' => (int)($row->cnt ?? 0),
+                    ];
+                }
+            }
+
+            $addcheck(
+                'unknown_question_types',
+                'warning',
+                'Types de questions inconnus',
+                'Des questions utilisent un qtype qui n’existe pas/plus sur le site (plugin désinstallé). Ces questions peuvent devenir impossibles à éditer/afficher.',
+                $unknown
+            );
+        } catch (\Exception $e) {
+            // Ignore.
+        }
+
+        // 9) Noms vides.
+        try {
+            $count = (int)$DB->count_records_sql("
+                SELECT COUNT(1)
+                  FROM {question} q
+                 WHERE q.name IS NULL OR q.name = ''
+            ");
+            $sample = array_values($DB->get_records_sql("
+                SELECT q.id, q.qtype, q.timecreated
+                  FROM {question} q
+                 WHERE q.name IS NULL OR q.name = ''
+              ORDER BY q.id ASC
+            ", [], 0, $samplelimit));
+            $addcheck(
+                'empty_question_name',
+                'warning',
+                'Nom de question vide',
+                'Certaines questions ont un champ name vide (souvent dû à import/bug).',
+                $sample,
+                $count
+            );
+        } catch (\Exception $e) {
+            // Ignore.
+        }
+
+        // 10) Valeurs de status (info) si la colonne existe.
+        if ($hasqvstatus) {
+            try {
+                $statuses = $DB->get_records_sql("
+                    SELECT qv.status, COUNT(1) AS cnt
+                      FROM {question_versions} qv
+                  GROUP BY qv.status
+                  ORDER BY cnt DESC
+                ", [], 0, $samplelimit);
+                $items = [];
+                foreach ($statuses as $row) {
+                    $items[] = (object)[
+                        'status' => $row->status,
+                        'count' => (int)$row->cnt,
+                    ];
+                }
+                $addcheck(
+                    'question_version_status_values',
+                    'info',
+                    'Statuts de versions (information)',
+                    'Répartition des valeurs de question_versions.status observées dans la base.',
+                    $items
+                );
+            } catch (\Exception $e) {
+                // Ignore.
+            }
+        }
+
+        return $report;
+    }
     
     /**
      * Récupère les questions inutilisées (avec limite et pagination)

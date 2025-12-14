@@ -92,6 +92,25 @@ $string['categories_integrity_issues_found'] = 'Problèmes critiques détectés'
 $string['categories_integrity_warnings_found'] = 'Avertissements détectés';
 $string['categories_integrity_summary'] = '{$a->categories} catégorie(s) analysée(s) — erreurs : {$a->errors}, avertissements : {$a->warnings}.';
 $string['categories_integrity_details'] = 'Détails du diagnostic';
+$string['categories_integrity_fix'] = 'Corriger automatiquement';
+$string['categories_integrity_fix_confirm_title'] = 'Correction des incohérences de catégories';
+$string['categories_integrity_fix_confirm_intro'] = 'Cette action va proposer des corrections automatiques (avec confirmation) pour certaines incohérences structurelles détectées.';
+$string['categories_integrity_fix_warning'] = '⚠️ Cette action MODIFIE la base de données. Faites un backup avant de confirmer.';
+$string['categories_integrity_fix_operations'] = 'Modifications proposées';
+$string['categories_integrity_fix_done'] = 'Correction terminée : {$a->success} succès, {$a->failed} échec(s).';
+$string['categories_integrity_fix_failed'] = 'Certaines corrections ont échoué :';
+$string['categories_integrity_fix_nothing'] = 'Aucune correction automatique applicable.';
+
+// 🆕 Diagnostic cohérence questions
+$string['questions_integrity_title'] = 'Diagnostic de cohérence des questions';
+$string['questions_integrity_desc'] = 'Analyse la cohérence de la banque de questions (versioning, entrées orphelines, références cassées, types de questions manquants). Aucun changement n’est effectué.';
+$string['questions_integrity_run'] = 'Lancer le diagnostic';
+$string['questions_integrity_stop'] = 'Masquer le diagnostic';
+$string['questions_integrity_ok'] = 'Aucun problème critique détecté';
+$string['questions_integrity_issues_found'] = 'Problèmes critiques détectés';
+$string['questions_integrity_warnings_found'] = 'Avertissements détectés';
+$string['questions_integrity_summary'] = '{$a->questions} question(s) analysée(s) — erreurs : {$a->errors}, avertissements : {$a->warnings}.';
+$string['questions_integrity_details'] = 'Détails du diagnostic';
 
 // Outil 2 : Vérification des liens
 $string['tool_links_title'] = 'Vérification des Liens';

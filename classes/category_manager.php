@@ -941,6 +941,89 @@ class category_manager {
     }
 
     /**
+     * Ré-attache une catégorie racine (parent=0) sous une autre racine du même contexte.
+     *
+     * Objectif : corriger les anomalies "Plusieurs catégories racine par contexte".
+     *
+     * ⚠️ Cette méthode contourne volontairement la protection "parent=0" utilisée par l'UI,
+     * mais elle applique des garde-fous stricts :
+     * - la catégorie à déplacer DOIT être parent=0
+     * - le nouveau parent DOIT exister, être parent=0, et être dans le même contexte
+     * - aucune boucle ne doit être créée
+     *
+     * @param int $categoryid ID de la catégorie racine à ré-attacher
+     * @param int $newparentid ID de la racine à conserver
+     * @return bool|string true si succès, message d'erreur sinon
+     */
+    public static function force_reparent_root_category(int $categoryid, int $newparentid) {
+        global $DB;
+
+        $categoryid = (int)$categoryid;
+        $newparentid = (int)$newparentid;
+
+        if ($categoryid <= 0 || $newparentid <= 0) {
+            return 'Paramètres invalides.';
+        }
+        if ($categoryid === $newparentid) {
+            return 'Une catégorie ne peut pas être son propre parent.';
+        }
+
+        try {
+            $category = $DB->get_record('question_categories', ['id' => $categoryid], '*', MUST_EXIST);
+            $newparent = $DB->get_record('question_categories', ['id' => $newparentid], '*', MUST_EXIST);
+
+            // La catégorie à corriger doit être une racine.
+            if ((int)$category->parent !== 0) {
+                return 'La catégorie à ré-attacher n\'est pas une racine (parent != 0).';
+            }
+            // Le parent cible doit être une racine.
+            if ((int)$newparent->parent !== 0) {
+                return 'Le parent cible n\'est pas une racine (parent != 0).';
+            }
+            // Cohérence de contexte.
+            if ((int)$category->contextid !== (int)$newparent->contextid) {
+                return 'Le parent doit être dans le même contexte.';
+            }
+
+            // Vérifier qu'on ne crée pas de boucle (par sécurité).
+            if (self::is_ancestor($categoryid, $newparentid)) {
+                return 'Impossible de déplacer : cela créerait une boucle.';
+            }
+
+            $transaction = $DB->start_delegated_transaction();
+            try {
+                $category->parent = $newparentid;
+                $DB->update_record('question_categories', $category);
+
+                // Event Moodle : cohérence.
+                $event = \core\event\question_category_updated::create([
+                    'objectid' => $category->id,
+                    'context' => \context::instance_by_id($category->contextid),
+                ]);
+                $event->trigger();
+
+                $transaction->allow_commit();
+            } catch (\Exception $inner) {
+                $transaction->rollback($inner);
+                throw $inner;
+            }
+
+            // Purger les caches (important pour la banque de questions).
+            try {
+                if (class_exists('\\local_question_diagnostic\\cache_manager')) {
+                    cache_manager::purge_all_caches();
+                }
+            } catch (\Exception $e) {
+                // Ignorer : la correction est déjà appliquée.
+            }
+
+            return true;
+        } catch (\Exception $e) {
+            return 'Erreur lors de la correction : ' . $e->getMessage();
+        }
+    }
+
+    /**
      * Vérifie si une catégorie est ancêtre d'une autre
      *
      * @param int $ancestorid ID de l'ancêtre potentiel

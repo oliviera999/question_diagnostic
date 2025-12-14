@@ -100,6 +100,159 @@ echo html_writer::link(
 
 echo html_writer::end_tag('div');
 
+// ======================================================================
+// 🆕 Diagnostic de cohérence des questions (lecture seule)
+// ======================================================================
+
+$questions_integrity = optional_param('questions_integrity', 0, PARAM_BOOL);
+$integrityreport = null;
+if (!empty($questions_integrity)) {
+    $integrityreport = question_analyzer::get_questions_integrity_report(50);
+}
+
+// Conserver les paramètres de la page (évite de casser le mode perf).
+$load_stats_param = optional_param('loadstats', 0, PARAM_INT);
+$load_used_duplicates_param = optional_param('loadusedduplicates', 0, PARAM_INT);
+$show_param = optional_param('show', 5, PARAM_INT);
+
+$integrityrunurl = new moodle_url('/local/question_diagnostic/questions_cleanup.php', [
+    'questions_integrity' => 1,
+    'loadstats' => $load_stats_param,
+    'loadusedduplicates' => $load_used_duplicates_param,
+    'show' => $show_param,
+]);
+$integritystopurl = new moodle_url('/local/question_diagnostic/questions_cleanup.php', [
+    'loadstats' => $load_stats_param,
+    'loadusedduplicates' => $load_used_duplicates_param,
+    'show' => $show_param,
+]);
+
+echo html_writer::start_div('alert alert-secondary', ['style' => 'margin-bottom: 20px; border-left: 4px solid #6c757d;']);
+echo html_writer::tag('strong', '🧪 ' . get_string('questions_integrity_title', 'local_question_diagnostic'));
+echo html_writer::tag('div', get_string('questions_integrity_desc', 'local_question_diagnostic'), ['style' => 'margin-top: 6px;']);
+echo html_writer::start_div('text-right', ['style' => 'margin-top: 10px;']);
+if (empty($questions_integrity)) {
+    echo html_writer::link($integrityrunurl, '▶ ' . get_string('questions_integrity_run', 'local_question_diagnostic'), ['class' => 'btn btn-sm btn-secondary']);
+} else {
+    echo html_writer::link($integritystopurl, '⏹ ' . get_string('questions_integrity_stop', 'local_question_diagnostic'), ['class' => 'btn btn-sm btn-secondary']);
+}
+echo html_writer::end_div();
+echo html_writer::end_div();
+
+// Afficher le rapport si activé.
+if (!empty($integrityreport)) {
+    $errors = (int)($integrityreport->summary->errors ?? 0);
+    $warnings = (int)($integrityreport->summary->warnings ?? 0);
+    $totalquestions = (int)($integrityreport->summary->questions ?? 0);
+
+    $healthclass = 'alert-success';
+    $healthtitle = get_string('questions_integrity_ok', 'local_question_diagnostic');
+    if ($errors > 0) {
+        $healthclass = 'alert-danger';
+        $healthtitle = get_string('questions_integrity_issues_found', 'local_question_diagnostic');
+    } else if ($warnings > 0) {
+        $healthclass = 'alert-warning';
+        $healthtitle = get_string('questions_integrity_warnings_found', 'local_question_diagnostic');
+    }
+
+    echo html_writer::start_div('alert ' . $healthclass, ['style' => 'margin-bottom: 20px; border-left: 4px solid rgba(0,0,0,0.2);']);
+    echo html_writer::tag('strong', '📋 ' . $healthtitle);
+    echo html_writer::tag('div', get_string('questions_integrity_summary', 'local_question_diagnostic', (object)[
+        'questions' => $totalquestions,
+        'errors' => $errors,
+        'warnings' => $warnings,
+    ]), ['style' => 'margin-top: 6px;']);
+    echo html_writer::end_div();
+
+    echo html_writer::tag('h3', '🔎 ' . get_string('questions_integrity_details', 'local_question_diagnostic'), ['style' => 'margin-top: 10px;']);
+
+    foreach (($integrityreport->checks ?? []) as $checkkey => $check) {
+        $severity = $check->severity ?? 'info';
+        $count = (int)($check->count ?? 0);
+
+        $boxclass = 'alert-info';
+        if ($severity === 'error') {
+            $boxclass = 'alert-danger';
+        } else if ($severity === 'warning') {
+            $boxclass = 'alert-warning';
+        }
+
+        echo html_writer::start_div('alert ' . $boxclass, ['style' => 'margin-bottom: 12px;']);
+        echo html_writer::tag('strong', ($check->title ?? $checkkey) . ' — ' . $count);
+        if (!empty($check->description)) {
+            echo html_writer::tag('div', s($check->description), ['style' => 'margin-top: 6px;']);
+        }
+
+        // Afficher un échantillon des éléments détectés (si applicable).
+        if ($count > 0 && !empty($check->sample) && is_array($check->sample)) {
+            echo html_writer::start_tag('ul', ['style' => 'margin-top: 8px; margin-bottom: 0;']);
+
+            foreach ($check->sample as $item) {
+                $line = '';
+
+                // Formatage "best effort" selon les checks connus.
+                if ($checkkey === 'orphan_question_versions_missing_question') {
+                    $line = 'qv.id=' . (int)($item->id ?? 0) .
+                        ' → questionid=' . (int)($item->questionid ?? 0) .
+                        ' / qbe=' . (int)($item->questionbankentryid ?? 0) .
+                        ' / v=' . (int)($item->version ?? 0);
+                    if (isset($item->status)) {
+                        $line .= ' / status=' . s($item->status);
+                    }
+                } else if ($checkkey === 'orphan_question_versions_missing_entry') {
+                    $line = 'qv.id=' . (int)($item->id ?? 0) .
+                        ' → qbe=' . (int)($item->questionbankentryid ?? 0) .
+                        ' / questionid=' . (int)($item->questionid ?? 0) .
+                        ' / v=' . (int)($item->version ?? 0);
+                    if (isset($item->status)) {
+                        $line .= ' / status=' . s($item->status);
+                    }
+                } else if ($checkkey === 'orphan_entries_missing_category') {
+                    $line = 'qbe.id=' . (int)($item->entryid ?? 0) .
+                        ' → questioncategoryid=' . (int)($item->questioncategoryid ?? 0);
+                } else if ($checkkey === 'orphan_questions_missing_version') {
+                    $line = 'q.id=' . (int)($item->id ?? 0) .
+                        ' / ' . format_string($item->name ?? '') .
+                        ' / qtype=' . s($item->qtype ?? '');
+                } else if ($checkkey === 'orphan_entries_missing_versions') {
+                    $line = 'qbe.id=' . (int)($item->entryid ?? 0) .
+                        ' / questioncategoryid=' . (int)($item->questioncategoryid ?? 0);
+                } else if ($checkkey === 'duplicate_latest_versions_per_entry') {
+                    $line = 'qbe.id=' . (int)($item->entryid ?? 0) .
+                        ' / maxversion=' . (int)($item->maxversion ?? 0) .
+                        ' / count=' . (int)($item->cnt ?? 0);
+                } else if ($checkkey === 'orphan_question_references_missing_entry') {
+                    $line = 'qr.id=' . (int)($item->id ?? 0) .
+                        ' / ' . s($item->component ?? '') . ':' . s($item->questionarea ?? '') .
+                        ' / itemid=' . (int)($item->itemid ?? 0) .
+                        ' → qbe=' . (int)($item->questionbankentryid ?? 0);
+                } else if ($checkkey === 'orphan_question_references_missing_context') {
+                    $line = 'qr.id=' . (int)($item->id ?? 0) .
+                        ' / contextid=' . (int)($item->contextid ?? 0) .
+                        ' / ' . s($item->component ?? '') . ':' . s($item->questionarea ?? '') .
+                        ' / itemid=' . (int)($item->itemid ?? 0);
+                } else if ($checkkey === 'unknown_question_types') {
+                    $line = 'qtype=' . s($item->qtype ?? '') . ' / count=' . (int)($item->count ?? 0);
+                } else if ($checkkey === 'empty_question_name') {
+                    $line = 'q.id=' . (int)($item->id ?? 0) .
+                        ' / qtype=' . s($item->qtype ?? '');
+                } else if ($checkkey === 'question_version_status_values') {
+                    $line = 'status=' . s($item->status ?? '') . ' / count=' . (int)($item->count ?? 0);
+                } else {
+                    // Fallback générique.
+                    $line = s(json_encode($item));
+                }
+
+                echo html_writer::tag('li', $line);
+            }
+
+            echo html_writer::end_tag('ul');
+        }
+
+        echo html_writer::end_div();
+    }
+}
+
 // 🆕 v1.7.0 : MODE TEST ALÉATOIRE - Afficher le résultat si demandé
 $randomtest = optional_param('randomtest', 0, PARAM_INT);
 if ($randomtest && confirm_sesskey()) {

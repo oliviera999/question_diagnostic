@@ -92,6 +92,25 @@ $string['categories_integrity_issues_found'] = 'Critical issues detected';
 $string['categories_integrity_warnings_found'] = 'Warnings detected';
 $string['categories_integrity_summary'] = '{$a->categories} category(ies) analyzed — errors: {$a->errors}, warnings: {$a->warnings}.';
 $string['categories_integrity_details'] = 'Diagnostic details';
+$string['categories_integrity_fix'] = 'Auto-fix';
+$string['categories_integrity_fix_confirm_title'] = 'Fix category integrity issues';
+$string['categories_integrity_fix_confirm_intro'] = 'This action will propose automatic fixes (with confirmation) for some detected structural inconsistencies.';
+$string['categories_integrity_fix_warning'] = '⚠️ This action MODIFIES the database. Please make a backup before confirming.';
+$string['categories_integrity_fix_operations'] = 'Proposed changes';
+$string['categories_integrity_fix_done'] = 'Fix completed: {$a->success} success, {$a->failed} failure(s).';
+$string['categories_integrity_fix_failed'] = 'Some fixes failed:';
+$string['categories_integrity_fix_nothing'] = 'No automatic fix applicable.';
+
+// 🆕 Question integrity diagnostic
+$string['questions_integrity_title'] = 'Question integrity diagnostic';
+$string['questions_integrity_desc'] = 'Analyzes question bank integrity (versioning, orphan entries, broken references, missing question types). No changes are performed.';
+$string['questions_integrity_run'] = 'Run diagnostic';
+$string['questions_integrity_stop'] = 'Hide diagnostic';
+$string['questions_integrity_ok'] = 'No critical issues detected';
+$string['questions_integrity_issues_found'] = 'Critical issues detected';
+$string['questions_integrity_warnings_found'] = 'Warnings detected';
+$string['questions_integrity_summary'] = '{$a->questions} question(s) analyzed — errors: {$a->errors}, warnings: {$a->warnings}.';
+$string['questions_integrity_details'] = 'Diagnostic details';
 
 // Tool 2: Link checking
 $string['tool_links_title'] = 'Link Verification';
