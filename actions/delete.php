@@ -23,6 +23,8 @@ define('MAX_BULK_DELETE_CATEGORIES', 100);
 $categoryid = optional_param('id', 0, PARAM_INT);
 $categoryids = optional_param('ids', '', PARAM_TEXT);
 $confirm = optional_param('confirm', 0, PARAM_INT);
+// Option avancée : ignorer la protection "catégorie avec description".
+$bypass_info = optional_param('bypass_info', 0, PARAM_INT);
 // 🆕 v1.9.44 : URL de retour hiérarchique
 $returnurl = local_question_diagnostic_get_parent_url('actions/delete.php');
 
@@ -37,7 +39,7 @@ if ($categoryids) {
     }
     
     if ($confirm) {
-        $result = category_manager::delete_categories_bulk($ids);
+        $result = category_manager::delete_categories_bulk($ids, false, (bool)$bypass_info);
         
         // Purger tous les caches après modification
         if ($result['success'] > 0) {
@@ -75,6 +77,9 @@ if ($categoryids) {
         echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'ids', 'value' => $categoryids]);
         echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'confirm', 'value' => '1']);
         echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]);
+        echo html_writer::start_tag('div', ['style' => 'margin: 10px 0;']);
+        echo html_writer::checkbox('bypass_info', 1, false, 'Supprimer aussi les catégories ayant une description (option avancée)');
+        echo html_writer::end_tag('div');
         echo html_writer::empty_tag('input', ['type' => 'submit', 'value' => 'Oui, supprimer', 'class' => 'btn btn-danger']);
         echo html_writer::end_tag('form');
         
@@ -90,7 +95,7 @@ if ($categoryids) {
 // Suppression simple
 if ($categoryid) {
     if ($confirm) {
-        $result = category_manager::delete_category($categoryid);
+        $result = category_manager::delete_category($categoryid, false, (bool)$bypass_info);
         
         if ($result === true) {
             // Purger tous les caches après modification
@@ -125,6 +130,9 @@ if ($categoryid) {
         echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'id', 'value' => $categoryid]);
         echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'confirm', 'value' => '1']);
         echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]);
+        echo html_writer::start_tag('div', ['style' => 'margin: 10px 0;']);
+        echo html_writer::checkbox('bypass_info', 1, false, 'Supprimer aussi si la catégorie a une description (option avancée)');
+        echo html_writer::end_tag('div');
         echo html_writer::empty_tag('input', ['type' => 'submit', 'value' => 'Oui, supprimer', 'class' => 'btn btn-danger']);
         echo html_writer::end_tag('form');
         

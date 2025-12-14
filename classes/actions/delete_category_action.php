@@ -56,7 +56,9 @@ class delete_category_action extends base_action {
      * Suppression unique
      */
     private function perform_single_delete() {
-        $result = category_manager::delete_category($this->item_id);
+        // Option avancée : ignorer la protection "catégorie avec description" (si demandée explicitement).
+        $bypass_info = optional_param('bypass_info', 0, PARAM_INT);
+        $result = category_manager::delete_category($this->item_id, false, (bool)$bypass_info);
 
         if ($result === true) {
             // Purger les caches après modification
@@ -71,7 +73,8 @@ class delete_category_action extends base_action {
      * Suppression en masse
      */
     private function perform_bulk_delete() {
-        $result = category_manager::delete_categories_bulk($this->item_ids);
+        $bypass_info = optional_param('bypass_info', 0, PARAM_INT);
+        $result = category_manager::delete_categories_bulk($this->item_ids, false, (bool)$bypass_info);
 
         // Purger les caches si au moins une suppression a réussi
         if ($result['success'] > 0) {

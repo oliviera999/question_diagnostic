@@ -57,34 +57,37 @@ $preview = optional_param('preview', 0, PARAM_INT);
 $download_csv = optional_param('download_csv', 0, PARAM_INT);
 $execute = optional_param('execute', 0, PARAM_INT);
 $batch = optional_param('batch', 0, PARAM_INT);
+// 🆕 Option avancée : ignorer la protection "catégorie avec description".
+// Sécurisé car admin-only + sesskey + confirmation via preview.
+$bypass_info = optional_param('bypass_info', 0, PARAM_INT);
 
 // Taille du lot (nombre de catégories à traiter par batch)
 define('BATCH_SIZE', 20);
 
 if ($download_csv) {
     // MODE TÉLÉCHARGEMENT CSV
-    handle_csv_download();
+    handle_csv_download((int)$bypass_info);
     exit;
 } else if ($execute) {
     // MODE EXÉCUTION PAR LOTS
-    execute_cleanup_batch($batch);
+    execute_cleanup_batch($batch, (int)$bypass_info);
 } else if ($preview) {
     // MODE PRÉVISUALISATION
-    show_preview_page();
+    show_preview_page((int)$bypass_info);
 } else {
     // Rediriger vers preview par défaut
     redirect(new moodle_url('/local/question_diagnostic/actions/cleanup_all_categories.php', 
-             ['preview' => 1, 'sesskey' => sesskey()]));
+             ['preview' => 1, 'sesskey' => sesskey(), 'bypass_info' => (int)$bypass_info]));
 }
 
 /**
  * Affiche la page de prévisualisation avec statistiques et confirmation
  */
-function show_preview_page() {
+function show_preview_page(int $bypass_info = 0) {
     global $OUTPUT, $PAGE;
     
     $PAGE->set_url(new moodle_url('/local/question_diagnostic/actions/cleanup_all_categories.php', 
-                   ['preview' => 1, 'sesskey' => sesskey()]));
+                   ['preview' => 1, 'sesskey' => sesskey(), 'bypass_info' => (int)$bypass_info]));
     $PAGE->set_title(get_string('cleanup_all_categories_preview_title', 'local_question_diagnostic'));
     $PAGE->set_heading(local_question_diagnostic_get_heading_with_version(
         get_string('cleanup_all_categories_preview_title', 'local_question_diagnostic')
@@ -101,7 +104,7 @@ function show_preview_page() {
     echo html_writer::end_tag('div');
     
     try {
-        $stats = get_cleanup_stats();
+        $stats = get_cleanup_stats((int)$bypass_info);
     } catch (Exception $e) {
         echo html_writer::start_tag('script');
         echo "document.getElementById('loading-preview').style.display = 'none';";
@@ -132,6 +135,25 @@ function show_preview_page() {
     echo get_string('cleanup_all_categories_preview_desc', 'local_question_diagnostic');
     echo html_writer::end_tag('div');
     
+    // Option avancée : bypass protection description
+    echo html_writer::start_tag('div', ['class' => 'alert alert-warning', 'style' => 'margin: 20px 0;']);
+    echo html_writer::tag('strong', 'Option avancée : ');
+    echo 'Inclure les catégories ayant une description (champ "info").';
+    echo html_writer::start_tag('div', ['style' => 'margin-top: 10px;']);
+    echo html_writer::start_tag('form', [
+        'method' => 'get',
+        'action' => new moodle_url('/local/question_diagnostic/actions/cleanup_all_categories.php'),
+        'style' => 'margin: 0;'
+    ]);
+    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'preview', 'value' => '1']);
+    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]);
+    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'bypass_info', 'value' => $bypass_info ? '0' : '1']);
+    $label = $bypass_info ? 'Désactiver (recommandé)' : 'Activer (à vos risques)';
+    echo html_writer::empty_tag('input', ['type' => 'submit', 'value' => $label, 'class' => 'btn btn-warning']);
+    echo html_writer::end_tag('form');
+    echo html_writer::end_tag('div');
+    echo html_writer::end_tag('div');
+
     // Si aucune catégorie à supprimer
     if ($stats->total_to_delete == 0) {
         echo html_writer::start_tag('div', ['class' => 'alert alert-success', 'style' => 'padding: 30px; text-align: center;']);
@@ -237,7 +259,8 @@ function show_preview_page() {
     // Bouton télécharger CSV
     $csv_url = new moodle_url('/local/question_diagnostic/actions/cleanup_all_categories.php', [
         'download_csv' => 1,
-        'sesskey' => sesskey()
+        'sesskey' => sesskey(),
+        'bypass_info' => (int)$bypass_info,
     ]);
     echo html_writer::link($csv_url, '📥 ' . get_string('cleanup_all_download_csv', 'local_question_diagnostic'), 
                            ['class' => 'btn btn-info btn-lg']);
@@ -246,7 +269,8 @@ function show_preview_page() {
     $execute_url = new moodle_url('/local/question_diagnostic/actions/cleanup_all_categories.php', [
         'execute' => 1,
         'batch' => 0,
-        'sesskey' => sesskey()
+        'sesskey' => sesskey(),
+        'bypass_info' => (int)$bypass_info,
     ]);
     echo html_writer::link($execute_url, '🚀 ' . get_string('cleanup_all_confirm_button', 'local_question_diagnostic'), 
                            ['class' => 'btn btn-danger btn-lg', 'style' => 'font-weight: bold;']);
@@ -266,7 +290,7 @@ function show_preview_page() {
  * 
  * @return object Statistiques
  */
-function get_cleanup_stats() {
+function get_cleanup_stats(int $bypass_info = 0) {
     global $DB;
     
     $stats = new stdClass();
@@ -289,7 +313,7 @@ function get_cleanup_stats() {
         // Conserver un fallback si une autre source fournit déjà un record "plat".
         $category = (isset($cat->category) && is_object($cat->category)) ? $cat->category : $cat;
 
-        $can_delete = can_delete_category($cat);
+        $can_delete = can_delete_category($cat, (int)$bypass_info);
         
         if ($can_delete) {
             $stats->total_to_delete++;
@@ -336,10 +360,15 @@ function get_cleanup_stats() {
  * @param object $cat Objet catégorie avec stats
  * @return bool True si supprimable
  */
-function can_delete_category($cat) {
+function can_delete_category($cat, int $bypass_info = 0) {
     // Ne pas supprimer si protégée
     if ($cat->stats->is_protected) {
+        // Option avancée : si la SEULE raison est "A une description", autoriser.
+        if ($bypass_info && ($cat->stats->protection_reason ?? '') === 'A une description') {
+            // Continuer les autres vérifications (questions / sous-catégories).
+        } else {
         return false;
+        }
     }
     
     // Ne pas supprimer si contient des questions
@@ -361,11 +390,11 @@ function can_delete_category($cat) {
  * 
  * @param int $batch Numéro du lot
  */
-function execute_cleanup_batch($batch) {
+function execute_cleanup_batch($batch, int $bypass_info = 0) {
     global $OUTPUT, $PAGE, $USER;
     
     $PAGE->set_url(new moodle_url('/local/question_diagnostic/actions/cleanup_all_categories.php', 
-                   ['execute' => 1, 'batch' => $batch, 'sesskey' => sesskey()]));
+                   ['execute' => 1, 'batch' => $batch, 'sesskey' => sesskey(), 'bypass_info' => (int)$bypass_info]));
     $PAGE->set_title(get_string('cleanup_all_progress_title', 'local_question_diagnostic'));
     $PAGE->set_heading(local_question_diagnostic_get_heading_with_version(
         get_string('cleanup_all_progress_title', 'local_question_diagnostic')
@@ -379,7 +408,7 @@ function execute_cleanup_batch($batch) {
     $deletable_categories = [];
     
     foreach ($all_categories as $cat) {
-        if (can_delete_category($cat)) {
+        if (can_delete_category($cat, (int)$bypass_info)) {
             $deletable_categories[] = $cat;
         }
     }
@@ -437,7 +466,7 @@ function execute_cleanup_batch($batch) {
 
         try {
             // Supprimer la catégorie
-            $result = category_manager::delete_category($catid);
+            $result = category_manager::delete_category($catid, false, (bool)$bypass_info);
             
             // Note : L'audit logging est géré automatiquement par category_manager::delete_category()
             // via audit_logger::log_category_deletion()
@@ -483,7 +512,8 @@ function execute_cleanup_batch($batch) {
         $next_batch_url = new moodle_url('/local/question_diagnostic/actions/cleanup_all_categories.php', [
             'execute' => 1,
             'batch' => $batch + 1,
-            'sesskey' => sesskey()
+            'sesskey' => sesskey(),
+            'bypass_info' => (int)$bypass_info,
         ]);
         
         echo html_writer::start_tag('div', ['style' => 'text-align: center; margin: 30px 0;']);
@@ -502,7 +532,8 @@ function execute_cleanup_batch($batch) {
             'complete' => 1,
             'deleted' => $_SESSION['cleanup_categories_deleted'],
             'errors' => $_SESSION['cleanup_categories_errors'],
-            'sesskey' => sesskey()
+            'sesskey' => sesskey(),
+            'bypass_info' => (int)$bypass_info,
         ]);
         
         echo html_writer::start_tag('script');
@@ -521,8 +552,8 @@ function execute_cleanup_batch($batch) {
 /**
  * Gère le téléchargement CSV
  */
-function handle_csv_download() {
-    $stats = get_cleanup_stats();
+function handle_csv_download(int $bypass_info = 0) {
+    $stats = get_cleanup_stats((int)$bypass_info);
     
     $filename = 'cleanup_categories_' . date('Y-m-d_His') . '.csv';
     
@@ -570,7 +601,7 @@ if ($complete) {
     $errors = optional_param('errors', 0, PARAM_INT);
     
     $PAGE->set_url(new moodle_url('/local/question_diagnostic/actions/cleanup_all_categories.php', 
-                   ['complete' => 1, 'deleted' => $deleted, 'errors' => $errors, 'sesskey' => sesskey()]));
+                   ['complete' => 1, 'deleted' => $deleted, 'errors' => $errors, 'sesskey' => sesskey(), 'bypass_info' => (int)$bypass_info]));
     $PAGE->set_title(get_string('cleanup_all_complete_title', 'local_question_diagnostic'));
     $PAGE->set_heading(local_question_diagnostic_get_heading_with_version(
         get_string('cleanup_all_complete_title', 'local_question_diagnostic')

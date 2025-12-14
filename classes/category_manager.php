@@ -589,10 +589,26 @@ class category_manager {
                 
                 if (function_exists('question_delete_category')) {
                     question_delete_category($categoryid);
+                } else if (class_exists('\\core_question\\category_manager')) {
+                    // Moodle 4.5+ : API orientée objet (la fonction legacy peut être absente).
+                    if (is_callable(['\\core_question\\category_manager', 'delete_category'])) {
+                        // Supporte implémentation statique.
+                        \core_question\category_manager::delete_category((int)$categoryid);
+                    } else {
+                        // Supporte implémentation en méthode d'instance.
+                        $mgr = new \core_question\category_manager();
+                        if (method_exists($mgr, 'delete_category')) {
+                            $mgr->delete_category((int)$categoryid);
+                        } else {
+                            throw new \coding_exception('core_question\\category_manager::delete_category() not available in this Moodle installation.');
+                        }
+                    }
                 } else {
                     // Sécurité : ne JAMAIS supprimer directement en base si l'API core n'est pas disponible.
                     // Cela pourrait laisser des références orphelines et casser la banque de questions.
-                    throw new \moodle_exception('question_delete_category not available in this Moodle installation.');
+                    // Important: ne pas utiliser moodle_exception ici (sinon Moodle tente de traduire le message
+                    // comme un identifiant de chaîne, et affiche "error/..." not available).
+                    throw new \coding_exception('Question category deletion API not available (question_delete_category / core_question\\category_manager::delete_category).');
                 }
                 
                 $transaction->allow_commit();
@@ -609,7 +625,7 @@ class category_manager {
             
         } catch (\Exception $e) {
             debugging("Exception suppression catégorie $categoryid: " . $e->getMessage(), DEBUG_DEVELOPER);
-            return "❌ Erreur SQL : " . $e->getMessage() . " (Catégorie ID: $categoryid)";
+            return "❌ Erreur : " . $e->getMessage() . " (Catégorie ID: $categoryid)";
         }
     }
 
@@ -617,14 +633,16 @@ class category_manager {
      * Supprime plusieurs catégories vides
      *
      * @param array $categoryids Tableau d'IDs
+     * @param bool $bypass_default_protection Si true, autorise suppression des "Default for..." (cas contrôlé)
+     * @param bool $bypass_info_protection Si true, autorise suppression des catégories avec description (cas contrôlé)
      * @return array ['success' => count, 'errors' => []]
      */
-    public static function delete_categories_bulk($categoryids) {
+    public static function delete_categories_bulk($categoryids, $bypass_default_protection = false, $bypass_info_protection = false) {
         $success = 0;
         $errors = [];
 
         foreach ($categoryids as $id) {
-            $result = self::delete_category($id);
+            $result = self::delete_category($id, $bypass_default_protection, $bypass_info_protection);
             if ($result === true) {
                 $success++;
             } else {
@@ -734,7 +752,23 @@ class category_manager {
                 debugging('Fusion catégories v1.11.5 : ' . $moved_subcats . ' sous-catégorie(s) déplacée(s)', DEBUG_DEVELOPER);
                 
                 // Étape 5 : Supprimer la catégorie source (maintenant vide) via API Moodle
-                question_delete_category($sourceid);
+                require_once($CFG->libdir . '/questionlib.php');
+                if (function_exists('question_delete_category')) {
+                    question_delete_category($sourceid);
+                } else if (class_exists('\\core_question\\category_manager')) {
+                    if (is_callable(['\\core_question\\category_manager', 'delete_category'])) {
+                        \core_question\category_manager::delete_category((int)$sourceid);
+                    } else {
+                        $mgr = new \core_question\category_manager();
+                        if (method_exists($mgr, 'delete_category')) {
+                            $mgr->delete_category((int)$sourceid);
+                        } else {
+                            throw new \coding_exception('core_question\\category_manager::delete_category() not available in this Moodle installation.');
+                        }
+                    }
+                } else {
+                    throw new \coding_exception('Question category deletion API not available (question_delete_category / core_question\\category_manager::delete_category).');
+                }
                 
                 debugging('Fusion catégories v1.11.5 : Catégorie source ' . $sourceid . ' supprimée', DEBUG_DEVELOPER);
                 
