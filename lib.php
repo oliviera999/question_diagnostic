@@ -165,11 +165,20 @@ function local_question_diagnostic_render_version_badge($with_tooltip = true) {
  */
 function local_question_diagnostic_get_context_details($contextid, $include_id = false) {
     global $DB;
+
+    // Cache simple (évite N+1 sur les pages listes).
+    static $cache = [];
+    $cachekey = $contextid . '|' . (int)$include_id;
+    if (isset($cache[$cachekey])) {
+        return $cache[$cachekey];
+    }
     
     $result = (object)[
         'context_name' => 'Inconnu',
         'course_name' => null,
+        'course_id' => null,
         'module_name' => null,
+        'module_id' => null,
         'context_type' => null,
         'context_level' => null
     ];
@@ -196,6 +205,7 @@ function local_question_diagnostic_get_context_details($contextid, $include_id =
         else if ($context->contextlevel == CONTEXT_COURSE) {
             $course = $DB->get_record('course', ['id' => $context->instanceid], 'id, fullname, shortname');
             if ($course) {
+                $result->course_id = (int)$course->id;
                 $result->course_name = format_string($course->fullname);
                 $result->context_name = '📚 Cours : ' . format_string($course->shortname);
                 if ($include_id) {
@@ -215,9 +225,11 @@ function local_question_diagnostic_get_context_details($contextid, $include_id =
             ", ['cmid' => $context->instanceid]);
             
             if ($cm) {
+                $result->module_id = (int)$cm->id;
                 // Obtenir le nom du cours parent
                 $course = $DB->get_record('course', ['id' => $cm->course], 'id, fullname, shortname');
                 if ($course) {
+                    $result->course_id = (int)$course->id;
                     $result->course_name = format_string($course->fullname);
                 }
                 
@@ -252,7 +264,8 @@ function local_question_diagnostic_get_context_details($contextid, $include_id =
     } catch (Exception $e) {
         $result->context_name = 'Erreur : ' . $e->getMessage();
     }
-    
+
+    $cache[$cachekey] = $result;
     return $result;
 }
 

@@ -108,7 +108,7 @@ class question_analyzer {
      * @param array $duplicates_map Map des doublons (pré-calculé)
      * @return object Statistiques
      */
-    public static function get_question_stats($question, $usage_map = null, $duplicates_map = null) {
+    public static function get_question_stats($question, $usage_map = null, $duplicates_map = null, $include_duplicates = true) {
         global $DB;
 
         $stats = new \stdClass();
@@ -131,20 +131,26 @@ class question_analyzer {
                     $context_details = local_question_diagnostic_get_context_details($category->contextid);
                     $stats->context_name = $context_details->context_name;
                     $stats->course_name = $context_details->course_name;
+                    $stats->course_id = $context_details->course_id;
                     $stats->module_name = $context_details->module_name;
+                    $stats->module_id = $context_details->module_id;
                     $stats->context_type = $context_details->context_type;
                     $stats->context_id = $category->contextid;
                 } catch (\Exception $e) {
                     $stats->context_name = 'Erreur';
                     $stats->course_name = null;
+                    $stats->course_id = null;
                     $stats->module_name = null;
+                    $stats->module_id = null;
                     $stats->context_type = null;
                     $stats->context_id = 0;
                 }
             } else {
                 $stats->context_name = 'Inconnu';
                 $stats->course_name = null;
+                $stats->course_id = null;
                 $stats->module_name = null;
+                $stats->module_id = null;
                 $stats->context_type = null;
                 $stats->context_id = 0;
             }
@@ -180,16 +186,23 @@ class question_analyzer {
                 $stats->is_used = $usage['is_used'];
             }
             
-            // Doublons (utiliser le cache si disponible)
-            if ($duplicates_map !== null && isset($duplicates_map[$question->id])) {
-                $stats->duplicate_count = count($duplicates_map[$question->id]);
-                $stats->duplicate_ids = $duplicates_map[$question->id];
-                $stats->is_duplicate = $stats->duplicate_count > 0;
+            // Doublons (optionnel)
+            if ($include_duplicates) {
+                // Utiliser le cache si disponible
+                if ($duplicates_map !== null && isset($duplicates_map[$question->id])) {
+                    $stats->duplicate_count = count($duplicates_map[$question->id]);
+                    $stats->duplicate_ids = $duplicates_map[$question->id];
+                    $stats->is_duplicate = $stats->duplicate_count > 0;
+                } else {
+                    $duplicates = self::find_question_duplicates($question);
+                    $stats->duplicate_count = count($duplicates);
+                    $stats->duplicate_ids = array_map(function($q) { return $q->id; }, $duplicates);
+                    $stats->is_duplicate = $stats->duplicate_count > 0;
+                }
             } else {
-                $duplicates = self::find_question_duplicates($question);
-                $stats->duplicate_count = count($duplicates);
-                $stats->duplicate_ids = array_map(function($q) { return $q->id; }, $duplicates);
-                $stats->is_duplicate = $stats->duplicate_count > 0;
+                $stats->duplicate_count = 0;
+                $stats->duplicate_ids = [];
+                $stats->is_duplicate = false;
             }
             
             // Statut - ⚠️ MOODLE 4.5 : question.hidden n'existe plus, utiliser question_versions.status
@@ -2060,6 +2073,126 @@ class question_analyzer {
     }
     
     /**
+     * Calcule le score d'accessibilité d'une question basé sur son contexte.
+     *
+     * Score plus élevé = contexte plus large/accessible.
+     *
+     * Priorité :
+     * - CONTEXT_SYSTEM (50) > CONTEXT_COURSECAT (40) > CONTEXT_COURSE (30) > CONTEXT_MODULE (20) > défaut (10)
+     *
+     * @param object $question Objet question (doit contenir au moins id, timecreated)
+     * @return object {score: int, contextlevel: ?int, contextid: ?int, timecreated: int, info: string}
+     */
+    public static function get_question_accessibility_score($question) {
+        global $DB;
+        
+        $result = (object)[
+            'score' => 0,
+            'contextlevel' => null,
+            'contextid' => null,
+            'timecreated' => isset($question->timecreated) ? (int)$question->timecreated : 0,
+            'info' => 'Contexte inconnu'
+        ];
+        
+        if (!is_object($question) || empty($question->id)) {
+            $result->score = 1;
+            $result->info = 'Question invalide';
+            return $result;
+        }
+        
+        try {
+            // Récupérer la catégorie et le contexte de la question via question_bank_entries / question_versions (Moodle 4.x+).
+            $sql = "SELECT qc.contextid, ctx.contextlevel
+                      FROM {question_categories} qc
+                      INNER JOIN {question_bank_entries} qbe ON qbe.questioncategoryid = qc.id
+                      INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+                      INNER JOIN {context} ctx ON ctx.id = qc.contextid
+                     WHERE qv.questionid = :questionid";
+            
+            $record = $DB->get_record_sql($sql, ['questionid' => (int)$question->id]);
+            
+            if (!$record) {
+                $result->info = 'Catégorie/contexte introuvable';
+                $result->score = 5;
+                return $result;
+            }
+            
+            $result->contextid = (int)$record->contextid;
+            $result->contextlevel = (int)$record->contextlevel;
+            
+            switch ((int)$record->contextlevel) {
+                case CONTEXT_SYSTEM:
+                    $result->score = 50;
+                    $result->info = '🌐 Site entier (le plus accessible)';
+                    break;
+                case CONTEXT_COURSECAT:
+                    $result->score = 40;
+                    $result->info = '📂 Catégorie de cours';
+                    break;
+                case CONTEXT_COURSE:
+                    $result->score = 30;
+                    $result->info = '📚 Cours spécifique';
+                    break;
+                case CONTEXT_MODULE:
+                    $result->score = 20;
+                    $result->info = '📝 Module d\'activité';
+                    break;
+                default:
+                    $result->score = 10;
+                    $result->info = 'Contexte non standard (niveau ' . (int)$record->contextlevel . ')';
+                    break;
+            }
+        } catch (\Exception $e) {
+            debugging('Erreur calcul accessibilité pour question ' . (int)$question->id . ': ' . $e->getMessage(), DEBUG_DEVELOPER);
+            $result->score = 1;
+            $result->info = 'Erreur: ' . $e->getMessage();
+        }
+        
+        return $result;
+    }
+    
+    /**
+     * Sélectionne la "meilleure" question à conserver quand un groupe de doublons
+     * ne contient aucune version utilisée (sécurité : on conserve 1 version).
+     *
+     * Critères :
+     * 1) Contexte le plus large (score d'accessibilité décroissant)
+     * 2) Plus ancienne (timecreated croissant) en cas d'égalité
+     *
+     * @param array $questions Tableau d'objets question
+     * @return object|null {question: object, score: int, timecreated: int, info: string}
+     */
+    public static function select_best_question_to_keep(array $questions) {
+        $candidates = [];
+        
+        foreach ($questions as $q) {
+            if (!is_object($q) || empty($q->id)) {
+                continue;
+            }
+            $scoreinfo = self::get_question_accessibility_score($q);
+            $candidates[] = (object)[
+                'question' => $q,
+                'score' => (int)$scoreinfo->score,
+                'timecreated' => isset($q->timecreated) ? (int)$q->timecreated : (int)$scoreinfo->timecreated,
+                'info' => $scoreinfo->info
+            ];
+        }
+        
+        if (empty($candidates)) {
+            return null;
+        }
+        
+        usort($candidates, function($a, $b) {
+            if ($a->score !== $b->score) {
+                return $b->score - $a->score; // Score décroissant.
+            }
+            return $a->timecreated - $b->timecreated; // Plus ancien d'abord.
+        });
+        
+        return $candidates[0];
+    }
+    
+    /**
      * Génère les statistiques de prévisualisation pour le nettoyage global des doublons
      * 
      * 🆕 v1.9.52 : Pour le nettoyage global
@@ -2117,8 +2250,18 @@ class question_analyzer {
             
             // Sécurité : Garder au moins 1 version si aucune utilisée
             if (empty($used) && !empty($unused)) {
-                $oldest = array_shift($unused);
-                $used[] = $oldest;
+                // 🆕 v1.11.20 : Sélection intelligente (contexte le plus large, puis plus ancienne).
+                $best = self::select_best_question_to_keep($unused);
+                if ($best) {
+                    $used[] = $best->question;
+                    $unused = array_values(array_filter($unused, function($q) use ($best) {
+                        return (int)$q->id !== (int)$best->question->id;
+                    }));
+                } else {
+                    // Fallback : garder la première (comportement historique).
+                    $oldest = array_shift($unused);
+                    $used[] = $oldest;
+                }
             }
             
             $group_to_delete = count($unused);
@@ -2166,58 +2309,49 @@ class question_analyzer {
      * @return array Tableau des questions inutilisées
      */
     public static function get_unused_questions($limit = 50, $offset = 0) {
-        global $DB, $CFG;
+        global $DB;
 
         try {
-            // 🔧 v1.10.1 : Détecter l'architecture Moodle (Moodle 4.5+ utilise question_references)
-            $columns = $DB->get_columns('quiz_slots');
-            
-            // Construire la requête pour trouver les questions utilisées
-            if (isset($columns['questionbankentryid'])) {
-                // Moodle 4.1-4.4 : utilise questionbankentryid
+            // 🔧 v1.11.21 : Détection d’usage plus complète.
+            // Moodle 4.5+ : question_references (tous composants/areas)
+            // Moodle 4.0-4.4 : quiz_slots et/ou question_attempts en fallback.
+            $dbman = $DB->get_manager();
+
+            if ($dbman->table_exists('question_references')) {
+                // Références = usages déclaratifs (quiz, leçon, etc.)
                 $used_questions_sql = "SELECT DISTINCT qv.questionid
-                                     FROM {quiz_slots} qs
-                                     INNER JOIN {question_bank_entries} qbe ON qbe.id = qs.questionbankentryid
-                                     INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id";
-            } else if (isset($columns['questionid'])) {
-                // Moodle 4.0 : utilise questionid directement
-                $used_questions_sql = "SELECT DISTINCT qs.questionid
-                                     FROM {quiz_slots} qs";
-            } else {
-                // Moodle 4.5+ : utilise question_references
-                $used_questions_sql = "SELECT DISTINCT qv.questionid
-                                     FROM {quiz_slots} qs
-                                     INNER JOIN {question_references} qr ON qr.itemid = qs.id 
-                                         AND qr.component = 'mod_quiz' 
-                                         AND qr.questionarea = 'slot'
+                                     FROM {question_references} qr
                                      INNER JOIN {question_bank_entries} qbe ON qbe.id = qr.questionbankentryid
-                                     INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id 
+                                     INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
                                          AND qv.version = (
                                              SELECT MAX(v.version)
                                              FROM {question_versions} v
                                              WHERE v.questionbankentryid = qbe.id
                                          )";
+            } else {
+                // Fallback : détecter l'architecture quiz_slots (Moodle 4.0-4.4).
+                $columns = $DB->get_columns('quiz_slots');
+                if (isset($columns['questionbankentryid'])) {
+                    // Moodle 4.1-4.4 : utilise questionbankentryid
+                    $used_questions_sql = "SELECT DISTINCT qv.questionid
+                                         FROM {quiz_slots} qs
+                                         INNER JOIN {question_bank_entries} qbe ON qbe.id = qs.questionbankentryid
+                                         INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id";
+                } elseif (isset($columns['questionid'])) {
+                    // Moodle 4.0 : utilise questionid directement
+                    $used_questions_sql = "SELECT DISTINCT qs.questionid
+                                         FROM {quiz_slots} qs";
+                } else {
+                    // Worst-case fallback : aucun slot exploitable, on retourne "toutes" (puis filtrage plus bas via attempts).
+                    $used_questions_sql = "SELECT 0 AS questionid";
+                }
             }
             
             // Ajouter les questions utilisées dans les tentatives
             $used_in_attempts_sql = "SELECT DISTINCT qa.questionid
                                     FROM {question_attempts} qa";
             
-            // Récupérer les IDs des questions utilisées
-            $used_in_quizzes = $DB->get_fieldset_sql($used_questions_sql);
-            $used_in_attempts = $DB->get_fieldset_sql($used_in_attempts_sql);
-            
-            // Fusionner et dédupliquer
-            $used_question_ids = array_unique(array_merge($used_in_quizzes, $used_in_attempts));
-            
-            // Si aucune question utilisée, retourner toutes les questions (avec limite)
-            if (empty($used_question_ids)) {
-                return $DB->get_records('question', null, 'id DESC', '*', $offset, $limit);
-            }
-            
             // Récupérer les questions NON utilisées (avec limite et offset)
-            // Utiliser NOT IN avec chunking pour éviter les problèmes de taille SQL
-            // Pour de grosses bases, on utilise une subquery
             $unused_sql = "SELECT * 
                           FROM {question} q
                           WHERE q.id NOT IN ($used_questions_sql)

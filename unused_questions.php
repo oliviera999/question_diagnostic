@@ -234,6 +234,7 @@ echo html_writer::start_tag('select', ['id' => 'filter-visible-unused', 'class' 
 echo html_writer::tag('option', 'Toutes', ['value' => 'all']);
 echo html_writer::tag('option', 'Visibles', ['value' => 'visible']);
 echo html_writer::tag('option', 'Cachées', ['value' => 'hidden']);
+echo html_writer::tag('option', 'Supprimées', ['value' => 'deleted']);
 echo html_writer::end_tag('select');
 echo html_writer::end_tag('div');
 
@@ -249,13 +250,16 @@ echo html_writer::end_tag('div'); // fin qd-filters
 
 echo html_writer::tag('h3', '📝 ' . get_string('unused_questions_list', 'local_question_diagnostic'), ['style' => 'margin-top: 30px;']);
 
-// Afficher un message d'information sur le chargement
-$show_limit = optional_param('show', 50, PARAM_INT);
-$show_limit = max(10, min($show_limit, 500)); // Entre 10 et 500
+// Pagination
+$perpage = optional_param('perpage', 50, PARAM_INT);
+$perpage = max(10, min($perpage, 500)); // Entre 10 et 500
+$page = optional_param('page', 0, PARAM_INT);
+$page = max(0, $page);
+$offset = $page * $perpage;
 
 echo html_writer::start_tag('div', ['class' => 'alert alert-warning', 'style' => 'margin-bottom: 15px;']);
-echo '⚡ Par défaut, les <strong>' . $show_limit . ' premières questions inutilisées</strong> sont affichées. ';
-echo 'Utilisez le bouton "Charger plus" en bas de page pour afficher davantage de résultats.';
+echo '⚡ Par défaut, <strong>' . $perpage . ' questions inutilisées</strong> sont affichées par page. ';
+echo 'Utilisez la pagination en bas de page pour naviguer.';
 echo html_writer::end_tag('div');
 
 echo html_writer::start_tag('div', ['id' => 'loading-unused-questions', 'style' => 'text-align: center; padding: 40px;']);
@@ -265,11 +269,27 @@ echo html_writer::end_tag('div');
 
 // Charger les questions inutilisées avec pagination
 try {
-    $unused_questions = question_analyzer::get_unused_questions($show_limit);
+    $unused_questions = question_analyzer::get_unused_questions($perpage, $offset);
     $total_unused = $globalstats->unused_questions;
     
+    // Normaliser la structure : on veut une liste de vrais objets question.
+    // (Compat si une méthode retourne (object)['question' => ...]).
+    $unused_questions = array_values($unused_questions);
+    $normalized_questions = [];
+    foreach ($unused_questions as $item) {
+        if (!is_object($item)) {
+            continue;
+        }
+        if (isset($item->id) && !empty($item->id)) {
+            $normalized_questions[] = $item;
+        } elseif (isset($item->question) && is_object($item->question) && isset($item->question->id) && !empty($item->question->id)) {
+            $normalized_questions[] = $item->question;
+        }
+    }
+    $unused_questions = $normalized_questions;
+
     // 🆕 v1.9.55 : Récupérer les infos de versions (statut caché + nombre de versions) pour toutes les questions
-    $question_ids = array_map(function($item) { return $item->question->id; }, $unused_questions);
+    $question_ids = array_values(array_unique(array_map(function($q) { return (int)$q->id; }, $unused_questions)));
     $version_info_map = [];
     $usage_map = []; // 🆕 v1.9.57
     if (!empty($question_ids)) {
@@ -309,7 +329,15 @@ if (empty($unused_questions)) {
 
 // Afficher le compteur
 echo html_writer::start_tag('div', ['style' => 'margin-bottom: 15px; font-size: 14px; color: #666;']);
-echo '📊 Affichage de <strong>' . count($unused_questions) . '</strong> question(s) sur <strong>' . $total_unused . '</strong> au total.';
+$from = $offset + 1;
+$to = $offset + count($unused_questions);
+if ($total_unused == 0) {
+    $from = 0;
+    $to = 0;
+} else if ($to > $total_unused) {
+    $to = $total_unused;
+}
+echo '📊 Affichage <strong>' . $from . '–' . $to . '</strong> (page ' . ($page + 1) . ') sur <strong>' . $total_unused . '</strong> au total.';
 echo html_writer::end_tag('div');
 
 // Bouton de suppression en masse (au-dessus du tableau)
@@ -353,12 +381,12 @@ echo html_writer::end_tag('thead');
 echo html_writer::start_tag('tbody');
 
 // Récupérer les IDs pour charger les stats en batch
-$question_ids = array_map(function($q) { return $q->id; }, $unused_questions);
 $deletability_map = question_analyzer::can_delete_questions_batch($question_ids);
 
 // Afficher chaque question inutilisée
 foreach ($unused_questions as $question) {
-    $stats = question_analyzer::get_question_stats($question);
+    // ⚡ Optimisation : on injecte $usage_map déjà chargé + on désactive la détection de doublons (inutile ici).
+    $stats = question_analyzer::get_question_stats($question, $usage_map, null, false);
     
     // Vérifier si supprimable
     $can_delete_check = isset($deletability_map[$question->id]) ? $deletability_map[$question->id] : null;
@@ -370,24 +398,28 @@ foreach ($unused_questions as $question) {
         'status' => 'unknown'
     ];
     
-    // Extraire le texte de la question (sans HTML)
-    $excerpt = substr(strip_tags($question->questiontext), 0, 150);
-    if (strlen(strip_tags($question->questiontext)) > 150) {
+    // 🆕 v1.9.57 : Statut de visibilité (visible/cachée/supprimée)
+    $visibility_status = question_analyzer::get_question_visibility_status($question->id, $version_info, $usage_map);
+    $is_visible = ($visibility_status === 'visible');
+
+    // Extrait du texte de la question (sans HTML) - UTF-8 safe
+    $plain = strip_tags($question->questiontext);
+    $excerpt = core_text::substr($plain, 0, 150);
+    if (core_text::strlen($plain) > 150) {
         $excerpt .= '...';
     }
-    
-    // Récupérer le créateur
-    $creator_name = 'Inconnu';
-    if ($question->createdby > 0) {
-        $creator = $DB->get_record('user', ['id' => $question->createdby], 'firstname, lastname');
-        if ($creator) {
-            $creator_name = fullname($creator);
-        }
+
+    // Créateur (déjà calculé dans get_question_stats)
+    $creator_name = isset($stats->creator_name) ? $stats->creator_name : 'Inconnu';
+
+    // Texte simple pour la colonne optionnelle "Visible"
+    if ($visibility_status === 'hidden') {
+        $visible_text = '🙈 Cachée';
+    } elseif ($visibility_status === 'deleted') {
+        $visible_text = '🗑️ Supprimée';
+    } else {
+        $visible_text = '✅ Visible';
     }
-    
-    // Visibilité (utiliser l'ancienne valeur comme fallback)
-    $is_hidden = isset($question->hidden) && $question->hidden == 1;
-    $visible_text = $is_hidden ? '🙈 Cachée' : '✅ Visible';
     
     // Attributs data-* pour le tri et le filtrage
     $row_attrs = [
@@ -395,6 +427,7 @@ foreach ($unused_questions as $question) {
         'data-id' => $question->id,
         'data-name' => format_string($question->name),
         'data-type' => $question->qtype,
+        'data-visibility-status' => $visibility_status, // visible|hidden|deleted
         'data-visibility' => $version_info->is_hidden ? '0' : '1', // 🆕 v1.9.55
         'data-versions' => $version_info->version_count, // 🆕 v1.9.55
         'data-category' => isset($stats->category_name) ? $stats->category_name : 'N/A',
@@ -403,7 +436,8 @@ foreach ($unused_questions as $question) {
         'data-creator' => $creator_name,
         'data-created' => $question->timecreated,
         'data-modified' => $question->timemodified,
-        'data-visible' => $is_hidden ? '0' : '1',
+        // Utilisé par le filtre "Visibilité"
+        'data-visible' => $is_visible ? '1' : '0',
         'data-excerpt' => $excerpt
     ];
     
@@ -419,9 +453,6 @@ foreach ($unused_questions as $question) {
     echo html_writer::tag('td', $question->id, ['class' => 'col-id']);
     echo html_writer::tag('td', format_string($question->name), ['class' => 'col-name']);
     echo html_writer::tag('td', $question->qtype, ['class' => 'col-type']);
-    
-    // 🆕 v1.9.57 : Colonne Visibilité (visible/cachée/supprimée)
-    $visibility_status = question_analyzer::get_question_visibility_status($question->id, $version_info, $usage_map);
     
     switch ($visibility_status) {
         case 'deleted':
@@ -462,8 +493,9 @@ foreach ($unused_questions as $question) {
     // Catégorie cliquable
     echo html_writer::start_tag('td', ['class' => 'col-category']);
     if (isset($stats->category_id) && $stats->category_id > 0 && isset($stats->context_id)) {
+        $courseid = isset($stats->course_id) && $stats->course_id ? (int)$stats->course_id : (defined('SITEID') ? SITEID : 1);
         $cat_url = new moodle_url('/question/edit.php', [
-            'courseid' => 1,
+            'courseid' => $courseid,
             'cat' => $stats->category_id . ',' . $stats->context_id
         ]);
         $category_display = html_writer::link($cat_url, format_string($stats->category_name), ['target' => '_blank', 'title' => 'Ouvrir la catégorie dans la banque de questions']);
@@ -533,22 +565,28 @@ echo html_writer::end_tag('tbody');
 echo html_writer::end_tag('table');
 echo html_writer::end_tag('div'); // fin qd-table-wrapper
 
-// Bouton "Charger plus" si nécessaire
-if (count($unused_questions) < $total_unused) {
-    $next_show = $show_limit + 50;
-    $load_more_url = new moodle_url('/local/question_diagnostic/unused_questions.php', [
-        'show' => $next_show
-    ]);
-    
-    echo html_writer::start_tag('div', ['style' => 'text-align: center; margin: 30px 0;']);
-    echo html_writer::link(
-        $load_more_url,
-        get_string('load_more_questions', 'local_question_diagnostic'),
-        ['class' => 'btn btn-lg btn-primary']
-    );
-    echo html_writer::tag('p', 'Actuellement ' . count($unused_questions) . ' sur ' . $total_unused . ' affichées', ['style' => 'margin-top: 10px; color: #666;']);
-    echo html_writer::end_tag('div');
+// Pagination
+$pagecount = $perpage > 0 ? (int)ceil($total_unused / $perpage) : 1;
+if ($pagecount < 1) {
+    $pagecount = 1;
 }
+echo html_writer::start_tag('div', ['style' => 'display:flex; gap:10px; justify-content:center; align-items:center; margin: 30px 0; flex-wrap: wrap;']);
+
+// Page précédente
+if ($page > 0) {
+    $prevurl = new moodle_url('/local/question_diagnostic/unused_questions.php', ['page' => $page - 1, 'perpage' => $perpage]);
+    echo html_writer::link($prevurl, '⬅️ Page précédente', ['class' => 'btn btn-secondary']);
+}
+
+// Page suivante
+if (($page + 1) < $pagecount) {
+    $nexturl = new moodle_url('/local/question_diagnostic/unused_questions.php', ['page' => $page + 1, 'perpage' => $perpage]);
+    echo html_writer::link($nexturl, '➡️ Page suivante', ['class' => 'btn btn-primary']);
+}
+
+// Info
+echo html_writer::tag('span', 'Page ' . ($page + 1) . ' / ' . $pagecount . ' — ' . $perpage . ' par page', ['style' => 'color:#666; font-size: 14px;']);
+echo html_writer::end_tag('div');
 
 // ======================================================================
 // JavaScript pour les interactions
@@ -600,7 +638,7 @@ function bulkDeleteUnusedQuestions() {
     if (confirm(message)) {
         // Rediriger vers l'action de suppression en masse
         var url = '<?php echo (new \moodle_url('/local/question_diagnostic/actions/delete_questions_bulk.php'))->out(false); ?>';
-        url += '?ids=' + ids.join(',') + '&sesskey=<?php echo sesskey(); ?>';
+        url += '?ids=' + encodeURIComponent(ids.join(',')) + '&sesskey=<?php echo sesskey(); ?>';
         window.location.href = url;
     }
 }
@@ -673,6 +711,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const category = (row.getAttribute('data-category') || '').toLowerCase();
             const course = (row.getAttribute('data-course') || '').toLowerCase();
             const excerpt = (row.getAttribute('data-excerpt') || '').toLowerCase();
+            const visibilityStatus = row.getAttribute('data-visibility-status') || '';
             const visible = row.getAttribute('data-visible') === '1';
             
             const matchesSearch = searchValue === '' || 
@@ -682,9 +721,10 @@ document.addEventListener('DOMContentLoaded', function() {
                                  course.includes(searchValue) ||
                                  excerpt.includes(searchValue);
             const matchesType = typeValue === 'all' || type === typeValue;
-            const matchesVisible = visibleValue === 'all' || 
-                                  (visibleValue === 'visible' && visible) || 
-                                  (visibleValue === 'hidden' && !visible);
+            const matchesVisible = visibleValue === 'all' ||
+                                  (visibleValue === 'visible' && visibilityStatus === 'visible') ||
+                                  (visibleValue === 'hidden' && visibilityStatus === 'hidden') ||
+                                  (visibleValue === 'deleted' && visibilityStatus === 'deleted');
             
             if (matchesSearch && matchesType && matchesVisible) {
                 row.style.display = '';
