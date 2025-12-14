@@ -173,7 +173,7 @@ class orphan_file_detector {
             'orphan_type' => $orphan_type,
             'reason' => $reason,
             'filesize_formatted' => self::format_filesize($file->filesize),
-            'timecreated_formatted' => userdate($file->timecreated, get_string('strftimedatetime', 'core')),
+            'timecreated_formatted' => userdate($file->timecreated, get_string('strftimedatetime', 'langconfig')),
             'age_days' => floor((time() - $file->timecreated) / (60 * 60 * 24)),
         ];
     }
