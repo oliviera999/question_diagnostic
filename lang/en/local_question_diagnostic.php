@@ -111,6 +111,14 @@ $string['questions_integrity_issues_found'] = 'Critical issues detected';
 $string['questions_integrity_warnings_found'] = 'Warnings detected';
 $string['questions_integrity_summary'] = '{$a->questions} question(s) analyzed — errors: {$a->errors}, warnings: {$a->warnings}.';
 $string['questions_integrity_details'] = 'Diagnostic details';
+$string['questions_integrity_fix'] = 'Fix automatically';
+$string['questions_integrity_fix_confirm_title'] = 'Fix question integrity issues';
+$string['questions_integrity_fix_confirm_intro'] = 'This action will propose automatic fixes (with confirmation) for some detected structural inconsistencies in the question bank.';
+$string['questions_integrity_fix_warning'] = '⚠️ This action MODIFIES the database. Please make a backup before confirming.';
+$string['questions_integrity_fix_operations'] = 'Proposed changes';
+$string['questions_integrity_fix_done'] = 'Fix completed: {$a->success} success, {$a->failed} failure(s).';
+$string['questions_integrity_fix_failed'] = 'Some fixes failed:';
+$string['questions_integrity_fix_nothing'] = 'No automatic fix applicable.';
 
 // Tool 2: Link checking
 $string['tool_links_title'] = 'Link Verification';

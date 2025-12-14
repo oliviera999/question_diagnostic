@@ -162,6 +162,22 @@ if (!empty($integrityreport)) {
         'errors' => $errors,
         'warnings' => $warnings,
     ]), ['style' => 'margin-top: 6px;']);
+
+    // 🆕 Correction assistée (avec confirmation).
+    if ($errors > 0 || $warnings > 0) {
+        $fixurl = new moodle_url('/local/question_diagnostic/actions/fix_questions_integrity.php', [
+            'sesskey' => sesskey(),
+            // Retour vers cette page (avec les mêmes paramètres).
+            'returnurl' => $PAGE->url->out(false),
+        ]);
+        echo html_writer::start_div('text-right', ['style' => 'margin-top: 10px;']);
+        echo html_writer::link(
+            $fixurl,
+            '🛠️ ' . get_string('questions_integrity_fix', 'local_question_diagnostic'),
+            ['class' => 'btn btn-sm btn-danger']
+        );
+        echo html_writer::end_div();
+    }
     echo html_writer::end_div();
 
     echo html_writer::tag('h3', '🔎 ' . get_string('questions_integrity_details', 'local_question_diagnostic'), ['style' => 'margin-top: 10px;']);

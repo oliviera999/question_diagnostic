@@ -111,6 +111,14 @@ $string['questions_integrity_issues_found'] = 'Problèmes critiques détectés';
 $string['questions_integrity_warnings_found'] = 'Avertissements détectés';
 $string['questions_integrity_summary'] = '{$a->questions} question(s) analysée(s) — erreurs : {$a->errors}, avertissements : {$a->warnings}.';
 $string['questions_integrity_details'] = 'Détails du diagnostic';
+$string['questions_integrity_fix'] = 'Corriger automatiquement';
+$string['questions_integrity_fix_confirm_title'] = 'Correction des incohérences de questions';
+$string['questions_integrity_fix_confirm_intro'] = 'Cette action va proposer des corrections automatiques (avec confirmation) pour certaines incohérences structurelles détectées dans la banque de questions.';
+$string['questions_integrity_fix_warning'] = '⚠️ Cette action MODIFIE la base de données. Faites un backup avant de confirmer.';
+$string['questions_integrity_fix_operations'] = 'Modifications proposées';
+$string['questions_integrity_fix_done'] = 'Correction terminée : {$a->success} succès, {$a->failed} échec(s).';
+$string['questions_integrity_fix_failed'] = 'Certaines corrections ont échoué :';
+$string['questions_integrity_fix_nothing'] = 'Aucune correction automatique applicable.';
 
 // Outil 2 : Vérification des liens
 $string['tool_links_title'] = 'Vérification des Liens';
