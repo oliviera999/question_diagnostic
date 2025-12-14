@@ -2,8 +2,8 @@
 
 **Index de la documentation complète du plugin `local_question_diagnostic`**
 
-**Version actuelle** : v1.9.42  
-**Dernière mise à jour** : 13 Octobre 2025
+**Version actuelle** : v1.11.27  
+**Dernière mise à jour** : 14 Décembre 2025
 
 ---
 

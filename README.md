@@ -8,7 +8,7 @@
 
 Outil complet de gestion et diagnostic de la banque de questions pour Moodle 4.0+
 
-**Version actuelle :** v1.9.50 | **Statut :** Production-Ready ✅ | **Qualité :** 9.9/10 ⭐⭐⭐⭐⭐
+**Version actuelle :** v1.11.27 | **Statut :** Production-Ready ✅ | **Qualité :** 9.9/10 ⭐⭐⭐⭐⭐
 
 ### 📌 Compatibilité Moodle
 
@@ -151,7 +151,7 @@ Ce plugin offre un ensemble complet d'outils pour diagnostiquer et gérer votre 
 
 ### 🎨 Interface Moderne
 - Design responsive (mobile-friendly)
-- **Badge de version visible** sur toutes les pages (🆕 v1.9.50)
+- **Badge de version visible** sur toutes les pages (🆕 v1.11.27)
 - Tri par colonne (cliquer sur les en-têtes)
 - Badges de statut colorés
 - Animations et transitions fluides
@@ -321,12 +321,10 @@ Détecter les liens cassés dans les questions importées d'un contexte à un au
 
 ## 📝 Changelog
 
-### v1.9.42 (2025-10-11) - ACTUEL
-- 🧪 **Tests & Qualité** : 49+ tests unitaires (~80% couverture)
-- 🤖 **CI/CD** : GitHub Actions (tests automatisés sur 3 versions PHP et Moodle)
-- ⚡ **Performance** : Optimisations pour sites avec 100k+ questions
-- 🔒 **Sécurité** : Système d'audit complet et logs des actions
-- 📊 **Qualité** : Score 9.9/10 - Production Ready
+### v1.11.27 (2025-12-14) - ACTUEL
+- ✅ Corrections et améliorations sur le nettoyage de la banque de questions
+- ✅ Pagination et détection d'utilisation améliorées (questions inutilisées)
+- ✅ Nettoyage de doublons fiabilisé (sélection "garder une" + actions en lot)
 
 ### Versions Précédentes Majeures
 
