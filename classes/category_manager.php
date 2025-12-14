@@ -543,7 +543,12 @@ class category_manager {
         global $DB, $CFG;
 
         try {
-            $category = $DB->get_record('question_categories', ['id' => $categoryid], '*', MUST_EXIST);
+            // ⚠️ Idempotence : si la catégorie n'existe plus, considérer l'opération comme déjà faite.
+            // Cas typique : suppression concurrente (autre onglet/admin) pendant un nettoyage par lots.
+            $category = $DB->get_record('question_categories', ['id' => $categoryid], '*', IGNORE_MISSING);
+            if (!$category) {
+                return true;
+            }
             
             // 🛡️ PROTECTION 1 : Catégories "Default for..." AVEC contexte valide
             // 🔧 v1.10.3 : Protection conditionnelle - protéger SEULEMENT si contexte actif
@@ -575,12 +580,51 @@ class category_manager {
                 try {
                     $context = \context::instance_by_id($category->contextid, IGNORE_MISSING);
                     if ($context) {
-                        // Protéger TOUTE catégorie racine avec contexte valide.
-                        // 🆕 v1.11.20 : message spécifique pour les racines de cours.
-                        if ((int)$context->contextlevel === CONTEXT_COURSE) {
-                            return "❌ PROTÉGÉE : Cette catégorie est une catégorie racine de cours (parent=0, contexte COURSE). Elle est critique pour la banque de questions du cours et ne doit jamais être supprimée.";
+                        // Exception TRÈS contrôlée : suppression d'une racine "Default for..." redondante,
+                        // uniquement si on peut garantir qu'on ne supprime PAS la catégorie par défaut utilisée par Moodle.
+                        $isdefaultname = (stripos($category->name, 'Default for') !== false || stripos($category->name, 'Par défaut pour') !== false);
+                        if ($bypass_default_protection && $isdefaultname) {
+                            // Ne jamais supprimer la dernière racine d'un contexte.
+                            $rootcount = (int)$DB->count_records('question_categories', [
+                                'contextid' => (int)$category->contextid,
+                                'parent' => 0,
+                            ]);
+                            if ($rootcount <= 1) {
+                                return "❌ PROTÉGÉE : Cette catégorie est la SEULE catégorie racine (parent=0) de ce contexte. Par sécurité, elle ne peut pas être supprimée.";
+                            }
+
+                            // Identifier la catégorie par défaut réellement utilisée par Moodle pour ce contexte.
+                            $keepid = null;
+                            try {
+                                require_once($CFG->libdir . '/questionlib.php');
+                                if (function_exists('question_get_default_category')) {
+                                    $defaultcat = question_get_default_category((int)$category->contextid, false);
+                                    if ($defaultcat && !empty($defaultcat->id)) {
+                                        $keepid = (int)$defaultcat->id;
+                                    }
+                                }
+                            } catch (\Exception $e) {
+                                // On garde $keepid = null.
+                            }
+
+                            if (empty($keepid)) {
+                                return "❌ PROTÉGÉE : Impossible d'identifier la catégorie par défaut utilisée par Moodle pour ce contexte. Par sécurité, la suppression est bloquée.";
+                            }
+
+                            if ((int)$keepid === (int)$categoryid) {
+                                return "❌ PROTÉGÉE : Cette catégorie racine est la catégorie par défaut utilisée par Moodle pour ce contexte. Elle doit être conservée.";
+                            }
+
+                            // ✅ Autoriser la suppression : c'est une racine "Default for..." redondante, pas la catégorie par défaut Moodle,
+                            // et il reste au moins une autre racine dans le contexte.
+                        } else {
+                            // Protéger TOUTE autre catégorie racine avec contexte valide.
+                            // 🆕 v1.11.20 : message spécifique pour les racines de cours.
+                            if ((int)$context->contextlevel === CONTEXT_COURSE) {
+                                return "❌ PROTÉGÉE : Cette catégorie est une catégorie racine de cours (parent=0, contexte COURSE). Elle est critique pour la banque de questions du cours et ne doit jamais être supprimée.";
+                            }
+                            return "❌ PROTÉGÉE : Cette catégorie est une catégorie racine (parent=0, top-level). Les catégories racine sont critiques pour la structure de Moodle et ne doivent jamais être supprimées.";
                         }
-                        return "❌ PROTÉGÉE : Cette catégorie est une catégorie racine (parent=0, top-level). Les catégories racine sont critiques pour la structure de Moodle et ne doivent jamais être supprimées.";
                     }
                 } catch (\Exception $e) {
                     // Si erreur de contexte, continuer (peut-être une catégorie orpheline)
