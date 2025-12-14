@@ -1054,15 +1054,11 @@ function local_question_diagnostic_find_olution_category() {
         
         local_question_diagnostic_debug_log('✅ Found course category "Olution": ' . $olution_course_category->name . ' (ID: ' . $olution_course_category->id . ')', DEBUG_DEVELOPER);
         
-        // 2. Rechercher tous les cours dans cette catégorie
-        $courses_sql = "SELECT c.id, c.fullname, c.shortname, c.category
-                       FROM {course} c 
-                       WHERE c.category = :category_id
-                       ORDER BY c.fullname ASC";
+        // 2. Rechercher tous les cours dans cette catégorie (et ses sous-catégories).
+        // 🔧 v1.11.8 : Utiliser la recherche récursive (la catégorie "Olution" peut contenir des sous-catégories).
+        $courses = local_question_diagnostic_get_courses_in_category_recursive($olution_course_category->id);
         
-        $courses = $DB->get_records_sql($courses_sql, ['category_id' => $olution_course_category->id]);
-        
-        local_question_diagnostic_debug_log('🔍 Found ' . count($courses) . ' courses in Olution category (ID: ' . $olution_course_category->id . ')', DEBUG_DEVELOPER);
+        local_question_diagnostic_debug_log('🔍 Found ' . count($courses) . ' courses in Olution course category (recursive) (ID: ' . $olution_course_category->id . ')', DEBUG_DEVELOPER);
         
         foreach ($courses as $course) {
             local_question_diagnostic_debug_log('🎯 Checking course: ' . $course->fullname . ' (ID: ' . $course->id . ')', DEBUG_DEVELOPER);

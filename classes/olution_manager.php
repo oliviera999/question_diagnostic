@@ -25,6 +25,223 @@ require_once(__DIR__ . '/question_analyzer.php');
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class olution_manager {
+    /** @var array<int,int>|null Map catégorie_id => parent_id (cache requête) */
+    private static $categoryparentmap = null;
+
+    /** @var int|null Cache de l'ID de la catégorie racine Olution */
+    private static $olutioncategoryid = null;
+
+    /** @var array<int,bool> Cache catégorie_id => is_in_olution */
+    private static $inolutioncache = [];
+
+    /** @var array<int,int> Cache catégorie_id => depth */
+    private static $depthcache = [];
+
+    /** @var array|null Cache des groupes Olution (non paginés) */
+    private static $allolutionduplicategroupscache = null;
+
+    /**
+     * Construit une condition SQL "catégorie dans Olution" (racine ou sous-catégories),
+     * avec paramètres associés.
+     *
+     * @param string $qcalias Alias SQL de {question_categories} (ex: 'qc')
+     * @param array $params Params SQL (référence)
+     * @param object|null $olutioncat Objet catégorie Olution (optionnel)
+     * @return string Condition SQL
+     */
+    private static function build_in_olution_condition(string $qcalias, array &$params, $olutioncat = null): string {
+        global $DB;
+
+        $olutionid = self::get_olution_category_id();
+        if ($olutionid <= 0) {
+            // Condition impossible.
+            $params['olutionid'] = 0;
+            return "1=0";
+        }
+
+        $params['olutionid'] = $olutionid;
+
+        // Essayer d'utiliser qc.path si disponible (évite une énorme clause IN).
+        try {
+            $cols = $DB->get_columns('question_categories');
+            if (isset($cols['path'])) {
+                if ($olutioncat === null) {
+                    $olutioncat = local_question_diagnostic_find_olution_category();
+                }
+                if ($olutioncat && isset($olutioncat->path) && !empty($olutioncat->path)) {
+                    // Descendants = path commence par "<path>/"
+                    $params['olutionpath'] = rtrim($olutioncat->path, '/') . '/%';
+                    return "({$qcalias}.id = :olutionid OR " . $DB->sql_like("{$qcalias}.path", ':olutionpath', false, false) . ")";
+                }
+            }
+        } catch (\Exception $e) {
+            // Fallback ci-dessous.
+        }
+
+        // Fallback: calculer la liste des descendants en PHP.
+        $parentmap = self::get_category_parent_map();
+        $children = [];
+        foreach ($parentmap as $id => $parent) {
+            if (!isset($children[$parent])) {
+                $children[$parent] = [];
+            }
+            $children[$parent][] = $id;
+        }
+
+        $ids = [];
+        $queue = [$olutionid];
+        $seen = [];
+        while (!empty($queue)) {
+            $current = array_shift($queue);
+            if (isset($seen[$current])) {
+                continue;
+            }
+            $seen[$current] = true;
+            $ids[] = $current;
+            foreach (($children[$current] ?? []) as $childid) {
+                $queue[] = (int)$childid;
+            }
+        }
+
+        list($insql, $inparams) = $DB->get_in_or_equal($ids, SQL_PARAMS_NAMED, 'olcat');
+        $params = array_merge($params, $inparams);
+        return "{$qcalias}.id {$insql}";
+    }
+
+    /**
+     * Récupère les groupes de doublons (name+qtype) qui ont une présence dans Olution, paginés.
+     *
+     * @param int $limit Nombre de groupes à retourner
+     * @param int $offset Offset de groupes
+     * @param int|null $totalgroups (OUT) Nombre total de groupes matchés
+     * @return array Tableau d'objets (name,qtype,dup_count)
+     */
+    private static function get_olution_duplicate_group_rows_paginated(int $limit, int $offset, &$totalgroups = null): array {
+        global $DB;
+
+        $olution = local_question_diagnostic_find_olution_category();
+        if (!$olution) {
+            $totalgroups = 0;
+            return [];
+        }
+
+        $params = [];
+        $inolutioncond = self::build_in_olution_condition('qc', $params, $olution);
+
+        $sqlgroups = "SELECT q.name,
+                             q.qtype,
+                             COUNT(DISTINCT q.id) AS dup_count
+                        FROM {question} q
+                        INNER JOIN {question_versions} qv ON qv.questionid = q.id
+                        INNER JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
+                        INNER JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
+                    GROUP BY q.name, q.qtype
+                      HAVING COUNT(DISTINCT q.id) > 1
+                         AND COUNT(DISTINCT CASE WHEN {$inolutioncond} THEN q.id ELSE NULL END) > 0
+                    ORDER BY dup_count DESC, q.name ASC, q.qtype ASC";
+
+        // Total groups.
+        $sqlcount = "SELECT COUNT(1)
+                       FROM (
+                             SELECT q.name, q.qtype
+                               FROM {question} q
+                               INNER JOIN {question_versions} qv ON qv.questionid = q.id
+                               INNER JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
+                               INNER JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
+                           GROUP BY q.name, q.qtype
+                             HAVING COUNT(DISTINCT q.id) > 1
+                                AND COUNT(DISTINCT CASE WHEN {$inolutioncond} THEN q.id ELSE NULL END) > 0
+                            ) t";
+
+        $totalgroups = (int)$DB->count_records_sql($sqlcount, $params);
+        if ($totalgroups === 0) {
+            return [];
+        }
+
+        return array_values($DB->get_records_sql($sqlgroups, $params, $offset, $limit));
+    }
+
+    /**
+     * Retourne l'ID de la catégorie Olution détectée (cache en mémoire).
+     *
+     * @return int ID catégorie Olution, ou 0 si non trouvée
+     */
+    private static function get_olution_category_id(): int {
+        if (self::$olutioncategoryid !== null) {
+            return (int)self::$olutioncategoryid;
+        }
+
+        $olution = local_question_diagnostic_find_olution_category();
+        self::$olutioncategoryid = $olution ? (int)$olution->id : 0;
+
+        return (int)self::$olutioncategoryid;
+    }
+
+    /**
+     * Charge une map (id => parent) pour TOUTES les catégories de questions.
+     * Permet d'éviter les requêtes N+1 lors des parcours d'arborescence.
+     *
+     * @return array<int,int>
+     */
+    private static function get_category_parent_map(): array {
+        global $DB;
+
+        if (self::$categoryparentmap !== null) {
+            return self::$categoryparentmap;
+        }
+
+        $map = [];
+        $records = $DB->get_records('question_categories', null, '', 'id,parent');
+        foreach ($records as $rec) {
+            $map[(int)$rec->id] = (int)$rec->parent;
+        }
+
+        self::$categoryparentmap = $map;
+        return self::$categoryparentmap;
+    }
+
+    /**
+     * Charge en batch la catégorie de questions de chaque question (Moodle 4.x).
+     *
+     * @param int[] $questionids
+     * @return array<int,object> Map questionid => (object) catégorie (id,name,parent,contextid)
+     */
+    private static function get_categories_for_questions(array $questionids): array {
+        global $DB;
+
+        $questionids = array_values(array_unique(array_map('intval', $questionids)));
+        if (empty($questionids)) {
+            return [];
+        }
+
+        list($insql, $params) = $DB->get_in_or_equal($questionids, SQL_PARAMS_NAMED);
+        $sql = "SELECT qv.questionid,
+                       qc.id AS categoryid,
+                       qc.name AS categoryname,
+                       qc.parent AS categoryparent,
+                       qc.contextid AS categorycontextid
+                  FROM {question_versions} qv
+                  INNER JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
+                  INNER JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
+                 WHERE qv.questionid $insql";
+
+        // questionid est unique ici, donc get_records_sql est OK.
+        $records = $DB->get_records_sql($sql, $params);
+
+        $result = [];
+        foreach ($records as $rec) {
+            $qid = (int)$rec->questionid;
+            $cat = (object)[
+                'id' => (int)$rec->categoryid,
+                'name' => $rec->categoryname,
+                'parent' => (int)$rec->categoryparent,
+                'contextid' => (int)$rec->categorycontextid,
+            ];
+            $result[$qid] = $cat;
+        }
+
+        return $result;
+    }
 
     /**
      * Obtient la profondeur d'une catégorie de questions dans l'arborescence
@@ -33,32 +250,52 @@ class olution_manager {
      * @return int Profondeur (0 = racine, 1 = niveau 1, etc.)
      */
     private static function get_category_depth($categoryid) {
-        global $DB;
-        
-        $depth = 0;
-        $current_id = $categoryid;
-        $visited = [];
-        
-        while ($current_id > 0) {
-            // Éviter les boucles infinies
-            if (in_array($current_id, $visited)) {
-                break;
-            }
-            $visited[] = $current_id;
-            
-            $cat = $DB->get_record('question_categories', ['id' => $current_id]);
-            if (!$cat) {
-                break;
-            }
-            
-            if ($cat->parent == 0) {
-                break; // Racine atteinte
-            }
-            
-            $depth++;
-            $current_id = $cat->parent;
+        $categoryid = (int)$categoryid;
+        if ($categoryid <= 0) {
+            return 0;
         }
-        
+
+        if (isset(self::$depthcache[$categoryid])) {
+            return (int)self::$depthcache[$categoryid];
+        }
+
+        $parentmap = self::get_category_parent_map();
+        $visited = [];
+        $path = [];
+        $current = $categoryid;
+        $depth = 0;
+
+        while ($current > 0) {
+            if (isset(self::$depthcache[$current])) {
+                $depth += (int)self::$depthcache[$current];
+                break;
+            }
+
+            if (isset($visited[$current])) {
+                // Boucle détectée.
+                break;
+            }
+            $visited[$current] = true;
+            $path[] = $current;
+
+            $parent = $parentmap[$current] ?? null;
+            if ($parent === null || (int)$parent === 0) {
+                break;
+            }
+
+            $depth++;
+            $current = (int)$parent;
+        }
+
+        // Mémoriser les profondeurs sur le chemin (meilleure perf).
+        $d = $depth;
+        foreach ($path as $id) {
+            if (!isset(self::$depthcache[$id])) {
+                self::$depthcache[$id] = $d;
+            }
+            $d = max(0, $d - 1);
+        }
+
         return $depth;
     }
 
@@ -72,54 +309,50 @@ class olution_manager {
      * @return bool True si dans Olution
      */
     public static function is_in_olution($categoryid) {
-        global $DB;
-        
-        // Utiliser la fonction existante qui fonctionne déjà
-        $olution = local_question_diagnostic_find_olution_category();
-        if (!$olution) {
-            local_question_diagnostic_debug_log('❌ Olution category not found in is_in_olution()', DEBUG_DEVELOPER);
+        $categoryid = (int)$categoryid;
+        if ($categoryid <= 0) {
             return false;
         }
-        
-        local_question_diagnostic_debug_log('🔍 Checking if category ' . $categoryid . ' is in Olution (ID: ' . $olution->id . ')', DEBUG_DEVELOPER);
-        
-        // Remonter l'arborescence jusqu'à trouver Olution ou une racine
-        $current_id = $categoryid;
+
+        if (isset(self::$inolutioncache[$categoryid])) {
+            return (bool)self::$inolutioncache[$categoryid];
+        }
+
+        $olutionid = self::get_olution_category_id();
+        if ($olutionid <= 0) {
+            local_question_diagnostic_debug_log('❌ Olution category not found in is_in_olution()', DEBUG_DEVELOPER);
+            self::$inolutioncache[$categoryid] = false;
+            return false;
+        }
+
+        $parentmap = self::get_category_parent_map();
+        $current = $categoryid;
         $visited = [];
-        $path = []; // Pour le debug
-        
-        while ($current_id > 0) {
-            // Éviter les boucles infinies
-            if (in_array($current_id, $visited)) {
+        $path = [];
+
+        while ($current > 0) {
+            if (isset($visited[$current])) {
                 local_question_diagnostic_debug_log('⚠️ Loop detected in is_in_olution() for category ' . $categoryid, DEBUG_DEVELOPER);
                 break;
             }
-            $visited[] = $current_id;
-            $path[] = $current_id;
-            
-            // Si on trouve Olution, c'est gagné !
-            if ($current_id == $olution->id) {
-                local_question_diagnostic_debug_log('✅ Found Olution in path: ' . implode(' -> ', $path), DEBUG_DEVELOPER);
+            $visited[$current] = true;
+            $path[] = $current;
+
+            if ($current === $olutionid) {
+                self::$inolutioncache[$categoryid] = true;
                 return true;
             }
-            
-            // Récupérer la catégorie courante
-            $cat = $DB->get_record('question_categories', ['id' => $current_id]);
-            if (!$cat) {
-                local_question_diagnostic_debug_log('⚠️ Category not found: ' . $current_id, DEBUG_DEVELOPER);
+
+            $parent = $parentmap[$current] ?? null;
+            if ($parent === null || (int)$parent === 0) {
                 break;
             }
-            
-            // Si on arrive à une racine (parent = 0), on s'arrête
-            if ($cat->parent == 0) {
-                local_question_diagnostic_debug_log('🔚 Reached root category: ' . $current_id . ' (path: ' . implode(' -> ', $path) . ')', DEBUG_DEVELOPER);
-                break;
-            }
-            
-            $current_id = $cat->parent;
+
+            $current = (int)$parent;
         }
-        
+
         local_question_diagnostic_debug_log('❌ Category ' . $categoryid . ' is NOT in Olution (path: ' . implode(' -> ', $path) . ')', DEBUG_DEVELOPER);
+        self::$inolutioncache[$categoryid] = false;
         return false;
     }
 
@@ -137,6 +370,11 @@ class olution_manager {
         global $DB;
         
         try {
+            // Cache simple (dans la même requête HTTP) pour éviter double calcul (page + stats).
+            if ((int)$limit === 0 && (int)$offset === 0 && self::$allolutionduplicategroupscache !== null) {
+                return self::$allolutionduplicategroupscache;
+            }
+
             // Vérifier que la catégorie de questions Olution existe
             $olution = local_question_diagnostic_find_olution_category();
             if (!$olution) {
@@ -165,6 +403,9 @@ class olution_manager {
                 // Récupérer les détails de toutes les questions du groupe
                 list($insql, $params) = $DB->get_in_or_equal($question_ids);
                 $questions = $DB->get_records_select('question', "id $insql", $params);
+
+                // Récupérer en batch la catégorie de chaque question (évite N+1).
+                $categoriesbyquestion = self::get_categories_for_questions($question_ids);
                 
                 // Récupérer les catégories de chaque question
                 $questions_with_categories = [];
@@ -172,15 +413,7 @@ class olution_manager {
                 $non_olution_questions = [];
                 
                 foreach ($questions as $q) {
-                    // Récupérer la catégorie via question_bank_entries
-                    $sql_cat = "SELECT qc.*
-                               FROM {question_categories} qc
-                               INNER JOIN {question_bank_entries} qbe ON qbe.questioncategoryid = qc.id
-                               INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
-                               WHERE qv.questionid = :qid
-                               LIMIT 1";
-                    $cat = $DB->get_record_sql($sql_cat, ['qid' => $q->id]);
-                    
+                    $cat = $categoriesbyquestion[(int)$q->id] ?? null;
                     if ($cat) {
                         $is_in_olution = self::is_in_olution($cat->id);
                         $depth = self::get_category_depth($cat->id);
@@ -209,14 +442,38 @@ class olution_manager {
                 
                 // Si au moins UN doublon est dans Olution, c'est intéressant
                 if (!empty($olution_questions)) {
-                    // Trouver la catégorie Olution la plus profonde
-                    $deepest_olution_cat = null;
-                    $max_depth = -1;
-                    
+                    // Choisir la catégorie cible de façon stable :
+                    // - Priorité 1 : Catégorie Olution la plus fréquente dans le groupe (majorité)
+                    // - Priorité 2 : Profondeur la plus élevée (plus spécifique)
+                    // - Priorité 3 : ID le plus petit (déterministe)
+                    $countsbycatid = [];
+                    $depthbycatid = [];
+                    $catbyid = [];
+
                     foreach ($olution_questions as $oq) {
-                        if ($oq['depth'] > $max_depth) {
-                            $max_depth = $oq['depth'];
-                            $deepest_olution_cat = $oq['category'];
+                        $cid = (int)$oq['category']->id;
+                        if (!isset($countsbycatid[$cid])) {
+                            $countsbycatid[$cid] = 0;
+                        }
+                        $countsbycatid[$cid]++;
+                        $depthbycatid[$cid] = max($depthbycatid[$cid] ?? -1, (int)$oq['depth']);
+                        $catbyid[$cid] = $oq['category'];
+                    }
+
+                    $targetcat = null;
+                    $targetdepth = -1;
+                    $bestcount = -1;
+                    $bestid = PHP_INT_MAX;
+
+                    foreach ($countsbycatid as $cid => $count) {
+                        $depth = $depthbycatid[$cid] ?? -1;
+                        if ($count > $bestcount
+                            || ($count === $bestcount && $depth > $targetdepth)
+                            || ($count === $bestcount && $depth === $targetdepth && $cid < $bestid)) {
+                            $bestcount = $count;
+                            $bestid = $cid;
+                            $targetdepth = $depth;
+                            $targetcat = $catbyid[$cid] ?? null;
                         }
                     }
                     
@@ -229,8 +486,8 @@ class olution_manager {
                         'all_questions' => $questions_with_categories,
                         'olution_questions' => $olution_questions,
                         'non_olution_questions' => $non_olution_questions,
-                        'target_category' => $deepest_olution_cat,
-                        'target_depth' => $max_depth
+                        'target_category' => $targetcat,
+                        'target_depth' => $targetdepth
                     ];
                 }
             }
@@ -241,13 +498,140 @@ class olution_manager {
             if ($limit > 0) {
                 $results = array_slice($results, $offset, $limit);
             }
-            
+            if ((int)$limit === 0 && (int)$offset === 0) {
+                self::$allolutionduplicategroupscache = $results;
+            }
+
             return $results;
             
         } catch (\Exception $e) {
             local_question_diagnostic_debug_log('Error in find_all_duplicates_for_olution: ' . $e->getMessage(), DEBUG_DEVELOPER);
             return [];
         }
+    }
+
+    /**
+     * Détecte tous les groupes de doublons Olution avec pagination, et retourne le total avant pagination.
+     *
+     * @param int $limit Limite du nombre de groupes (0 = tous)
+     * @param int $offset Offset pour pagination
+     * @param int|null $totalgroups (OUT) Nombre total de groupes avant pagination
+     * @return array Tableau de groupes de doublons paginés
+     */
+    public static function find_all_duplicates_for_olution_paginated($limit = 0, $offset = 0, &$totalgroups = null) {
+        global $DB;
+
+        $limit = (int)$limit;
+        $offset = (int)$offset;
+        if ($limit <= 0) {
+            $limit = 50;
+        }
+        if ($offset < 0) {
+            $offset = 0;
+        }
+
+        $rows = self::get_olution_duplicate_group_rows_paginated($limit, $offset, $totalgroups);
+        if (empty($rows)) {
+            return [];
+        }
+
+        // Construire les mêmes structures que find_all_duplicates_for_olution(), mais seulement pour la page demandée.
+        $results = [];
+        foreach ($rows as $row) {
+            $question_ids = $DB->get_fieldset_select('question', 'id',
+                'name = :name AND qtype = :qtype',
+                ['name' => $row->name, 'qtype' => $row->qtype]
+            );
+
+            if (empty($question_ids)) {
+                continue;
+            }
+
+            list($insql, $params) = $DB->get_in_or_equal($question_ids);
+            $questions = $DB->get_records_select('question', "id $insql", $params);
+            $categoriesbyquestion = self::get_categories_for_questions($question_ids);
+
+            $questions_with_categories = [];
+            $olution_questions = [];
+            $non_olution_questions = [];
+
+            foreach ($questions as $q) {
+                $cat = $categoriesbyquestion[(int)$q->id] ?? null;
+                if (!$cat) {
+                    continue;
+                }
+
+                $is_in_olution = self::is_in_olution($cat->id);
+                $depth = self::get_category_depth($cat->id);
+
+                $questions_with_categories[] = [
+                    'question' => $q,
+                    'category' => $cat,
+                    'is_in_olution' => $is_in_olution,
+                    'depth' => $depth
+                ];
+
+                if ($is_in_olution) {
+                    $olution_questions[] = [
+                        'question' => $q,
+                        'category' => $cat,
+                        'depth' => $depth
+                    ];
+                } else {
+                    $non_olution_questions[] = [
+                        'question' => $q,
+                        'category' => $cat
+                    ];
+                }
+            }
+
+            if (empty($olution_questions)) {
+                // Par sécurité: la requête SQL dit qu'il y a présence Olution, mais si nos données ne le voient pas, on ignore.
+                continue;
+            }
+
+            // Réutiliser la logique de choix de cible (majorité puis profondeur).
+            $countsbycatid = [];
+            $depthbycatid = [];
+            $catbyid = [];
+            foreach ($olution_questions as $oq) {
+                $cid = (int)$oq['category']->id;
+                $countsbycatid[$cid] = ($countsbycatid[$cid] ?? 0) + 1;
+                $depthbycatid[$cid] = max($depthbycatid[$cid] ?? -1, (int)$oq['depth']);
+                $catbyid[$cid] = $oq['category'];
+            }
+
+            $targetcat = null;
+            $targetdepth = -1;
+            $bestcount = -1;
+            $bestid = PHP_INT_MAX;
+            foreach ($countsbycatid as $cid => $count) {
+                $depth = $depthbycatid[$cid] ?? -1;
+                if ($count > $bestcount
+                    || ($count === $bestcount && $depth > $targetdepth)
+                    || ($count === $bestcount && $depth === $targetdepth && $cid < $bestid)) {
+                    $bestcount = $count;
+                    $bestid = $cid;
+                    $targetdepth = $depth;
+                    $targetcat = $catbyid[$cid] ?? null;
+                }
+            }
+
+            $results[] = [
+                'group_name' => $row->name,
+                'group_type' => $row->qtype,
+                'total_count' => count($questions_with_categories),
+                'olution_count' => count($olution_questions),
+                'non_olution_count' => count($non_olution_questions),
+                'all_questions' => $questions_with_categories,
+                'olution_questions' => $olution_questions,
+                'non_olution_questions' => $non_olution_questions,
+                'target_category' => $targetcat,
+                'target_depth' => $targetdepth
+            ];
+        }
+
+        return $results;
     }
 
     /**
@@ -279,29 +663,50 @@ class olution_manager {
         $stats->olution_courses_count = $DB->count_records('question_categories', [
             'parent' => $olution->id
         ]);
-        
-        // Récupérer tous les groupes de doublons
-        $all_groups = self::find_all_duplicates_for_olution(0, 0);
-        
-        // Compter le total de questions en doublon
-        $total_questions = 0;
-        $movable = 0;
-        
-        foreach ($all_groups as $group) {
-            // Toutes les questions du groupe sauf celles déjà dans la catégorie cible
-            foreach ($group['all_questions'] as $q_info) {
-                $total_questions++;
-                
-                // Une question est déplaçable si elle n'est pas déjà dans la catégorie cible
-                if ($group['target_category'] && $q_info['category']->id != $group['target_category']->id) {
-                    $movable++;
-                }
-            }
-        }
-        
-        $stats->total_duplicates = $total_questions;
-        $stats->movable_questions = $movable;
-        $stats->unmovable_questions = $total_questions - $movable;
+
+        // Stats "fast" basées SQL pour éviter recalcul complet.
+        $params = [];
+        $inolutioncond = self::build_in_olution_condition('qc', $params, $olution);
+
+        // Total de questions dans les groupes avec présence Olution.
+        $sqlsum = "SELECT COALESCE(SUM(g.dup_count), 0) AS total_questions
+                     FROM (
+                           SELECT q.name, q.qtype, COUNT(DISTINCT q.id) AS dup_count
+                             FROM {question} q
+                             INNER JOIN {question_versions} qv ON qv.questionid = q.id
+                             INNER JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
+                             INNER JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
+                         GROUP BY q.name, q.qtype
+                           HAVING COUNT(DISTINCT q.id) > 1
+                              AND COUNT(DISTINCT CASE WHEN {$inolutioncond} THEN q.id ELSE NULL END) > 0
+                          ) g";
+        $stats->total_duplicates = (int)$DB->get_field_sql($sqlsum, $params);
+
+        // Questions "déplaçables" = questions hors Olution, mais appartenant à un groupe avec présence Olution.
+        // On reconstruit les params pour éviter tout effet de bord.
+        $params2 = [];
+        $inolutioncond1 = self::build_in_olution_condition('qc', $params2, $olution);
+        $inolutioncond2 = self::build_in_olution_condition('qc2', $params2, $olution);
+        $sqlmovable = "SELECT COUNT(DISTINCT q.id)
+                         FROM {question} q
+                         INNER JOIN {question_versions} qv ON qv.questionid = q.id
+                         INNER JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
+                         INNER JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
+                        WHERE NOT ({$inolutioncond1})
+                          AND EXISTS (
+                              SELECT 1
+                                FROM {question} q2
+                                INNER JOIN {question_versions} qv2 ON qv2.questionid = q2.id
+                                INNER JOIN {question_bank_entries} qbe2 ON qbe2.id = qv2.questionbankentryid
+                                INNER JOIN {question_categories} qc2 ON qc2.id = qbe2.questioncategoryid
+                               WHERE q2.name = q.name
+                                 AND q2.qtype = q.qtype
+                               GROUP BY q2.name, q2.qtype
+                                 HAVING COUNT(DISTINCT q2.id) > 1
+                                    AND COUNT(DISTINCT CASE WHEN {$inolutioncond2} THEN q2.id ELSE NULL END) > 0
+                          )";
+        $stats->movable_questions = (int)$DB->count_records_sql($sqlmovable, $params2);
+        $stats->unmovable_questions = max(0, (int)$stats->total_duplicates - (int)$stats->movable_questions);
         
         return $stats;
     }
@@ -409,7 +814,7 @@ class olution_manager {
                 }
                 
                 // Vérifier que la mise à jour a fonctionné
-                $verify_sql = "SELECT qc.name as category_name
+                $verify_sql = "SELECT qc.id as category_id, qc.name as category_name
                               FROM {question_categories} qc
                               INNER JOIN {question_bank_entries} qbe ON qbe.questioncategoryid = qc.id
                               INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
@@ -417,11 +822,11 @@ class olution_manager {
                               LIMIT 1";
                 $verify_result = $DB->get_record_sql($verify_sql, ['questionid' => $questionid]);
                 
-                if (!$verify_result || $verify_result->category_name != $target_category->name) {
+                if (!$verify_result || (int)$verify_result->category_id !== (int)$target_category_id) {
                     throw new \Exception('Vérification échouée après déplacement');
                 }
                 
-                local_question_diagnostic_debug_log('✅ Verification successful: question is now in ' . $verify_result->category_name, DEBUG_DEVELOPER);
+                local_question_diagnostic_debug_log('✅ Verification successful: question is now in ' . $verify_result->category_name . ' (ID: ' . $verify_result->category_id . ')', DEBUG_DEVELOPER);
                 
                 // Valider la transaction
                 $transaction->allow_commit();
@@ -538,24 +943,33 @@ class olution_manager {
             
             local_question_diagnostic_debug_log('✅ Found ' . count($olution_subcategories) . ' Olution subcategories', DEBUG_DEVELOPER);
             
-            // Récupérer quelques questions qui ne sont PAS dans Olution
-            $non_olution_questions_sql = "SELECT DISTINCT q.*
-                                        FROM {question} q
-                                        INNER JOIN {question_versions} qv ON qv.questionid = q.id
-                                        INNER JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
-                                        INNER JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
-                                        WHERE qc.id NOT IN (
-                                            SELECT id FROM {question_categories} 
-                                            WHERE parent = :olution_id OR id = :olution_id
-                                        )
-                                        AND q.name IS NOT NULL
-                                        AND q.name != ''
-                                        LIMIT :limit";
-            
-            $non_olution_questions = $DB->get_records_sql($non_olution_questions_sql, [
-                'olution_id' => $olution->id,
-                'limit' => $limit
-            ]);
+            // Récupérer quelques questions candidates, puis filtrer en PHP avec is_in_olution()
+            // (évite le faux "hors Olution" quand la question est dans une sous-sous-catégorie).
+            $candidateslimit = max(20, (int)$limit * 20);
+            $candidates_sql = "SELECT DISTINCT q.*
+                                 FROM {question} q
+                                WHERE q.name IS NOT NULL
+                                  AND q.name != ''
+                             ORDER BY q.id DESC";
+
+            $candidate_questions = $DB->get_records_sql($candidates_sql, [], 0, $candidateslimit);
+            $candidate_ids = array_keys($candidate_questions);
+            $catsbyqid = self::get_categories_for_questions($candidate_ids);
+
+            $non_olution_questions = [];
+            foreach ($candidate_questions as $q) {
+                $qid = (int)$q->id;
+                $cat = $catsbyqid[$qid] ?? null;
+                if (!$cat) {
+                    continue;
+                }
+                if (!self::is_in_olution((int)$cat->id)) {
+                    $non_olution_questions[$qid] = $q;
+                }
+                if (count($non_olution_questions) >= (int)$limit) {
+                    break;
+                }
+            }
             
             if (empty($non_olution_questions)) {
                 return [

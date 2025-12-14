@@ -33,12 +33,18 @@ $PAGE->set_context(context_system::instance());
 $PAGE->set_pagelayout('admin');
 
 // Paramètres
-$action = optional_param('action', 'move_one', PARAM_ALPHA);
+$action = optional_param('action', 'move_one', PARAM_ALPHANUMEXT);
 $questionid = optional_param('questionid', 0, PARAM_INT);
 $targetcatid = optional_param('targetcatid', 0, PARAM_INT);
 $confirm = optional_param('confirm', 0, PARAM_INT);
 
 $return_url = new moodle_url('/local/question_diagnostic/olution_duplicates.php');
+
+// Valider explicitement l'action (sécurité + éviter les valeurs inattendues).
+$allowedactions = ['move_one', 'move_all'];
+if (!in_array($action, $allowedactions, true)) {
+    $action = 'invalid';
+}
 
 // ===========================================================================
 // ACTION : DÉPLACER UNE SEULE QUESTION
@@ -198,35 +204,46 @@ else if ($action === 'move_all') {
     }
     
     // Confirmation donnée : effectuer le déplacement global
-    // Récupérer tous les groupes de doublons détectés pour Olution
-    // (ancienne méthode find_course_to_olution_duplicates supprimée / non disponible)
-    $all_duplicates = olution_manager::find_all_duplicates_for_olution(0, 0);
-    
     // Préparer les opérations de déplacement
     $operations = [];
-    foreach ($all_duplicates as $group) {
-        // La cible est déjà calculée par olution_manager (catégorie Olution la plus profonde)
-        if (empty($group['target_category'])) {
-            continue;
-        }
-        
-        $target_category = $group['target_category'];
-        
-        // Déplacer toutes les questions du groupe qui ne sont pas déjà dans la catégorie cible
-        foreach ($group['all_questions'] as $q_info) {
-            $q = $q_info['question'];
-            $cat = $q_info['category'];
-            
-            if ((int)$cat->id === (int)$target_category->id) {
-                continue; // Déjà à la bonne place
+
+    // Traiter par pages de groupes (vraie pagination) pour éviter de charger toute la détection d'un coup.
+    $pagesize = 50;
+    $offset = 0;
+    $totalgroups = 0;
+    do {
+        $groups = olution_manager::find_all_duplicates_for_olution_paginated($pagesize, $offset, $totalgroups);
+        foreach ($groups as $group) {
+            // La cible est déjà calculée par olution_manager.
+            if (empty($group['target_category'])) {
+                continue;
             }
-            
-            $operations[] = [
-                'questionid' => (int)$q->id,
-                'target_category_id' => (int)$target_category->id
-            ];
+
+            $target_category = $group['target_category'];
+
+            // Déplacer uniquement les questions HORS Olution vers la catégorie cible.
+            foreach ($group['all_questions'] as $q_info) {
+                $q = $q_info['question'];
+                $cat = $q_info['category'];
+                $is_in_olution = !empty($q_info['is_in_olution']);
+
+                if ($is_in_olution) {
+                    continue; // Déjà dans Olution (on ne touche pas en masse).
+                }
+
+                if ((int)$cat->id === (int)$target_category->id) {
+                    continue; // Déjà à la bonne place
+                }
+
+                $operations[] = [
+                    'questionid' => (int)$q->id,
+                    'target_category_id' => (int)$target_category->id
+                ];
+            }
         }
-    }
+
+        $offset += $pagesize;
+    } while ($offset < $totalgroups);
     
     if (empty($operations)) {
         redirect($return_url, get_string('no_movable_questions', 'local_question_diagnostic'), 

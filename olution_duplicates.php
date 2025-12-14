@@ -176,7 +176,8 @@ if ($stats->movable_questions > 0) {
 
 // Récupérer les groupes de doublons pour la page actuelle
 $offset = $page * $perpage;
-$duplicate_groups = olution_manager::find_all_duplicates_for_olution($perpage, $offset);
+$totalgroups = 0;
+$duplicate_groups = olution_manager::find_all_duplicates_for_olution_paginated($perpage, $offset, $totalgroups);
 
 // Afficher la liste des groupes de doublons
 echo html_writer::tag('h3', get_string('olution_duplicates_list', 'local_question_diagnostic'));
@@ -234,9 +235,9 @@ if (!empty($duplicate_groups)) {
             echo html_writer::tag('td', $in_olution ? '✅ Oui' : '❌ Non');
             echo html_writer::tag('td', $depth);
             
-            // Action : déplacer vers catégorie cible (sauf si déjà dedans)
+            // Action : déplacer vers catégorie cible (uniquement si la question est hors Olution)
             echo html_writer::start_tag('td');
-            if ($group['target_category'] && $cat->id != $group['target_category']->id) {
+            if (!$in_olution && $group['target_category'] && $cat->id != $group['target_category']->id) {
                 $move_url = new moodle_url('/local/question_diagnostic/actions/move_to_olution.php', [
                     'questionid' => $q->id,
                     'targetcatid' => $group['target_category']->id,
@@ -249,6 +250,8 @@ if (!empty($duplicate_groups)) {
                 );
             } else if ($cat->id == $group['target_category']->id) {
                 echo html_writer::tag('span', '🎯 Cible', ['class' => 'text-success']);
+            } else if ($in_olution) {
+                echo html_writer::tag('span', '✅ Déjà dans Olution', ['class' => 'text-muted']);
             } else {
                 echo '-';
             }
@@ -264,9 +267,9 @@ if (!empty($duplicate_groups)) {
     }
     
     // Pagination
-    if ($stats->total_duplicates > $perpage) {
+    if ($totalgroups > $perpage) {
         $baseurl = new moodle_url('/local/question_diagnostic/olution_duplicates.php', ['perpage' => $perpage]);
-        echo $OUTPUT->paging_bar($stats->total_duplicates, $page, $perpage, $baseurl);
+        echo $OUTPUT->paging_bar($totalgroups, $page, $perpage, $baseurl);
     }
 }
 
