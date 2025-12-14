@@ -128,9 +128,35 @@ class olution_manager {
      */
     private static function normalize_label(string $label): string {
         $label = trim($label);
-        // Moodle fournit core_text::remove_accents() et core_text::strtolower().
+        // Normalisation robuste et compatible selon versions Moodle/PHP.
+        // - Moodle 4.5+ : core_text::remove_accents()
+        // - Versions plus anciennes : core_text::specialtoascii() ou textlib::specialtoascii()
+        // - Dernier recours : iconv (si dispo), sinon strtolower()
         if (class_exists('\\core_text')) {
-            $label = \core_text::strtolower(\core_text::remove_accents($label));
+            if (method_exists('\\core_text', 'remove_accents')) {
+                $label = \core_text::remove_accents($label);
+            } else if (method_exists('\\core_text', 'specialtoascii')) {
+                $label = \core_text::specialtoascii($label);
+            } else if (function_exists('iconv')) {
+                $translit = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $label);
+                if ($translit !== false) {
+                    $label = $translit;
+                }
+            }
+            if (method_exists('\\core_text', 'strtolower')) {
+                $label = \core_text::strtolower($label);
+            } else {
+                $label = strtolower($label);
+            }
+        } else if (class_exists('\\textlib') && method_exists('\\textlib', 'specialtoascii')) {
+            $label = \textlib::specialtoascii($label);
+            $label = strtolower($label);
+        } else if (function_exists('iconv')) {
+            $translit = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $label);
+            if ($translit !== false) {
+                $label = $translit;
+            }
+            $label = strtolower($label);
         } else {
             $label = strtolower($label);
         }
