@@ -317,7 +317,7 @@ function local_question_diagnostic_get_used_question_ids() {
             return $DB->get_fieldset_sql($sql);
         }
     } catch (Exception $e) {
-        debugging('Erreur dans local_question_diagnostic_get_used_question_ids: ' . $e->getMessage(), DEBUG_DEVELOPER);
+        local_question_diagnostic_debug_log('Erreur dans local_question_diagnostic_get_used_question_ids: ' . $e->getMessage(), DEBUG_DEVELOPER);
         return [];
     }
 }
@@ -855,46 +855,43 @@ function local_question_diagnostic_find_olution_category() {
         // ==================================================================================
         $systemcontext = context_system::instance();
         
-        debugging('🔍 Searching for Olution category in system context (ID: ' . $systemcontext->id . ')', DEBUG_DEVELOPER);
+        local_question_diagnostic_debug_log('🔍 Searching for Olution category in system context (ID: ' . $systemcontext->id . ')', DEBUG_DEVELOPER);
         
         // Dans Moodle, la catégorie racine visible est généralement "Top" (parent=0).
         // Les catégories réelles (ex: "Olution") sont souvent sous "Top" (parent != 0).
         // Ne pas supposer que parent = 0 pour "Olution".
-        $system_root_category = $DB->get_record('question_categories', [
+        $roots = $DB->get_records('question_categories', [
             'contextid' => $systemcontext->id,
-            'parent' => 0
-        ]);
+            'parent' => 0,
+        ], 'sortorder ASC, id ASC', '*', 0, 1);
+        $system_root_category = $roots ? reset($roots) : false;
         $system_top_id = $system_root_category ? (int)$system_root_category->id : 0;
         
         // ==================================================================================
         // PRIORITÉ 1 : Nom EXACT "Olution" (case-sensitive) au niveau SYSTÈME
         // ==================================================================================
-        // Essayer d'abord sous "Top" si connu (cas standard Moodle)
-        if ($system_top_id > 0) {
-            $olution = $DB->get_record('question_categories', [
-                'contextid' => $systemcontext->id,
-                'parent' => $system_top_id,
-                'name' => 'Olution'
-            ]);
-            
-            if ($olution) {
-                debugging('✅ Olution category found - EXACT match under Top: Olution (ID: ' . $olution->id . ')', DEBUG_DEVELOPER);
-                return $olution;
-            }
-        }
-        
-        // Fallback : n'importe quel parent (ex: si "Olution" n'est pas directement sous Top)
-        $olution = $DB->get_record('question_categories', [
+        // Utiliser une requête LIMIT 1 ordonnée pour éviter les warnings "found more than one record!"
+        // si plusieurs catégories portent le même nom dans le même contexte.
+        $sql = "SELECT *
+                  FROM {question_categories}
+                 WHERE contextid = :contextid
+                   AND name = :name
+              ORDER BY CASE WHEN parent = :topid THEN 0 ELSE 1 END,
+                       sortorder ASC,
+                       id ASC";
+        $records = $DB->get_records_sql($sql, [
             'contextid' => $systemcontext->id,
-            'name' => 'Olution'
-        ]);
+            'name' => 'Olution',
+            'topid' => $system_top_id,
+        ], 0, 1);
+        $olution = $records ? reset($records) : false;
         
         if ($olution) {
-            debugging('✅ Olution category found - EXACT match: Olution (ID: ' . $olution->id . ')', DEBUG_DEVELOPER);
+            local_question_diagnostic_debug_log('✅ Olution category found - EXACT match: Olution (ID: ' . $olution->id . ')', DEBUG_DEVELOPER);
             return $olution;
         }
         
-        debugging('❌ No exact match for "Olution" found', DEBUG_DEVELOPER);
+        local_question_diagnostic_debug_log('❌ No exact match for "Olution" found', DEBUG_DEVELOPER);
         
         // ==================================================================================
         // PRIORITÉ 2 : Variantes de casse exactes (mot seul)
@@ -902,28 +899,15 @@ function local_question_diagnostic_find_olution_category() {
         $variants = ['olution', 'OLUTION'];
         
         foreach ($variants as $variant) {
-            // Essayer d'abord sous "Top"
-            if ($system_top_id > 0) {
-                $olution = $DB->get_record('question_categories', [
-                    'contextid' => $systemcontext->id,
-                    'parent' => $system_top_id,
-                    'name' => $variant
-                ]);
-                
-                if ($olution) {
-                    debugging('✅ Olution question category found - Case variant under Top: ' . $variant, DEBUG_DEVELOPER);
-                    return $olution;
-                }
-            }
-            
-            // Fallback : n'importe quel parent
-            $olution = $DB->get_record('question_categories', [
+            $records = $DB->get_records_sql($sql, [
                 'contextid' => $systemcontext->id,
-                'name' => $variant
-            ]);
+                'name' => $variant,
+                'topid' => $system_top_id,
+            ], 0, 1);
+            $olution = $records ? reset($records) : false;
             
             if ($olution) {
-                debugging('✅ Olution question category found - Case variant: ' . $variant, DEBUG_DEVELOPER);
+                local_question_diagnostic_debug_log('✅ Olution question category found - Case variant: ' . $variant, DEBUG_DEVELOPER);
                 return $olution;
             }
         }
@@ -946,7 +930,7 @@ function local_question_diagnostic_find_olution_category() {
         ]);
         
         if ($olution) {
-            debugging('✅ Olution category found - Starts with "Olution ": ' . $olution->name, DEBUG_DEVELOPER);
+            local_question_diagnostic_debug_log('✅ Olution category found - Starts with "Olution ": ' . $olution->name, DEBUG_DEVELOPER);
             return $olution;
         }
         
@@ -968,7 +952,7 @@ function local_question_diagnostic_find_olution_category() {
         ]);
         
         if ($olution) {
-            debugging('✅ Olution category found - Ends with " Olution": ' . $olution->name, DEBUG_DEVELOPER);
+            local_question_diagnostic_debug_log('✅ Olution category found - Ends with " Olution": ' . $olution->name, DEBUG_DEVELOPER);
             return $olution;
         }
         
@@ -990,7 +974,7 @@ function local_question_diagnostic_find_olution_category() {
         ]);
         
         if ($olution) {
-            debugging('✅ Olution category found - Contains " Olution ": ' . $olution->name, DEBUG_DEVELOPER);
+            local_question_diagnostic_debug_log('✅ Olution category found - Contains " Olution ": ' . $olution->name, DEBUG_DEVELOPER);
             return $olution;
         }
         
@@ -1012,7 +996,7 @@ function local_question_diagnostic_find_olution_category() {
         ]);
         
         if ($olution) {
-            debugging('⚠️ Olution category found - Contains "Olution" (flexible): ' . $olution->name, DEBUG_DEVELOPER);
+            local_question_diagnostic_debug_log('⚠️ Olution category found - Contains "Olution" (flexible): ' . $olution->name, DEBUG_DEVELOPER);
             return $olution;
         }
         
@@ -1035,23 +1019,23 @@ function local_question_diagnostic_find_olution_category() {
         ]);
         
         if ($olution) {
-            debugging('⚠️ Olution category found - Via description (last resort): ' . $olution->name, DEBUG_DEVELOPER);
+            local_question_diagnostic_debug_log('⚠️ Olution category found - Via description (last resort): ' . $olution->name, DEBUG_DEVELOPER);
             return $olution;
         }
         
-        debugging('❌ No Olution category found in system context after all searches', DEBUG_DEVELOPER);
+        local_question_diagnostic_debug_log('❌ No Olution category found in system context after all searches', DEBUG_DEVELOPER);
         
         // ==================================================================================
         // IMPORTANT : Ne pas créer automatiquement la catégorie Olution.
         // La création automatique peut masquer un problème de configuration (ex: Olution existe sous "Top")
         // et fausser la détection des doublons / déplacements.
         // ==================================================================================
-        debugging('ℹ️ Not auto-creating Olution category (manual setup required)', DEBUG_DEVELOPER);
+        local_question_diagnostic_debug_log('ℹ️ Not auto-creating Olution category (manual setup required)', DEBUG_DEVELOPER);
         
         // ==================================================================================
         // PHASE 2 : Recherche dans la CATÉGORIE DE COURS "Olution" (si Phase 1 échoue)
         // ==================================================================================
-        debugging('🔄 Phase 1 failed, trying Phase 2: Search in course category "Olution"', DEBUG_DEVELOPER);
+        local_question_diagnostic_debug_log('🔄 Phase 1 failed, trying Phase 2: Search in course category "Olution"', DEBUG_DEVELOPER);
         
         // 1. Rechercher la catégorie de cours "Olution" (ID 78 selon l'utilisateur)
         $course_category_sql = "SELECT id, name 
@@ -1064,11 +1048,11 @@ function local_question_diagnostic_find_olution_category() {
         $olution_course_category = $DB->get_record_sql($course_category_sql, ['pattern' => '%Olution%']);
         
         if (!$olution_course_category) {
-            debugging('❌ No course category "Olution" found', DEBUG_DEVELOPER);
+            local_question_diagnostic_debug_log('❌ No course category "Olution" found', DEBUG_DEVELOPER);
             return false;
         }
         
-        debugging('✅ Found course category "Olution": ' . $olution_course_category->name . ' (ID: ' . $olution_course_category->id . ')', DEBUG_DEVELOPER);
+        local_question_diagnostic_debug_log('✅ Found course category "Olution": ' . $olution_course_category->name . ' (ID: ' . $olution_course_category->id . ')', DEBUG_DEVELOPER);
         
         // 2. Rechercher tous les cours dans cette catégorie
         $courses_sql = "SELECT c.id, c.fullname, c.shortname, c.category
@@ -1078,10 +1062,10 @@ function local_question_diagnostic_find_olution_category() {
         
         $courses = $DB->get_records_sql($courses_sql, ['category_id' => $olution_course_category->id]);
         
-        debugging('🔍 Found ' . count($courses) . ' courses in Olution category (ID: ' . $olution_course_category->id . ')', DEBUG_DEVELOPER);
+        local_question_diagnostic_debug_log('🔍 Found ' . count($courses) . ' courses in Olution category (ID: ' . $olution_course_category->id . ')', DEBUG_DEVELOPER);
         
         foreach ($courses as $course) {
-            debugging('🎯 Checking course: ' . $course->fullname . ' (ID: ' . $course->id . ')', DEBUG_DEVELOPER);
+            local_question_diagnostic_debug_log('🎯 Checking course: ' . $course->fullname . ' (ID: ' . $course->id . ')', DEBUG_DEVELOPER);
             
             // 3. Récupérer le contexte de ce cours
             $course_context = $DB->get_record('context', [
@@ -1104,12 +1088,12 @@ function local_question_diagnostic_find_olution_category() {
                 'contextid' => $course_context->id
             ]);
             
-            debugging('📂 Found ' . count($course_categories) . ' question categories in course context', DEBUG_DEVELOPER);
+            local_question_diagnostic_debug_log('📂 Found ' . count($course_categories) . ' question categories in course context', DEBUG_DEVELOPER);
             
             // 5. Vérifier si une de ces catégories contient "Olution"
             foreach ($course_categories as $cat) {
                 if (stripos($cat->name, 'olution') !== false) {
-                    debugging('✅ Olution question category found in course: ' . $cat->name . ' (Course: ' . $course->fullname . ')', DEBUG_DEVELOPER);
+                    local_question_diagnostic_debug_log('✅ Olution question category found in course: ' . $cat->name . ' (Course: ' . $course->fullname . ')', DEBUG_DEVELOPER);
                     
                     // Ajouter des informations sur le cours et la catégorie de cours parent
                     $cat->course_name = $course->fullname;
@@ -1125,7 +1109,7 @@ function local_question_diagnostic_find_olution_category() {
             // 6. Si pas de catégorie nommée Olution, prendre la première catégorie du cours
             if (!empty($course_categories)) {
                 $first_category = reset($course_categories);
-                debugging('✅ Using first question category from course in Olution: ' . $first_category->name . ' (Course: ' . $course->fullname . ')', DEBUG_DEVELOPER);
+                local_question_diagnostic_debug_log('✅ Using first question category from course in Olution: ' . $first_category->name . ' (Course: ' . $course->fullname . ')', DEBUG_DEVELOPER);
                 
                 // Ajouter des informations sur le cours et la catégorie de cours parent
                 $first_category->course_name = $course->fullname;
@@ -1139,11 +1123,11 @@ function local_question_diagnostic_find_olution_category() {
         }
         
         // Aucune catégorie Olution trouvée dans aucun contexte
-        debugging('❌ No Olution category found in system, course, or course category contexts', DEBUG_DEVELOPER);
+        local_question_diagnostic_debug_log('❌ No Olution category found in system, course, or course category contexts', DEBUG_DEVELOPER);
         return false;
         
     } catch (Exception $e) {
-        debugging('Error finding Olution category: ' . $e->getMessage(), DEBUG_DEVELOPER);
+        local_question_diagnostic_debug_log('Error finding Olution category: ' . $e->getMessage(), DEBUG_DEVELOPER);
         return false;
     }
 }
@@ -1185,7 +1169,7 @@ function local_question_diagnostic_get_olution_subcategories($parent_id = null) 
         return $all_subcategories;
         
     } catch (Exception $e) {
-        debugging('Error getting Olution subcategories: ' . $e->getMessage(), DEBUG_DEVELOPER);
+        local_question_diagnostic_debug_log('Error getting Olution subcategories: ' . $e->getMessage(), DEBUG_DEVELOPER);
         return [];
     }
 }
@@ -1221,7 +1205,7 @@ function local_question_diagnostic_get_course_categories() {
         return $course_categories;
         
     } catch (Exception $e) {
-        debugging('Error getting course categories: ' . $e->getMessage(), DEBUG_DEVELOPER);
+        local_question_diagnostic_debug_log('Error getting course categories: ' . $e->getMessage(), DEBUG_DEVELOPER);
         return [];
     }
 }
@@ -1292,7 +1276,7 @@ function local_question_diagnostic_get_question_categories_hierarchy($course_cat
         return local_question_diagnostic_build_category_hierarchy($categories);
         
     } catch (Exception $e) {
-        debugging('Error getting question categories hierarchy: ' . $e->getMessage(), DEBUG_DEVELOPER);
+        local_question_diagnostic_debug_log('Error getting question categories hierarchy: ' . $e->getMessage(), DEBUG_DEVELOPER);
         return [];
     }
 }
@@ -1420,26 +1404,36 @@ function local_question_diagnostic_create_olution_category() {
     global $DB;
     
     try {
-        debugging('🆕 Creating Olution category in system context', DEBUG_DEVELOPER);
+        local_question_diagnostic_debug_log('🆕 Creating Olution category in system context', DEBUG_DEVELOPER);
         
         // Récupérer le contexte système
         $systemcontext = context_system::instance();
         
         // Déterminer la catégorie racine ("Top") pour créer Olution au bon endroit.
-        $system_root_category = $DB->get_record('question_categories', [
+        $roots = $DB->get_records('question_categories', [
             'contextid' => $systemcontext->id,
-            'parent' => 0
-        ]);
+            'parent' => 0,
+        ], 'sortorder ASC, id ASC', '*', 0, 1);
+        $system_root_category = $roots ? reset($roots) : false;
         $system_top_id = $system_root_category ? (int)$system_root_category->id : 0;
         
         // Vérifier qu'une catégorie Olution n'existe pas déjà
-        $existing = $DB->get_record('question_categories', [
+        $sql = "SELECT *
+                  FROM {question_categories}
+                 WHERE contextid = :contextid
+                   AND name = :name
+              ORDER BY CASE WHEN parent = :topid THEN 0 ELSE 1 END,
+                       sortorder ASC,
+                       id ASC";
+        $records = $DB->get_records_sql($sql, [
             'contextid' => $systemcontext->id,
-            'name' => 'Olution'
-        ]);
+            'name' => 'Olution',
+            'topid' => $system_top_id,
+        ], 0, 1);
+        $existing = $records ? reset($records) : false;
         
         if ($existing) {
-            debugging('⚠️ Olution category already exists (ID: ' . $existing->id . ')', DEBUG_DEVELOPER);
+            local_question_diagnostic_debug_log('⚠️ Olution category already exists (ID: ' . $existing->id . ')', DEBUG_DEVELOPER);
             return $existing;
         }
         
@@ -1457,7 +1451,7 @@ function local_question_diagnostic_create_olution_category() {
         $new_category->id = $DB->insert_record('question_categories', $new_category);
         
         if ($new_category->id) {
-            debugging('✅ Olution category created successfully (ID: ' . $new_category->id . ')', DEBUG_DEVELOPER);
+            local_question_diagnostic_debug_log('✅ Olution category created successfully (ID: ' . $new_category->id . ')', DEBUG_DEVELOPER);
             
             // Log d'audit
             require_once(__DIR__ . '/classes/audit_logger.php');
@@ -1476,12 +1470,12 @@ function local_question_diagnostic_create_olution_category() {
             
             return $new_category;
         } else {
-            debugging('❌ Failed to insert Olution category', DEBUG_DEVELOPER);
+            local_question_diagnostic_debug_log('❌ Failed to insert Olution category', DEBUG_DEVELOPER);
             return false;
         }
         
     } catch (Exception $e) {
-        debugging('❌ Error creating Olution category: ' . $e->getMessage(), DEBUG_DEVELOPER);
+        local_question_diagnostic_debug_log('❌ Error creating Olution category: ' . $e->getMessage(), DEBUG_DEVELOPER);
         return false;
     }
 }

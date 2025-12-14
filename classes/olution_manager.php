@@ -77,11 +77,11 @@ class olution_manager {
         // Utiliser la fonction existante qui fonctionne déjà
         $olution = local_question_diagnostic_find_olution_category();
         if (!$olution) {
-            debugging('❌ Olution category not found in is_in_olution()', DEBUG_DEVELOPER);
+            local_question_diagnostic_debug_log('❌ Olution category not found in is_in_olution()', DEBUG_DEVELOPER);
             return false;
         }
         
-        debugging('🔍 Checking if category ' . $categoryid . ' is in Olution (ID: ' . $olution->id . ')', DEBUG_DEVELOPER);
+        local_question_diagnostic_debug_log('🔍 Checking if category ' . $categoryid . ' is in Olution (ID: ' . $olution->id . ')', DEBUG_DEVELOPER);
         
         // Remonter l'arborescence jusqu'à trouver Olution ou une racine
         $current_id = $categoryid;
@@ -91,7 +91,7 @@ class olution_manager {
         while ($current_id > 0) {
             // Éviter les boucles infinies
             if (in_array($current_id, $visited)) {
-                debugging('⚠️ Loop detected in is_in_olution() for category ' . $categoryid, DEBUG_DEVELOPER);
+                local_question_diagnostic_debug_log('⚠️ Loop detected in is_in_olution() for category ' . $categoryid, DEBUG_DEVELOPER);
                 break;
             }
             $visited[] = $current_id;
@@ -99,27 +99,27 @@ class olution_manager {
             
             // Si on trouve Olution, c'est gagné !
             if ($current_id == $olution->id) {
-                debugging('✅ Found Olution in path: ' . implode(' -> ', $path), DEBUG_DEVELOPER);
+                local_question_diagnostic_debug_log('✅ Found Olution in path: ' . implode(' -> ', $path), DEBUG_DEVELOPER);
                 return true;
             }
             
             // Récupérer la catégorie courante
             $cat = $DB->get_record('question_categories', ['id' => $current_id]);
             if (!$cat) {
-                debugging('⚠️ Category not found: ' . $current_id, DEBUG_DEVELOPER);
+                local_question_diagnostic_debug_log('⚠️ Category not found: ' . $current_id, DEBUG_DEVELOPER);
                 break;
             }
             
             // Si on arrive à une racine (parent = 0), on s'arrête
             if ($cat->parent == 0) {
-                debugging('🔚 Reached root category: ' . $current_id . ' (path: ' . implode(' -> ', $path) . ')', DEBUG_DEVELOPER);
+                local_question_diagnostic_debug_log('🔚 Reached root category: ' . $current_id . ' (path: ' . implode(' -> ', $path) . ')', DEBUG_DEVELOPER);
                 break;
             }
             
             $current_id = $cat->parent;
         }
         
-        debugging('❌ Category ' . $categoryid . ' is NOT in Olution (path: ' . implode(' -> ', $path) . ')', DEBUG_DEVELOPER);
+        local_question_diagnostic_debug_log('❌ Category ' . $categoryid . ' is NOT in Olution (path: ' . implode(' -> ', $path) . ')', DEBUG_DEVELOPER);
         return false;
     }
 
@@ -140,17 +140,17 @@ class olution_manager {
             // Vérifier que la catégorie de questions Olution existe
             $olution = local_question_diagnostic_find_olution_category();
             if (!$olution) {
-                debugging('❌ Olution question category not found', DEBUG_DEVELOPER);
+                local_question_diagnostic_debug_log('❌ Olution question category not found', DEBUG_DEVELOPER);
                 return [];
             }
             
-            debugging('✅ Olution question category found: ' . $olution->name . ' (ID: ' . $olution->id . ')', DEBUG_DEVELOPER);
+            local_question_diagnostic_debug_log('✅ Olution question category found: ' . $olution->name . ' (ID: ' . $olution->id . ')', DEBUG_DEVELOPER);
             
             // Utiliser la détection de doublons existante (nom + type)
             // Récupérer TOUS les groupes de doublons du site
             $duplicate_groups = question_analyzer::get_duplicate_groups(0, 0, false, false);
             
-            debugging('📊 Found ' . count($duplicate_groups) . ' duplicate groups', DEBUG_DEVELOPER);
+            local_question_diagnostic_debug_log('📊 Found ' . count($duplicate_groups) . ' duplicate groups', DEBUG_DEVELOPER);
             
             $results = [];
             
@@ -235,7 +235,7 @@ class olution_manager {
                 }
             }
             
-            debugging('📊 Found ' . count($results) . ' duplicate groups with Olution presence', DEBUG_DEVELOPER);
+            local_question_diagnostic_debug_log('📊 Found ' . count($results) . ' duplicate groups with Olution presence', DEBUG_DEVELOPER);
             
             // Appliquer pagination
             if ($limit > 0) {
@@ -245,7 +245,7 @@ class olution_manager {
             return $results;
             
         } catch (\Exception $e) {
-            debugging('Error in find_all_duplicates_for_olution: ' . $e->getMessage(), DEBUG_DEVELOPER);
+            local_question_diagnostic_debug_log('Error in find_all_duplicates_for_olution: ' . $e->getMessage(), DEBUG_DEVELOPER);
             return [];
         }
     }
@@ -320,7 +320,7 @@ class olution_manager {
         global $DB, $CFG;
         
         try {
-            debugging('🚀 Starting move_question_to_olution: question=' . $questionid . ', target=' . $target_category_id, DEBUG_DEVELOPER);
+            local_question_diagnostic_debug_log('🚀 Starting move_question_to_olution: question=' . $questionid . ', target=' . $target_category_id, DEBUG_DEVELOPER);
             
             require_once($CFG->libdir . '/questionlib.php');
 
@@ -330,7 +330,7 @@ class olution_manager {
                 return 'Question introuvable (ID: ' . $questionid . ')';
             }
             
-            debugging('✅ Question found: ' . $question->name . ' (type: ' . $question->qtype . ')', DEBUG_DEVELOPER);
+            local_question_diagnostic_debug_log('✅ Question found: ' . $question->name . ' (type: ' . $question->qtype . ')', DEBUG_DEVELOPER);
             
             // Vérifier que la catégorie cible existe et est dans Olution
             $target_category = $DB->get_record('question_categories', ['id' => $target_category_id]);
@@ -338,14 +338,14 @@ class olution_manager {
                 return 'Catégorie cible introuvable (ID: ' . $target_category_id . ')';
             }
             
-            debugging('✅ Target category found: ' . $target_category->name, DEBUG_DEVELOPER);
+            local_question_diagnostic_debug_log('✅ Target category found: ' . $target_category->name, DEBUG_DEVELOPER);
             
             // Vérifier que la catégorie cible est bien dans Olution
             if (!self::is_in_olution($target_category_id)) {
                 return 'La catégorie cible n\'est pas dans Olution (ID: ' . $target_category_id . ')';
             }
             
-            debugging('✅ Target category is confirmed to be in Olution', DEBUG_DEVELOPER);
+            local_question_diagnostic_debug_log('✅ Target category is confirmed to be in Olution', DEBUG_DEVELOPER);
             
             // Récupérer la catégorie actuelle de la question
             $current_category_sql = "SELECT qc.*
@@ -360,7 +360,7 @@ class olution_manager {
                 return 'Impossible de déterminer la catégorie actuelle de la question';
             }
             
-            debugging('✅ Current category: ' . $current_category->name . ' (ID: ' . $current_category->id . ')', DEBUG_DEVELOPER);
+            local_question_diagnostic_debug_log('✅ Current category: ' . $current_category->name . ' (ID: ' . $current_category->id . ')', DEBUG_DEVELOPER);
             
             // Vérifier si la question est déjà dans la catégorie cible
             if ($current_category->id == $target_category_id) {
@@ -377,7 +377,7 @@ class olution_manager {
                     // Moodle 4.x standard API
                     // question_move_questions_to_category(array $questionids, int $newcategoryid)
                     question_move_questions_to_category([$questionid], $target_category_id);
-                    debugging('✅ Moved using native question_move_questions_to_category', DEBUG_DEVELOPER);
+                    local_question_diagnostic_debug_log('✅ Moved using native question_move_questions_to_category', DEBUG_DEVELOPER);
                 } else {
                     // Fallback manuel si la fonction n'existe pas (versions très anciennes ou modifiées)
                     // Mettre à jour question_bank_entries (Moodle 4.x)
@@ -394,7 +394,7 @@ class olution_manager {
                         'questionid' => $questionid
                     ]);
                     
-                    debugging('✅ Updated ' . $affected_rows . ' question_bank_entries (Manual fallback)', DEBUG_DEVELOPER);
+                    local_question_diagnostic_debug_log('✅ Updated ' . $affected_rows . ' question_bank_entries (Manual fallback)', DEBUG_DEVELOPER);
                     
                     // Déclencher l'événement manuellement car on n'a pas utilisé l'API
                     $event = \core\event\question_moved::create([
@@ -418,10 +418,10 @@ class olution_manager {
                 $verify_result = $DB->get_record_sql($verify_sql, ['questionid' => $questionid]);
                 
                 if (!$verify_result || $verify_result->category_name != $target_category->name) {
-                    throw new Exception('Vérification échouée après déplacement');
+                    throw new \Exception('Vérification échouée après déplacement');
                 }
                 
-                debugging('✅ Verification successful: question is now in ' . $verify_result->category_name, DEBUG_DEVELOPER);
+                local_question_diagnostic_debug_log('✅ Verification successful: question is now in ' . $verify_result->category_name, DEBUG_DEVELOPER);
                 
                 // Valider la transaction
                 $transaction->allow_commit();
@@ -443,16 +443,16 @@ class olution_manager {
                     $questionid
                 );
                 
-                debugging('✅ Question successfully moved to Olution: ' . $target_category->name, DEBUG_DEVELOPER);
+                local_question_diagnostic_debug_log('✅ Question successfully moved to Olution: ' . $target_category->name, DEBUG_DEVELOPER);
                 return true;
                 
             } catch (\Exception $inner_e) {
-                debugging('❌ Error in transaction: ' . $inner_e->getMessage(), DEBUG_DEVELOPER);
+                local_question_diagnostic_debug_log('❌ Error in transaction: ' . $inner_e->getMessage(), DEBUG_DEVELOPER);
                 throw $inner_e;
             }
             
         } catch (\Exception $e) {
-            debugging('❌ Error in move_question_to_olution: ' . $e->getMessage(), DEBUG_DEVELOPER);
+            local_question_diagnostic_debug_log('❌ Error in move_question_to_olution: ' . $e->getMessage(), DEBUG_DEVELOPER);
             return 'Erreur lors du déplacement : ' . $e->getMessage();
         }
     }
@@ -506,7 +506,7 @@ class olution_manager {
         global $DB;
         
         try {
-            debugging('🧪 Starting test_automatic_movement_to_olution with limit: ' . $limit, DEBUG_DEVELOPER);
+            local_question_diagnostic_debug_log('🧪 Starting test_automatic_movement_to_olution with limit: ' . $limit, DEBUG_DEVELOPER);
             
             // Vérifier que la catégorie Olution existe
             $olution = local_question_diagnostic_find_olution_category();
@@ -521,7 +521,7 @@ class olution_manager {
                 ];
             }
             
-            debugging('✅ Olution category found: ' . $olution->name . ' (ID: ' . $olution->id . ')', DEBUG_DEVELOPER);
+            local_question_diagnostic_debug_log('✅ Olution category found: ' . $olution->name . ' (ID: ' . $olution->id . ')', DEBUG_DEVELOPER);
             
             // Récupérer les sous-catégories d'Olution
             $olution_subcategories = local_question_diagnostic_get_olution_subcategories($olution->id);
@@ -536,7 +536,7 @@ class olution_manager {
                 ];
             }
             
-            debugging('✅ Found ' . count($olution_subcategories) . ' Olution subcategories', DEBUG_DEVELOPER);
+            local_question_diagnostic_debug_log('✅ Found ' . count($olution_subcategories) . ' Olution subcategories', DEBUG_DEVELOPER);
             
             // Récupérer quelques questions qui ne sont PAS dans Olution
             $non_olution_questions_sql = "SELECT DISTINCT q.*
@@ -568,7 +568,7 @@ class olution_manager {
                 ];
             }
             
-            debugging('✅ Found ' . count($non_olution_questions) . ' questions outside Olution for testing', DEBUG_DEVELOPER);
+            local_question_diagnostic_debug_log('✅ Found ' . count($non_olution_questions) . ' questions outside Olution for testing', DEBUG_DEVELOPER);
             
             $test_results = [];
             $moved_count = 0;
@@ -578,7 +578,7 @@ class olution_manager {
                 // Choisir une sous-catégorie Olution aléatoire comme cible
                 $target_category = $olution_subcategories[array_rand($olution_subcategories)];
                 
-                debugging('🧪 Testing move: question ' . $question->id . ' (' . $question->name . ') to ' . $target_category->name . ' (ID: ' . $target_category->id . ')', DEBUG_DEVELOPER);
+                local_question_diagnostic_debug_log('🧪 Testing move: question ' . $question->id . ' (' . $question->name . ') to ' . $target_category->name . ' (ID: ' . $target_category->id . ')', DEBUG_DEVELOPER);
                 
                 $move_result = self::move_question_to_olution($question->id, $target_category->id);
                 
@@ -594,10 +594,10 @@ class olution_manager {
                 
                 if ($move_result === true) {
                     $moved_count++;
-                    debugging('✅ Test successful: question ' . $question->id . ' moved to ' . $target_category->name, DEBUG_DEVELOPER);
+                    local_question_diagnostic_debug_log('✅ Test successful: question ' . $question->id . ' moved to ' . $target_category->name, DEBUG_DEVELOPER);
                 } else {
                     $failed_count++;
-                    debugging('❌ Test failed: question ' . $question->id . ' - ' . $move_result, DEBUG_DEVELOPER);
+                    local_question_diagnostic_debug_log('❌ Test failed: question ' . $question->id . ' - ' . $move_result, DEBUG_DEVELOPER);
                 }
                 
                 $test_results[] = $test_result;
@@ -605,7 +605,7 @@ class olution_manager {
             
             $overall_success = ($moved_count > 0);
             
-            debugging('🏁 Test completed: ' . $moved_count . ' moved, ' . $failed_count . ' failed', DEBUG_DEVELOPER);
+            local_question_diagnostic_debug_log('🏁 Test completed: ' . $moved_count . ' moved, ' . $failed_count . ' failed', DEBUG_DEVELOPER);
             
             return [
                 'success' => $overall_success,
@@ -623,8 +623,8 @@ class olution_manager {
                 'details' => $test_results
             ];
             
-        } catch (Exception $e) {
-            debugging('❌ Error in test_automatic_movement_to_olution: ' . $e->getMessage(), DEBUG_DEVELOPER);
+        } catch (\Exception $e) {
+            local_question_diagnostic_debug_log('❌ Error in test_automatic_movement_to_olution: ' . $e->getMessage(), DEBUG_DEVELOPER);
             return [
                 'success' => false,
                 'message' => 'Erreur lors du test: ' . $e->getMessage(),
