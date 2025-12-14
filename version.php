@@ -9,8 +9,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'local_question_diagnostic';
-$plugin->version = 2025121405;  // YYYYMMDDXX format (v1.11.28 - Fix core_text remove_accents compatibility)
+$plugin->version = 2025121406;  // YYYYMMDDXX format (v1.11.29 - Add categories by course/activity page)
 $plugin->requires = 2022041900; // Moodle 4.0+ (architecture question_bank_entries requise)
 $plugin->maturity = MATURITY_STABLE;
-$plugin->release = 'v1.11.28';
+$plugin->release = 'v1.11.29';
 

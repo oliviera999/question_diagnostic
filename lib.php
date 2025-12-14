@@ -734,6 +734,7 @@ function local_question_diagnostic_get_parent_url($current_page) {
         
         // Pages principales → index.php
         'categories.php' => 'index.php',
+        'categories_by_context.php' => 'index.php',
         'broken_links.php' => 'index.php',
         'questions_cleanup.php' => 'index.php',
         'help.php' => 'index.php',
@@ -778,6 +779,7 @@ function local_question_diagnostic_get_parent_url($current_page) {
  * ⚠️ FICHIERS UTILISANT CETTE FONCTION (v1.9.49) :
  * - index.php ✅
  * - categories.php ✅
+ * - categories_by_context.php ✅
  * - questions_cleanup.php ✅
  * - broken_links.php ✅
  * - audit_logs.php ✅
@@ -867,6 +869,76 @@ function local_question_diagnostic_find_olution_category() {
     
     try {
         // ==================================================================================
+        // Heuristique: sur certains sites, un "Olution" système existe mais n'est pas la source de vérité.
+        // On score les candidats (présence de "commun", taille d'arbre) et on choisit le meilleur.
+        // ==================================================================================
+        $normalize = function(string $label): string {
+            $label = trim($label);
+            if (class_exists('\\core_text')) {
+                if (method_exists('\\core_text', 'remove_accents')) {
+                    $label = \core_text::remove_accents($label);
+                } else if (method_exists('\\core_text', 'specialtoascii')) {
+                    $label = \core_text::specialtoascii($label);
+                }
+                if (method_exists('\\core_text', 'strtolower')) {
+                    $label = \core_text::strtolower($label);
+                } else {
+                    $label = strtolower($label);
+                }
+            } else {
+                $label = strtolower($label);
+            }
+            $label = preg_replace('/\s+/', ' ', $label);
+            return $label;
+        };
+
+        $scorecategory = function($cat) use ($DB, $normalize): int {
+            if (!$cat || empty($cat->id)) {
+                return 0;
+            }
+
+            $id = (int)$cat->id;
+            $score = 0;
+
+            try {
+                $children = $DB->get_records('question_categories', ['parent' => $id], 'id ASC', 'id,name');
+                $score += count($children);
+                foreach ($children as $ch) {
+                    if ($normalize((string)$ch->name) === 'commun') {
+                        $score += 100; // signal fort : structure attendue.
+                        break;
+                    }
+                }
+
+                // Taille d'arbre (si path dispo) = bon proxy de "richesse".
+                $cols = $DB->get_columns('question_categories');
+                if (isset($cols['path'])) {
+                    $root = $DB->get_record('question_categories', ['id' => $id], 'id,path', IGNORE_MISSING);
+                    if ($root && !empty($root->path)) {
+                        $params = [
+                            'id' => $id,
+                            'path' => rtrim($root->path, '/') . '/%'
+                        ];
+                        $treecount = (int)$DB->count_records_select(
+                            'question_categories',
+                            'id = :id OR ' . $DB->sql_like('path', ':path', false, false),
+                            $params
+                        );
+                        $score += $treecount;
+                    }
+                }
+            } catch (\Exception $e) {
+                // Score minimal.
+            }
+
+            return $score;
+        };
+
+        $systemcandidate = false;
+        $coursecandidate = false;
+        $bestcoursescore = 0;
+
+        // ==================================================================================
         // PHASE 1 : Recherche dans les catégories de QUESTIONS système
         // ==================================================================================
         $systemcontext = context_system::instance();
@@ -895,151 +967,164 @@ function local_question_diagnostic_find_olution_category() {
               ORDER BY CASE WHEN parent = :topid THEN 0 ELSE 1 END,
                        sortorder ASC,
                        id ASC";
-        $records = $DB->get_records_sql($sql, [
-            'contextid' => $systemcontext->id,
-            'name' => 'Olution',
-            'topid' => $system_top_id,
-        ], 0, 1);
-        $olution = $records ? reset($records) : false;
-        
-        if ($olution) {
-            local_question_diagnostic_debug_log('✅ Olution category found - EXACT match: Olution (ID: ' . $olution->id . ')', DEBUG_DEVELOPER);
-            return $olution;
-        }
-        
-        local_question_diagnostic_debug_log('❌ No exact match for "Olution" found', DEBUG_DEVELOPER);
-        
-        // ==================================================================================
-        // PRIORITÉ 2 : Variantes de casse exactes (mot seul)
-        // ==================================================================================
-        $variants = ['olution', 'OLUTION'];
-        
-        foreach ($variants as $variant) {
+        // Encapsuler la phase 1 pour pouvoir en sortir sans return().
+        do {
             $records = $DB->get_records_sql($sql, [
                 'contextid' => $systemcontext->id,
-                'name' => $variant,
+                'name' => 'Olution',
                 'topid' => $system_top_id,
             ], 0, 1);
             $olution = $records ? reset($records) : false;
             
             if ($olution) {
-                local_question_diagnostic_debug_log('✅ Olution question category found - Case variant: ' . $variant, DEBUG_DEVELOPER);
-                return $olution;
+                local_question_diagnostic_debug_log('✅ Olution category found - EXACT match: Olution (ID: ' . $olution->id . ')', DEBUG_DEVELOPER);
+                $systemcandidate = $olution;
+                break;
             }
-        }
         
-        // ==================================================================================
-        // PRIORITÉ 3 : Nom commençant par "Olution " (avec espace après)
-        // Exemples : "Olution 2024", "Olution - Questions"
-        // ==================================================================================
-        $sql = "SELECT *
-                FROM {question_categories}
-                WHERE contextid = :contextid
-                AND " . $DB->sql_like('name', ':pattern', false, false) . "
-                ORDER BY CASE WHEN parent = :topid THEN 0 ELSE 1 END, LENGTH(name) ASC
-                LIMIT 1";
+            local_question_diagnostic_debug_log('❌ No exact match for "Olution" found', DEBUG_DEVELOPER);
         
-        $olution = $DB->get_record_sql($sql, [
-            'contextid' => $systemcontext->id,
-            'topid' => $system_top_id,
-            'pattern' => 'Olution %'
-        ]);
+            // ==================================================================================
+            // PRIORITÉ 2 : Variantes de casse exactes (mot seul)
+            // ==================================================================================
+            $variants = ['olution', 'OLUTION'];
         
-        if ($olution) {
-            local_question_diagnostic_debug_log('✅ Olution category found - Starts with "Olution ": ' . $olution->name, DEBUG_DEVELOPER);
-            return $olution;
-        }
+            foreach ($variants as $variant) {
+                $records = $DB->get_records_sql($sql, [
+                    'contextid' => $systemcontext->id,
+                    'name' => $variant,
+                    'topid' => $system_top_id,
+                ], 0, 1);
+                $olution = $records ? reset($records) : false;
+                
+                if ($olution) {
+                    local_question_diagnostic_debug_log('✅ Olution question category found - Case variant: ' . $variant, DEBUG_DEVELOPER);
+                    $systemcandidate = $olution;
+                    break;
+                }
+            }
+            if ($systemcandidate) {
+                break;
+            }
         
-        // ==================================================================================
-        // PRIORITÉ 4 : Nom se terminant par " Olution" (avec espace avant)
-        // Exemples : "Questions Olution", "Banque Olution"
-        // ==================================================================================
-        $sql = "SELECT *
-                FROM {question_categories}
-                WHERE contextid = :contextid
-                AND " . $DB->sql_like('name', ':pattern', false, false) . "
-                ORDER BY CASE WHEN parent = :topid THEN 0 ELSE 1 END, LENGTH(name) ASC
-                LIMIT 1";
+            // ==================================================================================
+            // PRIORITÉ 3 : Nom commençant par "Olution " (avec espace après)
+            // Exemples : "Olution 2024", "Olution - Questions"
+            // ==================================================================================
+            $sql = "SELECT *
+                    FROM {question_categories}
+                    WHERE contextid = :contextid
+                    AND " . $DB->sql_like('name', ':pattern', false, false) . "
+                    ORDER BY CASE WHEN parent = :topid THEN 0 ELSE 1 END, LENGTH(name) ASC
+                    LIMIT 1";
         
-        $olution = $DB->get_record_sql($sql, [
-            'contextid' => $systemcontext->id,
-            'topid' => $system_top_id,
-            'pattern' => '% Olution'
-        ]);
+            $olution = $DB->get_record_sql($sql, [
+                'contextid' => $systemcontext->id,
+                'topid' => $system_top_id,
+                'pattern' => 'Olution %'
+            ]);
         
-        if ($olution) {
-            local_question_diagnostic_debug_log('✅ Olution category found - Ends with " Olution": ' . $olution->name, DEBUG_DEVELOPER);
-            return $olution;
-        }
+            if ($olution) {
+                local_question_diagnostic_debug_log('✅ Olution category found - Starts with "Olution ": ' . $olution->name, DEBUG_DEVELOPER);
+                $systemcandidate = $olution;
+                break;
+            }
         
-        // ==================================================================================
-        // PRIORITÉ 5 : Nom contenant " Olution " (entouré d'espaces)
-        // Exemples : "Banque Olution 2024", "Questions Olution Partagées"
-        // ==================================================================================
-        $sql = "SELECT *
-                FROM {question_categories}
-                WHERE contextid = :contextid
-                AND " . $DB->sql_like('name', ':pattern', false, false) . "
-                ORDER BY CASE WHEN parent = :topid THEN 0 ELSE 1 END, LENGTH(name) ASC
-                LIMIT 1";
+            // ==================================================================================
+            // PRIORITÉ 4 : Nom se terminant par " Olution" (avec espace avant)
+            // Exemples : "Questions Olution", "Banque Olution"
+            // ==================================================================================
+            $sql = "SELECT *
+                    FROM {question_categories}
+                    WHERE contextid = :contextid
+                    AND " . $DB->sql_like('name', ':pattern', false, false) . "
+                    ORDER BY CASE WHEN parent = :topid THEN 0 ELSE 1 END, LENGTH(name) ASC
+                    LIMIT 1";
         
-        $olution = $DB->get_record_sql($sql, [
-            'contextid' => $systemcontext->id,
-            'topid' => $system_top_id,
-            'pattern' => '% Olution %'
-        ]);
+            $olution = $DB->get_record_sql($sql, [
+                'contextid' => $systemcontext->id,
+                'topid' => $system_top_id,
+                'pattern' => '% Olution'
+            ]);
         
-        if ($olution) {
-            local_question_diagnostic_debug_log('✅ Olution category found - Contains " Olution ": ' . $olution->name, DEBUG_DEVELOPER);
-            return $olution;
-        }
+            if ($olution) {
+                local_question_diagnostic_debug_log('✅ Olution category found - Ends with " Olution": ' . $olution->name, DEBUG_DEVELOPER);
+                $systemcandidate = $olution;
+                break;
+            }
         
-        // ==================================================================================
-        // PRIORITÉ 6 : Nom contenant "Olution" sans espaces (plus flexible)
-        // Exemples : "OlutionQCM", "BanqueOlution"
-        // ==================================================================================
-        $sql = "SELECT *
-                FROM {question_categories}
-                WHERE contextid = :contextid
-                AND " . $DB->sql_like('name', ':pattern', false, false) . "
-                ORDER BY CASE WHEN parent = :topid THEN 0 ELSE 1 END, " . $DB->sql_position("'Olution'", 'name') . " ASC, LENGTH(name) ASC
-                LIMIT 1";
+            // ==================================================================================
+            // PRIORITÉ 5 : Nom contenant " Olution " (entouré d'espaces)
+            // Exemples : "Banque Olution 2024", "Questions Olution Partagées"
+            // ==================================================================================
+            $sql = "SELECT *
+                    FROM {question_categories}
+                    WHERE contextid = :contextid
+                    AND " . $DB->sql_like('name', ':pattern', false, false) . "
+                    ORDER BY CASE WHEN parent = :topid THEN 0 ELSE 1 END, LENGTH(name) ASC
+                    LIMIT 1";
         
-        $olution = $DB->get_record_sql($sql, [
-            'contextid' => $systemcontext->id,
-            'topid' => $system_top_id,
-            'pattern' => '%Olution%'
-        ]);
+            $olution = $DB->get_record_sql($sql, [
+                'contextid' => $systemcontext->id,
+                'topid' => $system_top_id,
+                'pattern' => '% Olution %'
+            ]);
         
-        if ($olution) {
-            local_question_diagnostic_debug_log('⚠️ Olution category found - Contains "Olution" (flexible): ' . $olution->name, DEBUG_DEVELOPER);
-            return $olution;
-        }
+            if ($olution) {
+                local_question_diagnostic_debug_log('✅ Olution category found - Contains " Olution ": ' . $olution->name, DEBUG_DEVELOPER);
+                $systemcandidate = $olution;
+                break;
+            }
         
-        // ==================================================================================
-        // PRIORITÉ 7 : EN DERNIER RECOURS - Description contenant "olution"
-        // SEULEMENT si le nom est court et potentiellement pertinent
-        // ==================================================================================
-        $sql = "SELECT *
-                FROM {question_categories}
-                WHERE contextid = :contextid
-                AND " . $DB->sql_like('info', ':pattern', false, false) . "
-                AND LENGTH(name) <= 50
-                ORDER BY CASE WHEN parent = :topid THEN 0 ELSE 1 END, " . $DB->sql_position("'olution'", 'info') . " ASC
-                LIMIT 1";
+            // ==================================================================================
+            // PRIORITÉ 6 : Nom contenant "Olution" sans espaces (plus flexible)
+            // Exemples : "OlutionQCM", "BanqueOlution"
+            // ==================================================================================
+            $sql = "SELECT *
+                    FROM {question_categories}
+                    WHERE contextid = :contextid
+                    AND " . $DB->sql_like('name', ':pattern', false, false) . "
+                    ORDER BY CASE WHEN parent = :topid THEN 0 ELSE 1 END, " . $DB->sql_position("'Olution'", 'name') . " ASC, LENGTH(name) ASC
+                    LIMIT 1";
         
-        $olution = $DB->get_record_sql($sql, [
-            'contextid' => $systemcontext->id,
-            'topid' => $system_top_id,
-            'pattern' => '%olution%'
-        ]);
+            $olution = $DB->get_record_sql($sql, [
+                'contextid' => $systemcontext->id,
+                'topid' => $system_top_id,
+                'pattern' => '%Olution%'
+            ]);
         
-        if ($olution) {
-            local_question_diagnostic_debug_log('⚠️ Olution category found - Via description (last resort): ' . $olution->name, DEBUG_DEVELOPER);
-            return $olution;
-        }
+            if ($olution) {
+                local_question_diagnostic_debug_log('⚠️ Olution category found - Contains "Olution" (flexible): ' . $olution->name, DEBUG_DEVELOPER);
+                $systemcandidate = $olution;
+                break;
+            }
         
-        local_question_diagnostic_debug_log('❌ No Olution category found in system context after all searches', DEBUG_DEVELOPER);
+            // ==================================================================================
+            // PRIORITÉ 7 : EN DERNIER RECOURS - Description contenant "olution"
+            // SEULEMENT si le nom est court et potentiellement pertinent
+            // ==================================================================================
+            $sql = "SELECT *
+                    FROM {question_categories}
+                    WHERE contextid = :contextid
+                    AND " . $DB->sql_like('info', ':pattern', false, false) . "
+                    AND LENGTH(name) <= 50
+                    ORDER BY CASE WHEN parent = :topid THEN 0 ELSE 1 END, " . $DB->sql_position("'olution'", 'info') . " ASC
+                    LIMIT 1";
+        
+            $olution = $DB->get_record_sql($sql, [
+                'contextid' => $systemcontext->id,
+                'topid' => $system_top_id,
+                'pattern' => '%olution%'
+            ]);
+        
+            if ($olution) {
+                local_question_diagnostic_debug_log('⚠️ Olution category found - Via description (last resort): ' . $olution->name, DEBUG_DEVELOPER);
+                $systemcandidate = $olution;
+                break;
+            }
+        
+            local_question_diagnostic_debug_log('❌ No Olution category found in system context after all searches', DEBUG_DEVELOPER);
+        } while (false);
         
         // ==================================================================================
         // IMPORTANT : Ne pas créer automatiquement la catégorie Olution.
@@ -1049,9 +1134,9 @@ function local_question_diagnostic_find_olution_category() {
         local_question_diagnostic_debug_log('ℹ️ Not auto-creating Olution category (manual setup required)', DEBUG_DEVELOPER);
         
         // ==================================================================================
-        // PHASE 2 : Recherche dans la CATÉGORIE DE COURS "Olution" (si Phase 1 échoue)
+        // PHASE 2 : Recherche dans la CATÉGORIE DE COURS "Olution" (si besoin / meilleur score)
         // ==================================================================================
-        local_question_diagnostic_debug_log('🔄 Phase 1 failed, trying Phase 2: Search in course category "Olution"', DEBUG_DEVELOPER);
+        local_question_diagnostic_debug_log('🔄 Trying Phase 2: Search in course category "Olution" for better match', DEBUG_DEVELOPER);
         
         // 1. Rechercher la catégorie de cours "Olution" (ID 78 selon l'utilisateur)
         $course_category_sql = "SELECT id, name 
@@ -1065,10 +1150,9 @@ function local_question_diagnostic_find_olution_category() {
         
         if (!$olution_course_category) {
             local_question_diagnostic_debug_log('❌ No course category "Olution" found', DEBUG_DEVELOPER);
-            return false;
-        }
+        } else {
         
-        local_question_diagnostic_debug_log('✅ Found course category "Olution": ' . $olution_course_category->name . ' (ID: ' . $olution_course_category->id . ')', DEBUG_DEVELOPER);
+            local_question_diagnostic_debug_log('✅ Found course category "Olution": ' . $olution_course_category->name . ' (ID: ' . $olution_course_category->id . ')', DEBUG_DEVELOPER);
         
         // 2. Rechercher tous les cours dans cette catégorie (et ses sous-catégories).
         // 🔧 v1.11.8 : Utiliser la recherche récursive (la catégorie "Olution" peut contenir des sous-catégories).
@@ -1076,66 +1160,93 @@ function local_question_diagnostic_find_olution_category() {
         
         local_question_diagnostic_debug_log('🔍 Found ' . count($courses) . ' courses in Olution course category (recursive) (ID: ' . $olution_course_category->id . ')', DEBUG_DEVELOPER);
         
-        foreach ($courses as $course) {
-            local_question_diagnostic_debug_log('🎯 Checking course: ' . $course->fullname . ' (ID: ' . $course->id . ')', DEBUG_DEVELOPER);
+            $fallbackfirst = false;
+            foreach ($courses as $course) {
+                local_question_diagnostic_debug_log('🎯 Checking course: ' . $course->fullname . ' (ID: ' . $course->id . ')', DEBUG_DEVELOPER);
             
-            // 3. Récupérer le contexte de ce cours
-            $course_context = $DB->get_record('context', [
-                'contextlevel' => CONTEXT_COURSE,
-                'instanceid' => $course->id
-            ]);
+                // 3. Récupérer le contexte de ce cours
+                $course_context = $DB->get_record('context', [
+                    'contextlevel' => CONTEXT_COURSE,
+                    'instanceid' => $course->id
+                ]);
             
-            if (!$course_context) {
-                continue;
-            }
+                if (!$course_context) {
+                    continue;
+                }
             
-            // 4. Chercher les catégories de questions dans ce contexte de cours
-            $course_categories_sql = "SELECT *
-                                     FROM {question_categories}
-                                     WHERE contextid = :contextid
-                                     AND parent = 0
-                                     ORDER BY name ASC";
+                // 4. Chercher les catégories de questions dans ce contexte de cours
+                $course_categories_sql = "SELECT *
+                                         FROM {question_categories}
+                                         WHERE contextid = :contextid
+                                         AND parent = 0
+                                         ORDER BY name ASC";
             
-            $course_categories = $DB->get_records_sql($course_categories_sql, [
-                'contextid' => $course_context->id
-            ]);
+                $course_categories = $DB->get_records_sql($course_categories_sql, [
+                    'contextid' => $course_context->id
+                ]);
             
-            local_question_diagnostic_debug_log('📂 Found ' . count($course_categories) . ' question categories in course context', DEBUG_DEVELOPER);
+                local_question_diagnostic_debug_log('📂 Found ' . count($course_categories) . ' question categories in course context', DEBUG_DEVELOPER);
             
-            // 5. Vérifier si une de ces catégories contient "Olution"
-            foreach ($course_categories as $cat) {
-                if (stripos($cat->name, 'olution') !== false) {
-                    local_question_diagnostic_debug_log('✅ Olution question category found in course: ' . $cat->name . ' (Course: ' . $course->fullname . ')', DEBUG_DEVELOPER);
+                // 5. Vérifier si une de ces catégories contient "Olution"
+                foreach ($course_categories as $cat) {
+                    if (stripos($cat->name, 'olution') !== false) {
+                        local_question_diagnostic_debug_log('✅ Olution question category found in course: ' . $cat->name . ' (Course: ' . $course->fullname . ')', DEBUG_DEVELOPER);
                     
+                        // Ajouter des informations sur le cours et la catégorie de cours parent
+                        $cat->course_name = $course->fullname;
+                        $cat->course_id = $course->id;
+                        $cat->course_category_name = $olution_course_category->name;
+                        $cat->course_category_id = $olution_course_category->id;
+                        $cat->context_type = 'course_category';
+                    
+                        $score = $scorecategory($cat);
+                        if ($score > $bestcoursescore) {
+                            $bestcoursescore = $score;
+                            $coursecandidate = $cat;
+                        }
+                    }
+                }
+            
+                // 6. Si pas de catégorie nommée Olution, prendre la première catégorie du cours comme fallback.
+                if (!$fallbackfirst && !empty($course_categories)) {
+                    $first_category = reset($course_categories);
+                    local_question_diagnostic_debug_log('✅ Using first question category from course in Olution (fallback): ' . $first_category->name . ' (Course: ' . $course->fullname . ')', DEBUG_DEVELOPER);
+                
                     // Ajouter des informations sur le cours et la catégorie de cours parent
-                    $cat->course_name = $course->fullname;
-                    $cat->course_id = $course->id;
-                    $cat->course_category_name = $olution_course_category->name;
-                    $cat->course_category_id = $olution_course_category->id;
-                    $cat->context_type = 'course_category';
-                    
-                    return $cat;
+                    $first_category->course_name = $course->fullname;
+                    $first_category->course_id = $course->id;
+                    $first_category->course_category_name = $olution_course_category->name;
+                    $first_category->course_category_id = $olution_course_category->id;
+                    $first_category->context_type = 'course_category';
+                
+                    $fallbackfirst = $first_category;
                 }
             }
-            
-            // 6. Si pas de catégorie nommée Olution, prendre la première catégorie du cours
-            if (!empty($course_categories)) {
-                $first_category = reset($course_categories);
-                local_question_diagnostic_debug_log('✅ Using first question category from course in Olution: ' . $first_category->name . ' (Course: ' . $course->fullname . ')', DEBUG_DEVELOPER);
-                
-                // Ajouter des informations sur le cours et la catégorie de cours parent
-                $first_category->course_name = $course->fullname;
-                $first_category->course_id = $course->id;
-                $first_category->course_category_name = $olution_course_category->name;
-                $first_category->course_category_id = $olution_course_category->id;
-                $first_category->context_type = 'course_category';
-                
-                return $first_category;
+
+            // Si aucune catégorie "Olution" n'a été trouvée mais un fallback existe, on le score.
+            if (!$coursecandidate && $fallbackfirst) {
+                $coursecandidate = $fallbackfirst;
+                $bestcoursescore = $scorecategory($fallbackfirst);
             }
         }
-        
-        // Aucune catégorie Olution trouvée dans aucun contexte
-        local_question_diagnostic_debug_log('❌ No Olution category found in system, course, or course category contexts', DEBUG_DEVELOPER);
+
+        // ==================================================================================
+        // Choix final : meilleur score entre système et cours.
+        // ==================================================================================
+        $systemscore = $systemcandidate ? $scorecategory($systemcandidate) : 0;
+        $coursescore = $coursecandidate ? $scorecategory($coursecandidate) : 0;
+
+        if ($coursecandidate && $coursescore > $systemscore) {
+            local_question_diagnostic_debug_log('✅ Selected Olution candidate from course category (score ' . $coursescore . ' > ' . $systemscore . ')', DEBUG_DEVELOPER);
+            return $coursecandidate;
+        }
+
+        if ($systemcandidate) {
+            local_question_diagnostic_debug_log('✅ Selected Olution candidate from system (score ' . $systemscore . ')', DEBUG_DEVELOPER);
+            return $systemcandidate;
+        }
+
+        local_question_diagnostic_debug_log('❌ No Olution category found in any context', DEBUG_DEVELOPER);
         return false;
         
     } catch (Exception $e) {

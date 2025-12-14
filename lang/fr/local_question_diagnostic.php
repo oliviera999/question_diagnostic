@@ -578,3 +578,43 @@ $string['filter_active_course_category'] = 'Filtre actif : Catégorie de cours';
 $string['show_all_course_categories'] = 'Voir toutes les catégories de cours';
 $string['course_category_filter_info'] = 'Affichage des catégories de questions pour la catégorie de cours';
 
+// 🆕 v1.11.29 : Catégories de questions par cours / activité (contenant des questions)
+$string['tool_categories_by_context_title'] = 'Catégories par cours / activité';
+$string['tool_categories_by_context_desc'] = 'Liste les catégories de questions liées à un cours (et/ou une activité comme un quiz) et ne garde que celles qui contiennent des questions (directement ou via des sous-catégories).';
+$string['tool_categories_by_context_open'] = 'Ouvrir la liste';
+
+$string['tool_categories_by_context_courseid'] = 'Course ID';
+$string['tool_categories_by_context_course_select'] = 'Cours (liste)';
+$string['tool_categories_by_context_course_select_placeholder'] = '— Sélectionner un cours —';
+$string['tool_categories_by_context_course_select_help'] = 'Astuce : choisissez d’abord une catégorie de cours, puis sélectionnez un cours dans la liste. Le courseid sera rempli automatiquement.';
+
+$string['tool_categories_by_context_scope'] = 'Périmètre';
+$string['tool_categories_by_context_scope_all'] = 'Cours + activités';
+$string['tool_categories_by_context_scope_course'] = 'Cours uniquement';
+$string['tool_categories_by_context_scope_activities'] = 'Activités uniquement';
+$string['tool_categories_by_context_scope_quiz'] = 'Tests (quiz) uniquement';
+$string['tool_categories_by_context_scope_activity'] = 'Une activité spécifique';
+
+$string['tool_categories_by_context_activity'] = 'Activité (cmid)';
+$string['tool_categories_by_context_activity_all'] = 'Toutes';
+$string['tool_categories_by_context_include_system'] = 'Inclure le contexte système';
+$string['tool_categories_by_context_apply'] = 'Afficher';
+
+$string['tool_categories_by_context_intro_title'] = 'Sélectionnez un cours';
+$string['tool_categories_by_context_intro'] = 'Choisissez une catégorie de cours puis un cours (ou saisissez directement un courseid) pour afficher les catégories de questions qui contiennent des questions.';
+$string['tool_categories_by_context_activity_required'] = 'Veuillez sélectionner une activité (cmid) pour le périmètre « activité spécifique ».';
+
+$string['tool_categories_by_context_no_contexts'] = 'Aucun contexte à analyser avec les critères actuels.';
+$string['tool_categories_by_context_no_categories'] = 'Aucune catégorie de questions trouvée pour ces contextes.';
+
+$string['tool_categories_by_context_summary_title'] = 'Résumé';
+$string['tool_categories_by_context_summary'] = 'Cours : <strong>{$a->course}</strong> — contextes analysés : <strong>{$a->contexts}</strong> — catégories avec questions : <strong>{$a->categories}</strong> — entrées directes : <strong>{$a->directquestions}</strong> (visibles : <strong>{$a->directvisible}</strong>).';
+$string['tool_categories_by_context_none_with_questions'] = 'Aucune catégorie ne contient de questions avec les critères actuels.';
+
+$string['tool_categories_by_context_direct'] = 'Direct';
+$string['tool_categories_by_context_direct_help'] = 'Nombre d’entrées de questions directement dans cette catégorie.';
+$string['tool_categories_by_context_total'] = 'Total (arbre)';
+$string['tool_categories_by_context_total_help'] = 'Nombre d’entrées de questions dans cette catégorie + toutes ses sous-catégories (récursif).';
+$string['tool_categories_by_context_visible_direct'] = 'Visibles (direct)';
+$string['tool_categories_by_context_visible_total'] = 'Visibles (arbre)';
+

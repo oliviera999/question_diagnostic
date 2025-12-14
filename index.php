@@ -208,6 +208,32 @@ echo html_writer::end_tag('div'); // fin qd-tool-content
 echo html_writer::end_tag('div'); // fin qd-tool-card
 
 // ======================================================================
+// 🆕 Catégories par cours / activité (contenant des questions)
+// ======================================================================
+
+echo html_writer::start_tag('div', ['class' => 'qd-tool-card']);
+
+echo html_writer::start_tag('div', ['class' => 'qd-tool-icon']);
+echo '🧭';
+echo html_writer::end_tag('div');
+
+echo html_writer::start_tag('div', ['class' => 'qd-tool-content']);
+
+echo html_writer::tag('h4', get_string('tool_categories_by_context_title', 'local_question_diagnostic'), ['class' => 'qd-tool-title']);
+
+echo html_writer::tag('p',
+    get_string('tool_categories_by_context_desc', 'local_question_diagnostic'),
+    ['class' => 'qd-tool-description']
+);
+
+$catsbyctxurl = new moodle_url('/local/question_diagnostic/categories_by_context.php');
+echo html_writer::link($catsbyctxurl, get_string('tool_categories_by_context_open', 'local_question_diagnostic') . ' →', ['class' => 'qd-tool-button']);
+
+echo html_writer::end_tag('div'); // fin qd-tool-content
+
+echo html_writer::end_tag('div'); // fin qd-tool-card
+
+// ======================================================================
 // OPTION 2 : Réparation des liens cassés
 // ======================================================================
 

@@ -578,3 +578,43 @@ $string['filter_active_course_category'] = 'Active filter: Course category';
 $string['show_all_course_categories'] = 'Show all course categories';
 $string['course_category_filter_info'] = 'Displaying question categories for course category';
 
+// 🆕 v1.11.29 : Question categories by course / activity (with questions)
+$string['tool_categories_by_context_title'] = 'Categories by course / activity';
+$string['tool_categories_by_context_desc'] = 'Lists question categories linked to a course (and/or an activity such as a quiz) and keeps only those that contain questions (directly or via subcategories).';
+$string['tool_categories_by_context_open'] = 'Open list';
+
+$string['tool_categories_by_context_courseid'] = 'Course ID';
+$string['tool_categories_by_context_course_select'] = 'Course (list)';
+$string['tool_categories_by_context_course_select_placeholder'] = '— Select a course —';
+$string['tool_categories_by_context_course_select_help'] = 'Tip: pick a course category first, then choose a course from the list. The courseid will be filled automatically.';
+
+$string['tool_categories_by_context_scope'] = 'Scope';
+$string['tool_categories_by_context_scope_all'] = 'Course + activities';
+$string['tool_categories_by_context_scope_course'] = 'Course only';
+$string['tool_categories_by_context_scope_activities'] = 'Activities only';
+$string['tool_categories_by_context_scope_quiz'] = 'Quizzes only';
+$string['tool_categories_by_context_scope_activity'] = 'A specific activity';
+
+$string['tool_categories_by_context_activity'] = 'Activity (cmid)';
+$string['tool_categories_by_context_activity_all'] = 'All';
+$string['tool_categories_by_context_include_system'] = 'Include system context';
+$string['tool_categories_by_context_apply'] = 'Show';
+
+$string['tool_categories_by_context_intro_title'] = 'Select a course';
+$string['tool_categories_by_context_intro'] = 'Choose a course category and a course (or type a courseid) to list question categories that contain questions.';
+$string['tool_categories_by_context_activity_required'] = 'Please select an activity (cmid) for the “specific activity” scope.';
+
+$string['tool_categories_by_context_no_contexts'] = 'No contexts to analyze with the current criteria.';
+$string['tool_categories_by_context_no_categories'] = 'No question categories were found for these contexts.';
+
+$string['tool_categories_by_context_summary_title'] = 'Summary';
+$string['tool_categories_by_context_summary'] = 'Course: <strong>{$a->course}</strong> — contexts analyzed: <strong>{$a->contexts}</strong> — categories with questions: <strong>{$a->categories}</strong> — direct entries: <strong>{$a->directquestions}</strong> (visible: <strong>{$a->directvisible}</strong>).';
+$string['tool_categories_by_context_none_with_questions'] = 'No category contains questions with the current criteria.';
+
+$string['tool_categories_by_context_direct'] = 'Direct';
+$string['tool_categories_by_context_direct_help'] = 'Number of question bank entries directly in this category.';
+$string['tool_categories_by_context_total'] = 'Total (tree)';
+$string['tool_categories_by_context_total_help'] = 'Number of question bank entries in this category + all its subcategories (recursive).';
+$string['tool_categories_by_context_visible_direct'] = 'Visible (direct)';
+$string['tool_categories_by_context_visible_total'] = 'Visible (tree)';
+
