@@ -38,86 +38,6 @@ if (!is_siteadmin()) {
 
 require_sesskey();
 
-/**
- * Calcule le score d'accessibilité d'une question basé sur son contexte
- * Score plus élevé = contexte plus large/accessible
- * 
- * Priorité :
- * 1. CONTEXT_SYSTEM (50) = Niveau site, accessible partout
- * 2. CONTEXT_COURSECAT (40) = Catégorie de cours
- * 3. CONTEXT_COURSE (30) = Cours spécifique
- * 4. CONTEXT_MODULE (20) = Module d'activité
- * 5. Autres/Invalide (10) = Cas d'erreur
- * 
- * @param object $question Question Moodle
- * @return object {score: int, contextlevel: int, contextid: int, timecreated: int, info: string}
- */
-function local_question_diagnostic_get_accessibility_score($question) {
-    global $DB;
-    
-    $result = (object)[
-        'score' => 0,
-        'contextlevel' => null,
-        'contextid' => null,
-        'timecreated' => $question->timecreated,
-        'info' => 'Contexte inconnu'
-    ];
-    
-    try {
-        // Récupérer la catégorie et le contexte de la question
-        // Via question_bank_entries (Moodle 4.x)
-        $sql = "SELECT qc.contextid, ctx.contextlevel, qc.name as category_name
-                FROM {question_categories} qc
-                INNER JOIN {question_bank_entries} qbe ON qbe.questioncategoryid = qc.id
-                INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
-                INNER JOIN {context} ctx ON ctx.id = qc.contextid
-                WHERE qv.questionid = :questionid
-                LIMIT 1";
-        
-        $record = $DB->get_record_sql($sql, ['questionid' => $question->id]);
-        
-        if (!$record) {
-            $result->info = 'Catégorie/contexte introuvable';
-            $result->score = 5; // Score très bas
-            return $result;
-        }
-        
-        $result->contextid = $record->contextid;
-        $result->contextlevel = $record->contextlevel;
-        
-        // Attribuer le score selon le niveau de contexte
-        switch ($record->contextlevel) {
-            case CONTEXT_SYSTEM:
-                $result->score = 50;
-                $result->info = '🌐 Site entier (le plus accessible)';
-                break;
-            case CONTEXT_COURSECAT:
-                $result->score = 40;
-                $result->info = '📂 Catégorie de cours';
-                break;
-            case CONTEXT_COURSE:
-                $result->score = 30;
-                $result->info = '📚 Cours spécifique';
-                break;
-            case CONTEXT_MODULE:
-                $result->score = 20;
-                $result->info = '📝 Module d\'activité';
-                break;
-            default:
-                $result->score = 10;
-                $result->info = 'Contexte non standard (niveau ' . $record->contextlevel . ')';
-                break;
-        }
-        
-    } catch (Exception $e) {
-        debugging('Erreur calcul accessibilité pour question ' . $question->id . ': ' . $e->getMessage(), DEBUG_DEVELOPER);
-        $result->score = 1;
-        $result->info = 'Erreur: ' . $e->getMessage();
-    }
-    
-    return $result;
-}
-
 // Définir le contexte de la page
 $context = context_system::instance();
 $PAGE->set_context($context);
@@ -181,37 +101,80 @@ if (!$confirm) {
     // Analyser tous les groupes à nettoyer
     $total_to_delete = 0;
     $questions_to_delete = [];
+    $fallback_kept = []; // Versions conservées quand aucune version n'est utilisée.
     
     foreach ($groups_to_clean as $group) {
         // Récupérer toutes les questions de ce groupe
         $all_questions = $DB->get_records('question', [
             'name' => $group['name'],
             'qtype' => $group['qtype']
-        ]);
+        ], 'id ASC');
         
         // Charger l'usage
         $question_ids = array_keys($all_questions);
         $usage_map = question_analyzer::get_questions_usage_by_ids($question_ids);
         
-        // Identifier les questions à supprimer (inutilisées)
+        // Identifier les questions à supprimer et celles à conserver
+        $to_keep = [];
+        $to_delete = [];
+        
         foreach ($all_questions as $q) {
             $quiz_count = 0;
             if (isset($usage_map[$q->id]) && isset($usage_map[$q->id]['quiz_count'])) {
                 $quiz_count = $usage_map[$q->id]['quiz_count'];
             }
             
-            if ($quiz_count == 0) {
-                // Question inutilisée = à supprimer
-                $questions_to_delete[] = $q;
-                $total_to_delete++;
+            if ($quiz_count > 0) {
+                $to_keep[] = $q; // Utilisée = conservée.
+            } else {
+                $to_delete[] = $q; // Inutilisée = candidate à suppression.
             }
+        }
+        
+        // Si aucune version utilisée, on CONSERVE 1 version (sélection intelligente) et on supprime le reste.
+        if (empty($to_keep) && !empty($to_delete)) {
+            $best = question_analyzer::select_best_question_to_keep($to_delete);
+            if ($best) {
+                $to_keep[] = $best->question;
+                $to_delete = array_values(array_filter($to_delete, function($q) use ($best) {
+                    return (int)$q->id !== (int)$best->question->id;
+                }));
+                $fallback_kept[] = (object)[
+                    'name' => $group['name'],
+                    'qtype' => $group['qtype'],
+                    'question' => $best->question,
+                    'score' => $best->score,
+                    'info' => $best->info
+                ];
+            } else {
+                // Fallback : conserver la première, supprimer le reste.
+                $kept = array_shift($to_delete);
+                $to_keep[] = $kept;
+                $fallback_kept[] = (object)[
+                    'name' => $group['name'],
+                    'qtype' => $group['qtype'],
+                    'question' => $kept,
+                    'score' => null,
+                    'info' => 'Fallback: première version'
+                ];
+            }
+        }
+        
+        // Accumuler la liste finale à supprimer (après application de la règle "au moins 1 conservée").
+        foreach ($to_delete as $q) {
+            $questions_to_delete[] = (object)[
+                'groupname' => $group['name'],
+                'qtype' => $group['qtype'],
+                'question' => $q
+            ];
+            $total_to_delete++;
         }
     }
     
     if ($total_to_delete == 0) {
         echo html_writer::start_tag('div', ['class' => 'alert alert-info']);
         echo html_writer::tag('h3', '✅ Aucune question à supprimer');
-        echo 'Tous les groupes sélectionnés ne contiennent que des versions utilisées.';
+        echo 'Tous les groupes sélectionnés ne contiennent aucune version inutilisée à supprimer.';
         echo html_writer::end_tag('div');
         
         echo html_writer::start_tag('div', ['style' => 'margin-top: 20px;']);
@@ -234,12 +197,50 @@ if (!$confirm) {
     echo html_writer::tag('p', '<strong style="color: #d9534f;">⚠️ Cette action est IRRÉVERSIBLE !</strong>');
     echo html_writer::end_tag('div');
     
+    // Afficher quelles versions seront conservées quand aucune n'est utilisée (point demandé).
+    if (!empty($fallback_kept)) {
+        echo html_writer::start_tag('div', ['class' => 'alert alert-success', 'style' => 'margin: 20px 0;']);
+        echo html_writer::tag('h3', '✅ Version(s) conservée(s) (aucune version utilisée)', ['style' => 'margin-top: 0;']);
+        echo html_writer::tag('p',
+            'Pour chaque groupe sans version utilisée, une version sera conservée pour éviter toute suppression complète.');
+        echo html_writer::end_tag('div');
+        
+        echo html_writer::start_tag('table', ['class' => 'generaltable', 'style' => 'width: 100%; margin-bottom: 25px;']);
+        echo html_writer::start_tag('thead');
+        echo html_writer::start_tag('tr');
+        echo html_writer::tag('th', 'Groupe');
+        echo html_writer::tag('th', 'Type');
+        echo html_writer::tag('th', 'ID conservée');
+        echo html_writer::tag('th', 'Créée le');
+        echo html_writer::tag('th', 'Raison (contexte)');
+        echo html_writer::end_tag('tr');
+        echo html_writer::end_tag('thead');
+        
+        echo html_writer::start_tag('tbody');
+        foreach ($fallback_kept as $k) {
+            echo html_writer::start_tag('tr');
+            echo html_writer::tag('td', format_string($k->name));
+            echo html_writer::tag('td', s($k->qtype));
+            echo html_writer::tag('td', (int)$k->question->id, ['style' => 'font-weight: bold; color: #28a745;']);
+            echo html_writer::tag('td', userdate($k->question->timecreated, '%d/%m/%Y %H:%M'));
+            $reason = $k->info;
+            if ($k->score !== null) {
+                $reason .= ' (score: ' . (int)$k->score . ')';
+            }
+            echo html_writer::tag('td', s($reason));
+            echo html_writer::end_tag('tr');
+        }
+        echo html_writer::end_tag('tbody');
+        echo html_writer::end_tag('table');
+    }
+    
     // Afficher les détails des questions à supprimer
     echo html_writer::tag('h3', '📋 Détails des questions à supprimer');
     
     echo html_writer::start_tag('table', ['class' => 'generaltable', 'style' => 'width: 100%;']);
     echo html_writer::start_tag('thead');
     echo html_writer::start_tag('tr');
+    echo html_writer::tag('th', 'Groupe');
     echo html_writer::tag('th', 'ID');
     echo html_writer::tag('th', 'Nom de la question');
     echo html_writer::tag('th', 'Type');
@@ -249,8 +250,10 @@ if (!$confirm) {
     echo html_writer::end_tag('thead');
     
     echo html_writer::start_tag('tbody');
-    foreach ($questions_to_delete as $q) {
+    foreach ($questions_to_delete as $item) {
+        $q = $item->question;
         echo html_writer::start_tag('tr');
+        echo html_writer::tag('td', format_string($item->groupname));
         echo html_writer::tag('td', $q->id);
         echo html_writer::tag('td', format_string($q->name));
         echo html_writer::tag('td', $q->qtype);
@@ -272,25 +275,31 @@ if (!$confirm) {
     echo html_writer::end_tag('ul');
     echo html_writer::end_tag('div');
     
-    // Boutons de confirmation
+    // Boutons de confirmation (POST pour éviter les URLs trop longues en mode bulk).
     echo html_writer::start_tag('div', ['style' => 'margin-top: 30px; text-align: center;']);
     
-    // Construire l'URL de confirmation
-    $confirm_params = ['confirm' => 1, 'sesskey' => sesskey()];
-    if ($bulk) {
-        $confirm_params['bulk'] = 1;
-        $confirm_params['groups'] = $groups_json;
-    } else {
-        $confirm_params['name'] = $groups_to_clean[0]['name'];
-        $confirm_params['qtype'] = $groups_to_clean[0]['qtype'];
-    }
-    $confirm_url = new moodle_url('/local/question_diagnostic/actions/cleanup_duplicate_groups.php', $confirm_params);
+    $action_url = new moodle_url('/local/question_diagnostic/actions/cleanup_duplicate_groups.php');
+    echo html_writer::start_tag('form', [
+        'method' => 'post',
+        'action' => $action_url->out(false),
+        'style' => 'display: inline-block; margin-right: 10px;'
+    ]);
+    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'confirm', 'value' => 1]);
+    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]);
     
-    echo html_writer::link(
-        $confirm_url,
-        '✓ Confirmer la suppression',
-        ['class' => 'btn btn-danger btn-lg', 'style' => 'margin-right: 10px;']
-    );
+    if ($bulk) {
+        echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'bulk', 'value' => 1]);
+        echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'groups', 'value' => $groups_json]);
+    } else {
+        echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'name', 'value' => $groups_to_clean[0]['name']]);
+        echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'qtype', 'value' => $groups_to_clean[0]['qtype']]);
+    }
+    
+    echo html_writer::tag('button', '✓ Confirmer la suppression', [
+        'type' => 'submit',
+        'class' => 'btn btn-danger btn-lg'
+    ]);
+    echo html_writer::end_tag('form');
     
     echo html_writer::link(
         new moodle_url('/local/question_diagnostic/questions_cleanup.php', ['loadstats' => 1]),
@@ -350,40 +359,24 @@ foreach ($groups_to_clean as $group) {
     
     // 🆕 v1.9.46 : Sécurité intelligente - garder la version la plus accessible
     if (empty($to_keep) && !empty($to_delete)) {
-        // Calculer le score d'accessibilité pour chaque question inutilisée
-        $questions_with_scores = [];
-        foreach ($to_delete as $q) {
-            $score_info = local_question_diagnostic_get_accessibility_score($q);
-            $questions_with_scores[] = (object)[
-                'question' => $q,
-                'score' => $score_info->score,
-                'timecreated' => $q->timecreated,
-                'info' => $score_info->info
-            ];
-        }
-        
-        // Trier par score décroissant (contexte le plus large d'abord)
-        // puis par ancienneté croissante (plus ancien = prioritaire)
-        usort($questions_with_scores, function($a, $b) {
-            // Priorité 1 : Score d'accessibilité (plus élevé = mieux)
-            if ($a->score != $b->score) {
-                return $b->score - $a->score; // Décroissant
+        $best = question_analyzer::select_best_question_to_keep($to_delete);
+        if ($best) {
+            $to_keep[] = $best->question;
+            $to_delete = array_values(array_filter($to_delete, function($q) use ($best) {
+                return (int)$q->id !== (int)$best->question->id;
+            }));
+            
+            // 📝 Log pour traçabilité
+            debugging('Groupe "' . $group['name'] . '" : Version conservée ID ' . (int)$best->question->id .
+                ' (Score: ' . (int)$best->score . ', ' . $best->info . ', créée le ' .
+                userdate((int)$best->timecreated, '%d/%m/%Y') . ')', DEBUG_DEVELOPER);
+        } else {
+            // Fallback : garder la première (ordre id ASC).
+            $oldest = array_shift($to_delete);
+            if ($oldest) {
+                $to_keep[] = $oldest;
             }
-            // Priorité 2 : Ancienneté (plus petit timestamp = plus vieux = mieux)
-            return $a->timecreated - $b->timecreated; // Croissant
-        });
-        
-        // Garder la meilleure (première après tri)
-        $best = array_shift($questions_with_scores);
-        $to_keep[] = $best->question;
-        
-        // Mettre à jour $to_delete pour exclure la meilleure
-        $to_delete = array_map(function($item) { return $item->question; }, $questions_with_scores);
-        
-        // 📝 Log pour traçabilité
-        debugging('Groupe "' . $group['name'] . '" : Version conservée ID ' . $best->question->id . 
-                  ' (Score: ' . $best->score . ', ' . $best->info . ', créée le ' . 
-                  userdate($best->timecreated, '%d/%m/%Y') . ')', DEBUG_DEVELOPER);
+        }
     }
     
     // Supprimer les questions inutilisées

@@ -229,6 +229,7 @@ function show_preview_page() {
     echo html_writer::tag('li', '✅ Les versions utilisées dans des quiz seront CONSERVÉES');
     echo html_writer::tag('li', '✅ Seules les versions inutilisées seront supprimées');
     echo html_writer::tag('li', '✅ Au moins 1 version sera toujours conservée par groupe (même si inutilisée)');
+    echo html_writer::tag('li', '🌐 <strong>Logique de conservation intelligente :</strong> si aucune version n\'est utilisée, la version conservée sera celle du contexte le plus large (site > catégorie > cours > module), puis la plus ancienne en cas d\'égalité');
     echo html_writer::tag('li', '✅ Le traitement se fait par lots de ' . BATCH_SIZE . ' groupes pour éviter les timeouts');
     echo html_writer::end_tag('ul');
     echo html_writer::end_tag('div');
@@ -370,9 +371,20 @@ function execute_cleanup_batch($batch) {
         
         // Sécurité : garder au moins 1 version
         if (empty($to_keep) && !empty($to_delete)) {
-            // Garder la plus ancienne
-            $oldest = array_shift($to_delete);
-            $to_keep[] = $oldest;
+            // 🆕 v1.11.20 : Sélection intelligente (contexte le plus large, puis plus ancienne).
+            $best = question_analyzer::select_best_question_to_keep($to_delete);
+            if ($best) {
+                $to_keep[] = $best->question;
+                $to_delete = array_values(array_filter($to_delete, function($q) use ($best) {
+                    return (int)$q->id !== (int)$best->question->id;
+                }));
+            } else {
+                // Fallback : garder la première (ordre id ASC).
+                $oldest = array_shift($to_delete);
+                if ($oldest) {
+                    $to_keep[] = $oldest;
+                }
+            }
         }
         
         // Supprimer les questions inutilisées

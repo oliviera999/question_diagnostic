@@ -1489,11 +1489,34 @@ function bulkCleanupGroups() {
     message += 'Cette action est IRRÉVERSIBLE !';
     
     if (confirm(message)) {
-        // Construire l'URL avec les groupes encodés
+        // POST (évite les URLs trop longues en mode bulk).
         var groupsData = JSON.stringify(groups.map(function(g) { return g.name + '|' + g.qtype; }));
-        var url = '" . (new \moodle_url('/local/question_diagnostic/actions/cleanup_duplicate_groups.php'))->out(false) . "';
-        url += '?bulk=1&groups=' + encodeURIComponent(groupsData) + '&sesskey=" . sesskey() . "';
-        window.location.href = url;
+        var action = '" . (new \moodle_url('/local/question_diagnostic/actions/cleanup_duplicate_groups.php'))->out(false) . "';
+        
+        var form = document.createElement('form');
+        form.method = 'POST';
+        form.action = action;
+        
+        var inputBulk = document.createElement('input');
+        inputBulk.type = 'hidden';
+        inputBulk.name = 'bulk';
+        inputBulk.value = '1';
+        form.appendChild(inputBulk);
+        
+        var inputGroups = document.createElement('input');
+        inputGroups.type = 'hidden';
+        inputGroups.name = 'groups';
+        inputGroups.value = groupsData;
+        form.appendChild(inputGroups);
+        
+        var inputSesskey = document.createElement('input');
+        inputSesskey.type = 'hidden';
+        inputSesskey.name = 'sesskey';
+        inputSesskey.value = '" . sesskey() . "';
+        form.appendChild(inputSesskey);
+        
+        document.body.appendChild(form);
+        form.submit();
     }
 }
 ";
