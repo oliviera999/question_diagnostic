@@ -1707,14 +1707,24 @@ function local_question_diagnostic_get_question_categories_by_course_category($c
             
             // Compter les sous-catégories
             $subcat_count = $DB->count_records('question_categories', ['parent' => $cat->id]);
-            $cat->subcategory_count = $subcat_count;
+            // ⚠️ Cohérence avec categories.php / category_manager:
+            // - `categories.php` attend la propriété `subcategories` (et non `subcategory_count`)
+            // - Certaines vues JS utilisent data-subcategories pour tri/filtre
+            $cat->subcategories = (int)$subcat_count;
+            // Conserver l'ancien nom pour compatibilité avec d'anciens scripts/tests.
+            $cat->subcategory_count = (int)$subcat_count;
             
             // Déterminer le statut
-            if ($cat->total_questions == 0 && $cat->subcategory_count == 0) {
+            if ($cat->total_questions == 0 && $cat->subcategories == 0) {
                 $cat->status = 'empty';
             } else {
                 $cat->status = 'ok';
             }
+
+            // Normaliser les flags attendus par l'UI (categories.php)
+            $cat->is_empty = ($cat->status === 'empty');
+            $cat->is_orphan = false; // on ne charge que des contextes existants (INNER JOIN context)
+            $cat->is_duplicate = false; // non calculé dans cette vue filtrée
             
             // Vérifier si c'est une catégorie protégée
             $cat->is_protected = (
@@ -1760,9 +1770,13 @@ function local_question_diagnostic_get_question_categories_by_course_category($c
                 $cat->context_display_name = $cat->course_name;
                 $cat->total_questions = 0;
                 $cat->visible_questions = 0;
+                $cat->subcategories = 0;
                 $cat->subcategory_count = 0;
                 $cat->status = 'ok';
                 $cat->is_protected = false;
+                $cat->is_empty = false;
+                $cat->is_orphan = false;
+                $cat->is_duplicate = false;
             }
             
             local_question_diagnostic_debug_log('Fallback successful: found ' . count($fallback_categories) . ' categories');
