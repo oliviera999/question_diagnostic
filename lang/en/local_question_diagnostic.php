@@ -523,6 +523,23 @@ $string['to_course_category'] = 'Target Olution course / Category';
 $string['move_all_warning'] = 'This action will move ALL detected duplicate questions to their corresponding Olution categories. Although this operation is reversible (manual move), it potentially affects a large number of questions. Make sure you have reviewed the list of duplicates before proceeding.';
 $string['no_movable_questions'] = 'No movable questions found';
 $string['move_batch_result'] = '{$a->success} question(s) successfully moved, {$a->failed} error(s)';
+
+// Olution triage (commun > Question à trier).
+$string['olution_triage_title'] = 'Question triage (commun → subcategories)';
+$string['olution_triage_heading'] = 'Triage questions from \"Question à trier\"';
+$string['olution_triage_button'] = 'Triage \"Question à trier\" ({$a})';
+$string['olution_triage_not_found'] = 'Category \"Question à trier\" was not found under \"commun\".';
+$string['olution_triage_not_found_help'] = 'To use this triage, create a question subcategory named \"Question à trier\" under the \"commun\" category (itself under Olution).';
+$string['olution_triage_detected'] = 'Triage category detected:'; 
+$string['olution_triage_signatures'] = '{$a} signature(s) (name + type) with a detected target';
+$string['olution_triage_movable_questions'] = 'Triageable questions';
+$string['olution_triage_explain'] = 'Moves questions placed in \"Question à trier\" into the \"commun\" subcategory where a duplicate (same name + same type) already exists.';
+$string['olution_triage_move_all_button'] = 'Move all triageable questions ({$a})';
+$string['olution_triage_no_movable'] = 'No questions to move (no match found in other commun subcategories).';
+$string['olution_triage_list_title'] = 'Questions in \"Question à trier\" with a match';
+$string['olution_triage_no_candidates_page'] = 'Nothing to display on this page.';
+$string['confirm_move_all_triage_to_olution'] = 'Confirm triage (move questions)';
+$string['triage_move_all_warning'] = 'This action will move questions located in \"Question à trier\" into the matching \"commun\" subcategories when duplicates (name + type) exist. Review the list before confirming.';
 $string['invalid_parameters'] = 'Invalid parameters';
 $string['invalid_action'] = 'Invalid action';
 

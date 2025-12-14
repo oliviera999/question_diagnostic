@@ -31,8 +31,20 @@ class olution_manager {
     /** @var int|null Cache de l'ID de la catégorie racine Olution */
     private static $olutioncategoryid = null;
 
+    /** @var int|null Cache de l'ID de la catégorie "référence" (commun sous Olution, sinon Olution) */
+    private static $referencecategoryid = null;
+
+    /** @var int|null Cache de l'ID de la catégorie "Question à trier" (sous commun) */
+    private static $triagecategoryid = null;
+
+    /** @var array<string,array>|null Cache map signature => target (triage) */
+    private static $triagetargetmap = null;
+
     /** @var array<int,bool> Cache catégorie_id => is_in_olution */
     private static $inolutioncache = [];
+
+    /** @var array<int,bool> Cache catégorie_id => is_in_reference */
+    private static $inreferencecache = [];
 
     /** @var array<int,int> Cache catégorie_id => depth */
     private static $depthcache = [];
@@ -109,6 +121,587 @@ class olution_manager {
     }
 
     /**
+     * Normalise un label (insensible à la casse, accents, espaces).
+     *
+     * @param string $label
+     * @return string
+     */
+    private static function normalize_label(string $label): string {
+        $label = trim($label);
+        // Moodle fournit core_text::remove_accents() et core_text::strtolower().
+        if (class_exists('\\core_text')) {
+            $label = \core_text::strtolower(\core_text::remove_accents($label));
+        } else {
+            $label = strtolower($label);
+        }
+        $label = preg_replace('/\s+/', ' ', $label);
+        return $label;
+    }
+
+    /**
+     * Construit une condition SQL "catégorie dans un sous-arbre" (racine + descendants),
+     * avec paramètres associés.
+     *
+     * Utilise qc.path si dispo, sinon fallback via liste IN (calculée en PHP).
+     *
+     * @param string $qcalias Alias SQL de {question_categories} (ex: 'qc')
+     * @param array $params Params SQL (référence)
+     * @param int $rootid ID de la catégorie racine
+     * @param string $prefix Préfixe unique pour les paramètres (évite collisions)
+     * @param object|null $rootcat Objet catégorie (optionnel) pour accéder à path
+     * @return string Condition SQL
+     */
+    private static function build_in_category_tree_condition(string $qcalias, array &$params, int $rootid, string $prefix, $rootcat = null): string {
+        global $DB;
+
+        $rootid = (int)$rootid;
+        if ($rootid <= 0) {
+            $params[$prefix . 'id'] = 0;
+            return '1=0';
+        }
+
+        $params[$prefix . 'id'] = $rootid;
+
+        // Essayer d'utiliser qc.path si disponible.
+        try {
+            $cols = $DB->get_columns('question_categories');
+            if (isset($cols['path'])) {
+                if ($rootcat === null) {
+                    $rootcat = $DB->get_record('question_categories', ['id' => $rootid], '*', IGNORE_MISSING);
+                }
+                if ($rootcat && isset($rootcat->path) && !empty($rootcat->path)) {
+                    $params[$prefix . 'path'] = rtrim($rootcat->path, '/') . '/%';
+                    return "({$qcalias}.id = :" . $prefix . "id OR " . $DB->sql_like("{$qcalias}.path", ':' . $prefix . 'path', false, false) . ')';
+                }
+            }
+        } catch (\Exception $e) {
+            // Fallback ci-dessous.
+        }
+
+        // Fallback: liste IN via parcours en PHP.
+        $parentmap = self::get_category_parent_map();
+        $children = [];
+        foreach ($parentmap as $id => $parent) {
+            if (!isset($children[$parent])) {
+                $children[$parent] = [];
+            }
+            $children[$parent][] = $id;
+        }
+
+        $ids = [];
+        $queue = [$rootid];
+        $seen = [];
+        while (!empty($queue)) {
+            $current = array_shift($queue);
+            if (isset($seen[$current])) {
+                continue;
+            }
+            $seen[$current] = true;
+            $ids[] = (int)$current;
+            foreach (($children[$current] ?? []) as $childid) {
+                $queue[] = (int)$childid;
+            }
+        }
+
+        list($insql, $inparams) = $DB->get_in_or_equal($ids, SQL_PARAMS_NAMED, $prefix);
+        $params = array_merge($params, $inparams);
+        return "{$qcalias}.id {$insql}";
+    }
+
+    /**
+     * Retourne l'ID de la catégorie "référence" pour la comparaison :
+     * - si une catégorie enfant nommée exactement "commun" existe sous Olution, on la prend (et ses descendants)
+     * - sinon, on retombe sur Olution (comportement historique).
+     *
+     * Objectif : sur certains sites, la "source de vérité" des questions est dans Olution/commun/*,
+     * et non dans toutes les sous-catégories d'Olution.
+     *
+     * @param object|null $olutioncat Objet catégorie Olution (optionnel)
+     * @return int ID catégorie racine du scope de comparaison
+     */
+    private static function get_reference_category_id($olutioncat = null): int {
+        global $DB;
+
+        if (self::$referencecategoryid !== null) {
+            return (int)self::$referencecategoryid;
+        }
+
+        $olutionid = self::get_olution_category_id();
+        if ($olutionid <= 0) {
+            self::$referencecategoryid = 0;
+            return 0;
+        }
+
+        // Chercher une sous-catégorie directe "commun" (case-insensitive).
+        try {
+            $children = $DB->get_records('question_categories', ['parent' => $olutionid], 'id ASC', 'id,name,parent');
+            foreach ($children as $child) {
+                if (self::normalize_label((string)$child->name) === 'commun') {
+                    self::$referencecategoryid = (int)$child->id;
+                    return (int)self::$referencecategoryid;
+                }
+            }
+        } catch (\Exception $e) {
+            // Fallback ci-dessous.
+        }
+
+        // Fallback : pas de "commun" détecté → Olution.
+        self::$referencecategoryid = (int)$olutionid;
+        return (int)self::$referencecategoryid;
+    }
+
+    /**
+     * Retourne l'ID de la sous-catégorie "Question à trier" sous "commun" (si présente).
+     *
+     * @return int ID catégorie de questions "Question à trier", ou 0 si indisponible
+     */
+    private static function get_triage_category_id(): int {
+        global $DB;
+
+        if (self::$triagecategoryid !== null) {
+            return (int)self::$triagecategoryid;
+        }
+
+        // Le triage n'est disponible que si "commun" existe (référence != Olution).
+        $olutionid = self::get_olution_category_id();
+        $refid = self::get_reference_category_id();
+
+        if ($refid <= 0 || $olutionid <= 0 || (int)$refid === (int)$olutionid) {
+            self::$triagecategoryid = 0;
+            return 0;
+        }
+
+        $needle = self::normalize_label('Question à trier');
+        $needle2 = self::normalize_label('Questions à trier');
+
+        try {
+            $children = $DB->get_records('question_categories', ['parent' => $refid], 'id ASC', 'id,name,parent');
+            foreach ($children as $child) {
+                $name = self::normalize_label((string)$child->name);
+                if ($name === $needle || $name === $needle2) {
+                    self::$triagecategoryid = (int)$child->id;
+                    return (int)self::$triagecategoryid;
+                }
+            }
+        } catch (\Exception $e) {
+            // Fallback ci-dessous.
+        }
+
+        self::$triagecategoryid = 0;
+        return 0;
+    }
+
+    /**
+     * Récupère l'objet catégorie "Question à trier" (sous commun), si présent.
+     *
+     * @return object|false
+     */
+    public static function get_triage_category() {
+        global $DB;
+
+        $triageid = self::get_triage_category_id();
+        if ($triageid <= 0) {
+            return false;
+        }
+
+        return $DB->get_record('question_categories', ['id' => $triageid], '*', IGNORE_MISSING) ?: false;
+    }
+
+    /**
+     * Construit une clé stable pour un "doublon" (name + qtype).
+     *
+     * @param string $name
+     * @param string $qtype
+     * @return string
+     */
+    private static function signature_key(string $name, string $qtype): string {
+        $name = trim($name);
+        if (class_exists('\\core_text')) {
+            $name = \core_text::strtolower($name);
+        } else {
+            $name = strtolower($name);
+        }
+        return $name . '|' . trim($qtype);
+    }
+
+    /**
+     * Calcule (et met en cache) la map signature => catégorie cible (dans commun/* hors "Question à trier").
+     *
+     * @return array<string,array{targetcatid:int,count:int,depth:int}>
+     */
+    private static function get_triage_target_map(): array {
+        global $DB;
+
+        if (self::$triagetargetmap !== null) {
+            return (array)self::$triagetargetmap;
+        }
+
+        self::$triagetargetmap = [];
+
+        $olution = local_question_diagnostic_find_olution_category();
+        if (!$olution) {
+            return (array)self::$triagetargetmap;
+        }
+
+        $triage = self::get_triage_category();
+        if (!$triage) {
+            return (array)self::$triagetargetmap;
+        }
+
+        $params = [];
+        $triagecond = self::build_in_category_tree_condition('qc', $params, (int)$triage->id, 'tri', $triage);
+
+        // Candidats "ailleurs dans commun/*" = scope de référence, en excluant le sous-arbre triage.
+        $refparams = $params;
+        $refcond = self::build_in_reference_condition('qc2', $refparams, $olution);
+        $triagecond2 = self::build_in_category_tree_condition('qc2', $refparams, (int)$triage->id, 'tri2', $triage);
+
+        // Subquery: signatures présentes dans "Question à trier".
+        $signaturesql = "SELECT DISTINCT q.name, q.qtype
+                           FROM {question} q
+                           INNER JOIN {question_versions} qv ON qv.questionid = q.id
+                           INNER JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
+                           INNER JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
+                          WHERE {$triagecond}";
+
+        // Rechercher, pour chaque signature, dans quelles catégories (hors triage) existent des doublons dans le scope de référence.
+        $sql = "SELECT tg.name,
+                       tg.qtype,
+                       qc2.id AS targetcatid,
+                       COUNT(DISTINCT q2.id) AS cnt
+                  FROM ({$signaturesql}) tg
+                  JOIN {question} q2 ON q2.name = tg.name AND q2.qtype = tg.qtype
+                  INNER JOIN {question_versions} qv2 ON qv2.questionid = q2.id
+                  INNER JOIN {question_bank_entries} qbe2 ON qbe2.id = qv2.questionbankentryid
+                  INNER JOIN {question_categories} qc2 ON qc2.id = qbe2.questioncategoryid
+                 WHERE {$refcond}
+                   AND NOT ({$triagecond2})
+              GROUP BY tg.name, tg.qtype, qc2.id
+              ORDER BY tg.name ASC, tg.qtype ASC, cnt DESC, qc2.id ASC";
+
+        try {
+            $rs = $DB->get_recordset_sql($sql, $refparams);
+            foreach ($rs as $rec) {
+                $key = self::signature_key((string)$rec->name, (string)$rec->qtype);
+                $catid = (int)$rec->targetcatid;
+                $cnt = (int)$rec->cnt;
+                $depth = self::get_category_depth($catid);
+
+                $current = self::$triagetargetmap[$key] ?? null;
+                if ($current === null
+                    || $cnt > (int)$current['count']
+                    || ($cnt === (int)$current['count'] && $depth > (int)$current['depth'])
+                    || ($cnt === (int)$current['count'] && $depth === (int)$current['depth'] && $catid < (int)$current['targetcatid'])) {
+                    self::$triagetargetmap[$key] = [
+                        'targetcatid' => $catid,
+                        'count' => $cnt,
+                        'depth' => $depth
+                    ];
+                }
+            }
+            $rs->close();
+        } catch (\Exception $e) {
+            local_question_diagnostic_debug_log('Error computing triage target map: ' . $e->getMessage(), DEBUG_DEVELOPER);
+            self::$triagetargetmap = [];
+        }
+
+        return (array)self::$triagetargetmap;
+    }
+
+    /**
+     * Statistiques rapides pour le triage (questions dans "Question à trier" ayant une correspondance ailleurs dans commun/*).
+     *
+     * @return object {triage_exists:bool, triage_name:string, triage_id:int, movable_questions:int, signatures:int}
+     */
+    public static function get_triage_stats(): object {
+        $stats = (object)[
+            'triage_exists' => false,
+            'triage_name' => '',
+            'triage_id' => 0,
+            'movable_questions' => 0,
+            'signatures' => 0,
+        ];
+
+        $triage = self::get_triage_category();
+        if (!$triage) {
+            return $stats;
+        }
+
+        $stats->triage_exists = true;
+        $stats->triage_name = (string)$triage->name;
+        $stats->triage_id = (int)$triage->id;
+
+        $map = self::get_triage_target_map();
+        $stats->signatures = count($map);
+
+        // Estimer/compter les questions "déplaçables" via requête EXISTS.
+        try {
+            global $DB;
+            $olution = local_question_diagnostic_find_olution_category();
+            if ($olution) {
+                $params = [];
+                $triagecond = self::build_in_category_tree_condition('qc', $params, (int)$triage->id, 'tri', $triage);
+                $refcond = self::build_in_reference_condition('qc2', $params, $olution);
+                $triagecond2 = self::build_in_category_tree_condition('qc2', $params, (int)$triage->id, 'tri2', $triage);
+
+                $sqlcount = "SELECT COUNT(DISTINCT q.id)
+                               FROM {question} q
+                               INNER JOIN {question_versions} qv ON qv.questionid = q.id
+                               INNER JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
+                               INNER JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
+                              WHERE {$triagecond}
+                                AND EXISTS (
+                                    SELECT 1
+                                      FROM {question} q2
+                                      INNER JOIN {question_versions} qv2 ON qv2.questionid = q2.id
+                                      INNER JOIN {question_bank_entries} qbe2 ON qbe2.id = qv2.questionbankentryid
+                                      INNER JOIN {question_categories} qc2 ON qc2.id = qbe2.questioncategoryid
+                                     WHERE q2.name = q.name
+                                       AND q2.qtype = q.qtype
+                                       AND {$refcond}
+                                       AND NOT ({$triagecond2})
+                                )";
+                $stats->movable_questions = (int)$DB->count_records_sql($sqlcount, $params);
+            }
+        } catch (\Exception $e) {
+            $stats->movable_questions = 0;
+        }
+
+        return $stats;
+    }
+
+    /**
+     * Récupère la liste paginée des questions de "Question à trier" qui ont une correspondance
+     * dans une autre sous-catégorie de commun (doublon name+qtype), avec la catégorie cible calculée.
+     *
+     * @param int $limit
+     * @param int $offset
+     * @param int|null $total (OUT) nombre total de questions déplaçables
+     * @return array Tableau de candidats: ['question'=>object,'target_category'=>object,'target_count'=>int]
+     */
+    public static function get_triage_move_candidates_paginated(int $limit, int $offset, &$total = null): array {
+        global $DB;
+
+        $triage = self::get_triage_category();
+        if (!$triage) {
+            $total = 0;
+            return [];
+        }
+
+        $olution = local_question_diagnostic_find_olution_category();
+        if (!$olution) {
+            $total = 0;
+            return [];
+        }
+
+        $targetmap = self::get_triage_target_map();
+        if (empty($targetmap)) {
+            $total = 0;
+            return [];
+        }
+
+        $params = [];
+        $triagecond = self::build_in_category_tree_condition('qc', $params, (int)$triage->id, 'tri', $triage);
+        $refcond = self::build_in_reference_condition('qc2', $params, $olution);
+        $triagecond2 = self::build_in_category_tree_condition('qc2', $params, (int)$triage->id, 'tri2', $triage);
+
+        // Total déplaçable.
+        $sqlcount = "SELECT COUNT(DISTINCT q.id)
+                       FROM {question} q
+                       INNER JOIN {question_versions} qv ON qv.questionid = q.id
+                       INNER JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
+                       INNER JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
+                      WHERE {$triagecond}
+                        AND EXISTS (
+                            SELECT 1
+                              FROM {question} q2
+                              INNER JOIN {question_versions} qv2 ON qv2.questionid = q2.id
+                              INNER JOIN {question_bank_entries} qbe2 ON qbe2.id = qv2.questionbankentryid
+                              INNER JOIN {question_categories} qc2 ON qc2.id = qbe2.questioncategoryid
+                             WHERE q2.name = q.name
+                               AND q2.qtype = q.qtype
+                               AND {$refcond}
+                               AND NOT ({$triagecond2})
+                        )";
+        $total = (int)$DB->count_records_sql($sqlcount, $params);
+        if ($total === 0) {
+            return [];
+        }
+
+        // Page de questions (déplaçables uniquement).
+        $sql = "SELECT DISTINCT q.id, q.name, q.qtype, q.timecreated
+                  FROM {question} q
+                  INNER JOIN {question_versions} qv ON qv.questionid = q.id
+                  INNER JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
+                  INNER JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
+                 WHERE {$triagecond}
+                   AND EXISTS (
+                        SELECT 1
+                          FROM {question} q2
+                          INNER JOIN {question_versions} qv2 ON qv2.questionid = q2.id
+                          INNER JOIN {question_bank_entries} qbe2 ON qbe2.id = qv2.questionbankentryid
+                          INNER JOIN {question_categories} qc2 ON qc2.id = qbe2.questioncategoryid
+                         WHERE q2.name = q.name
+                           AND q2.qtype = q.qtype
+                           AND {$refcond}
+                           AND NOT ({$triagecond2})
+                   )
+              ORDER BY q.id DESC";
+        $questions = $DB->get_records_sql($sql, $params, $offset, $limit);
+        if (empty($questions)) {
+            return [];
+        }
+
+        // Résoudre catégories cibles pour la page.
+        $neededcatids = [];
+        foreach ($questions as $q) {
+            $key = self::signature_key((string)$q->name, (string)$q->qtype);
+            if (!empty($targetmap[$key])) {
+                $neededcatids[] = (int)$targetmap[$key]['targetcatid'];
+            }
+        }
+        $neededcatids = array_values(array_unique($neededcatids));
+        $cats = !empty($neededcatids) ? $DB->get_records_list('question_categories', 'id', $neededcatids) : [];
+
+        $out = [];
+        foreach ($questions as $q) {
+            $key = self::signature_key((string)$q->name, (string)$q->qtype);
+            if (empty($targetmap[$key])) {
+                continue;
+            }
+            $targetid = (int)$targetmap[$key]['targetcatid'];
+            $targetcat = $cats[$targetid] ?? null;
+            if (!$targetcat) {
+                continue;
+            }
+            $out[] = [
+                'question' => $q,
+                'target_category' => $targetcat,
+                'target_count' => (int)$targetmap[$key]['count'],
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * Construit une condition SQL "catégorie dans le scope de référence" (commun sous Olution si dispo, sinon Olution),
+     * avec paramètres associés.
+     *
+     * @param string $qcalias Alias SQL de {question_categories} (ex: 'qc')
+     * @param array $params Params SQL (référence)
+     * @param object|null $olutioncat Objet catégorie Olution (optionnel)
+     * @return string Condition SQL
+     */
+    private static function build_in_reference_condition(string $qcalias, array &$params, $olutioncat = null): string {
+        global $DB;
+
+        $refid = self::get_reference_category_id($olutioncat);
+        if ($refid <= 0) {
+            $params['refid'] = 0;
+            return '1=0';
+        }
+        $params['refid'] = $refid;
+
+        // Si la référence est Olution, on peut réutiliser la path d'Olution si dispo.
+        // Sinon, il faut charger la catégorie "commun" pour obtenir sa path.
+        $refcat = null;
+        if ($olutioncat !== null && (int)$refid === (int)($olutioncat->id ?? 0)) {
+            $refcat = $olutioncat;
+        } else {
+            $refcat = $DB->get_record('question_categories', ['id' => $refid], '*', IGNORE_MISSING);
+        }
+
+        // Essayer qc.path si disponible (évite une énorme clause IN).
+        try {
+            $cols = $DB->get_columns('question_categories');
+            if (isset($cols['path']) && $refcat && isset($refcat->path) && !empty($refcat->path)) {
+                $params['refpath'] = rtrim($refcat->path, '/') . '/%';
+                return "({$qcalias}.id = :refid OR " . $DB->sql_like("{$qcalias}.path", ':refpath', false, false) . ')';
+            }
+        } catch (\Exception $e) {
+            // Fallback ci-dessous.
+        }
+
+        // Fallback: calculer la liste des descendants en PHP (map id=>parent déjà en cache).
+        $parentmap = self::get_category_parent_map();
+        $children = [];
+        foreach ($parentmap as $id => $parent) {
+            if (!isset($children[$parent])) {
+                $children[$parent] = [];
+            }
+            $children[$parent][] = $id;
+        }
+
+        $ids = [];
+        $queue = [$refid];
+        $seen = [];
+        while (!empty($queue)) {
+            $current = array_shift($queue);
+            if (isset($seen[$current])) {
+                continue;
+            }
+            $seen[$current] = true;
+            $ids[] = $current;
+            foreach (($children[$current] ?? []) as $childid) {
+                $queue[] = (int)$childid;
+            }
+        }
+
+        list($insql, $inparams) = $DB->get_in_or_equal($ids, SQL_PARAMS_NAMED, 'refcat');
+        $params = array_merge($params, $inparams);
+        return "{$qcalias}.id {$insql}";
+    }
+
+    /**
+     * Vérifie si une catégorie appartient au scope de référence (commun sous Olution si présent).
+     *
+     * @param int $categoryid
+     * @return bool
+     */
+    private static function is_in_reference_scope(int $categoryid): bool {
+        $categoryid = (int)$categoryid;
+        if ($categoryid <= 0) {
+            return false;
+        }
+
+        if (isset(self::$inreferencecache[$categoryid])) {
+            return (bool)self::$inreferencecache[$categoryid];
+        }
+
+        $refid = self::get_reference_category_id();
+        if ($refid <= 0) {
+            self::$inreferencecache[$categoryid] = false;
+            return false;
+        }
+
+        $parentmap = self::get_category_parent_map();
+        $current = $categoryid;
+        $visited = [];
+
+        while ($current > 0) {
+            if (isset($visited[$current])) {
+                break;
+            }
+            $visited[$current] = true;
+
+            if ($current === $refid) {
+                self::$inreferencecache[$categoryid] = true;
+                return true;
+            }
+
+            $parent = $parentmap[$current] ?? null;
+            if ($parent === null || (int)$parent === 0) {
+                break;
+            }
+            $current = (int)$parent;
+        }
+
+        self::$inreferencecache[$categoryid] = false;
+        return false;
+    }
+
+    /**
      * Récupère les groupes de doublons (name+qtype) qui ont une présence dans Olution, paginés.
      *
      * @param int $limit Nombre de groupes à retourner
@@ -126,7 +719,8 @@ class olution_manager {
         }
 
         $params = [];
-        $inolutioncond = self::build_in_olution_condition('qc', $params, $olution);
+        // ⚠️ Le scope "référence" peut être Olution/commun/* (si présent).
+        $inrefcond = self::build_in_reference_condition('qc', $params, $olution);
 
         $sqlgroups = "SELECT q.name,
                              q.qtype,
@@ -137,7 +731,7 @@ class olution_manager {
                         INNER JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
                     GROUP BY q.name, q.qtype
                       HAVING COUNT(DISTINCT q.id) > 1
-                         AND COUNT(DISTINCT CASE WHEN {$inolutioncond} THEN q.id ELSE NULL END) > 0
+                         AND COUNT(DISTINCT CASE WHEN {$inrefcond} THEN q.id ELSE NULL END) > 0
                     ORDER BY dup_count DESC, q.name ASC, q.qtype ASC";
 
         // Total groups.
@@ -150,7 +744,7 @@ class olution_manager {
                                INNER JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
                            GROUP BY q.name, q.qtype
                              HAVING COUNT(DISTINCT q.id) > 1
-                                AND COUNT(DISTINCT CASE WHEN {$inolutioncond} THEN q.id ELSE NULL END) > 0
+                                AND COUNT(DISTINCT CASE WHEN {$inrefcond} THEN q.id ELSE NULL END) > 0
                             ) t";
 
         $totalgroups = (int)$DB->count_records_sql($sqlcount, $params);
@@ -409,29 +1003,35 @@ class olution_manager {
                 
                 // Récupérer les catégories de chaque question
                 $questions_with_categories = [];
-                $olution_questions = [];
+                $reference_questions = [];
                 $non_olution_questions = [];
                 
                 foreach ($questions as $q) {
                     $cat = $categoriesbyquestion[(int)$q->id] ?? null;
                     if ($cat) {
+                        // "Dans Olution" = dans l'arbre Olution (sécurité: ne pas déplacer ce qui est déjà dedans).
                         $is_in_olution = self::is_in_olution($cat->id);
+                        // "Référence" = commun sous Olution si présent (sinon Olution).
+                        $is_in_reference = self::is_in_reference_scope((int)$cat->id);
                         $depth = self::get_category_depth($cat->id);
                         
                         $questions_with_categories[] = [
                             'question' => $q,
                             'category' => $cat,
                             'is_in_olution' => $is_in_olution,
+                            'is_in_reference' => $is_in_reference,
                             'depth' => $depth
                         ];
                         
-                        if ($is_in_olution) {
-                            $olution_questions[] = [
+                        if ($is_in_reference) {
+                            $reference_questions[] = [
                                 'question' => $q,
                                 'category' => $cat,
                                 'depth' => $depth
                             ];
-                        } else {
+                        }
+
+                        if (!$is_in_olution) {
                             $non_olution_questions[] = [
                                 'question' => $q,
                                 'category' => $cat
@@ -440,8 +1040,8 @@ class olution_manager {
                     }
                 }
                 
-                // Si au moins UN doublon est dans Olution, c'est intéressant
-                if (!empty($olution_questions)) {
+                // Si au moins UN doublon est dans le scope de référence (commun/*), c'est intéressant.
+                if (!empty($reference_questions)) {
                     // Choisir la catégorie cible de façon stable :
                     // - Priorité 1 : Catégorie Olution la plus fréquente dans le groupe (majorité)
                     // - Priorité 2 : Profondeur la plus élevée (plus spécifique)
@@ -450,7 +1050,7 @@ class olution_manager {
                     $depthbycatid = [];
                     $catbyid = [];
 
-                    foreach ($olution_questions as $oq) {
+                    foreach ($reference_questions as $oq) {
                         $cid = (int)$oq['category']->id;
                         if (!isset($countsbycatid[$cid])) {
                             $countsbycatid[$cid] = 0;
@@ -481,10 +1081,11 @@ class olution_manager {
                         'group_name' => $group->question_name,
                         'group_type' => $group->qtype,
                         'total_count' => count($questions_with_categories),
-                        'olution_count' => count($olution_questions),
+                        // NB: "olution_count" = nombre dans le scope de référence (commun/* si présent).
+                        'olution_count' => count($reference_questions),
                         'non_olution_count' => count($non_olution_questions),
                         'all_questions' => $questions_with_categories,
-                        'olution_questions' => $olution_questions,
+                        'olution_questions' => $reference_questions,
                         'non_olution_questions' => $non_olution_questions,
                         'target_category' => $targetcat,
                         'target_depth' => $targetdepth
@@ -552,7 +1153,7 @@ class olution_manager {
             $categoriesbyquestion = self::get_categories_for_questions($question_ids);
 
             $questions_with_categories = [];
-            $olution_questions = [];
+            $reference_questions = [];
             $non_olution_questions = [];
 
             foreach ($questions as $q) {
@@ -561,23 +1162,29 @@ class olution_manager {
                     continue;
                 }
 
+                // "Dans Olution" = dans l'arbre Olution (sécurité: ne pas déplacer ce qui est déjà dedans).
                 $is_in_olution = self::is_in_olution($cat->id);
+                // "Référence" = commun sous Olution si présent (sinon Olution).
+                $is_in_reference = self::is_in_reference_scope((int)$cat->id);
                 $depth = self::get_category_depth($cat->id);
 
                 $questions_with_categories[] = [
                     'question' => $q,
                     'category' => $cat,
                     'is_in_olution' => $is_in_olution,
+                    'is_in_reference' => $is_in_reference,
                     'depth' => $depth
                 ];
 
-                if ($is_in_olution) {
-                    $olution_questions[] = [
+                if ($is_in_reference) {
+                    $reference_questions[] = [
                         'question' => $q,
                         'category' => $cat,
                         'depth' => $depth
                     ];
-                } else {
+                }
+
+                if (!$is_in_olution) {
                     $non_olution_questions[] = [
                         'question' => $q,
                         'category' => $cat
@@ -585,8 +1192,9 @@ class olution_manager {
                 }
             }
 
-            if (empty($olution_questions)) {
-                // Par sécurité: la requête SQL dit qu'il y a présence Olution, mais si nos données ne le voient pas, on ignore.
+            if (empty($reference_questions)) {
+                // Par sécurité: la requête SQL dit qu'il y a présence "référence",
+                // mais si nos données ne le voient pas, on ignore.
                 continue;
             }
 
@@ -594,7 +1202,7 @@ class olution_manager {
             $countsbycatid = [];
             $depthbycatid = [];
             $catbyid = [];
-            foreach ($olution_questions as $oq) {
+            foreach ($reference_questions as $oq) {
                 $cid = (int)$oq['category']->id;
                 $countsbycatid[$cid] = ($countsbycatid[$cid] ?? 0) + 1;
                 $depthbycatid[$cid] = max($depthbycatid[$cid] ?? -1, (int)$oq['depth']);
@@ -621,10 +1229,11 @@ class olution_manager {
                 'group_name' => $row->name,
                 'group_type' => $row->qtype,
                 'total_count' => count($questions_with_categories),
-                'olution_count' => count($olution_questions),
+                // NB: "olution_count" = nombre dans le scope de référence (commun/* si présent).
+                'olution_count' => count($reference_questions),
                 'non_olution_count' => count($non_olution_questions),
                 'all_questions' => $questions_with_categories,
-                'olution_questions' => $olution_questions,
+                'olution_questions' => $reference_questions,
                 'non_olution_questions' => $non_olution_questions,
                 'target_category' => $targetcat,
                 'target_depth' => $targetdepth
@@ -666,9 +1275,10 @@ class olution_manager {
 
         // Stats "fast" basées SQL pour éviter recalcul complet.
         $params = [];
-        $inolutioncond = self::build_in_olution_condition('qc', $params, $olution);
+        // "Référence" (commun/* si présent) pour les groupes pertinents.
+        $inrefcond = self::build_in_reference_condition('qc', $params, $olution);
 
-        // Total de questions dans les groupes avec présence Olution.
+        // Total de questions dans les groupes avec présence "référence" (commun/* si présent).
         $sqlsum = "SELECT COALESCE(SUM(g.dup_count), 0) AS total_questions
                      FROM (
                            SELECT q.name, q.qtype, COUNT(DISTINCT q.id) AS dup_count
@@ -678,15 +1288,15 @@ class olution_manager {
                              INNER JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
                          GROUP BY q.name, q.qtype
                            HAVING COUNT(DISTINCT q.id) > 1
-                              AND COUNT(DISTINCT CASE WHEN {$inolutioncond} THEN q.id ELSE NULL END) > 0
+                              AND COUNT(DISTINCT CASE WHEN {$inrefcond} THEN q.id ELSE NULL END) > 0
                           ) g";
         $stats->total_duplicates = (int)$DB->get_field_sql($sqlsum, $params);
 
         // Questions "déplaçables" = questions hors Olution, mais appartenant à un groupe avec présence Olution.
         // On reconstruit les params pour éviter tout effet de bord.
         $params2 = [];
-        $inolutioncond1 = self::build_in_olution_condition('qc', $params2, $olution);
-        $inolutioncond2 = self::build_in_olution_condition('qc2', $params2, $olution);
+        $inolutioncond1 = self::build_in_olution_condition('qc', $params2, $olution); // arbre Olution (sécurité)
+        $inrefcond2 = self::build_in_reference_condition('qc2', $params2, $olution); // scope de comparaison (commun/*)
         $sqlmovable = "SELECT COUNT(DISTINCT q.id)
                          FROM {question} q
                          INNER JOIN {question_versions} qv ON qv.questionid = q.id
@@ -703,7 +1313,7 @@ class olution_manager {
                                  AND q2.qtype = q.qtype
                                GROUP BY q2.name, q2.qtype
                                  HAVING COUNT(DISTINCT q2.id) > 1
-                                    AND COUNT(DISTINCT CASE WHEN {$inolutioncond2} THEN q2.id ELSE NULL END) > 0
+                                    AND COUNT(DISTINCT CASE WHEN {$inrefcond2} THEN q2.id ELSE NULL END) > 0
                           )";
         $stats->movable_questions = (int)$DB->count_records_sql($sqlmovable, $params2);
         $stats->unmovable_questions = max(0, (int)$stats->total_duplicates - (int)$stats->movable_questions);

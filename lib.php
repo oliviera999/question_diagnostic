@@ -745,6 +745,9 @@ function local_question_diagnostic_get_parent_url($current_page) {
         'quick_check_categories.php' => 'index.php',
         'check_default_categories.php' => 'index.php',
         'diagnose_dd_files.php' => 'index.php',
+
+        // Olution triage → olution_duplicates.php
+        'olution_triage.php' => 'olution_duplicates.php',
         
         // index.php n'a pas de parent (racine)
         'index.php' => null,

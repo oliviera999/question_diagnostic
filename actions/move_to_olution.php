@@ -39,9 +39,12 @@ $targetcatid = optional_param('targetcatid', 0, PARAM_INT);
 $confirm = optional_param('confirm', 0, PARAM_INT);
 
 $return_url = new moodle_url('/local/question_diagnostic/olution_duplicates.php');
+if ($action === 'move_triage_all') {
+    $return_url = new moodle_url('/local/question_diagnostic/olution_triage.php');
+}
 
 // Valider explicitement l'action (sécurité + éviter les valeurs inattendues).
-$allowedactions = ['move_one', 'move_all'];
+$allowedactions = ['move_one', 'move_all', 'move_triage_all'];
 if (!in_array($action, $allowedactions, true)) {
     $action = 'invalid';
 }
@@ -262,6 +265,123 @@ else if ($action === 'move_all') {
     if ($result['success'] > 0 && $result['failed'] == 0) {
         redirect($return_url, $message, null, \core\output\notification::NOTIFY_SUCCESS);
     } else if ($result['success'] > 0) {
+        redirect($return_url, $message, null, \core\output\notification::NOTIFY_WARNING);
+    } else {
+        redirect($return_url, $message, null, \core\output\notification::NOTIFY_ERROR);
+    }
+}
+
+// ===========================================================================
+// ACTION : DÉPLACER TOUTES LES QUESTIONS "QUESTION À TRIER" (COMMUN → SOUS-CAT)
+// ===========================================================================
+else if ($action === 'move_triage_all') {
+
+    // Si pas de confirmation, afficher la page de confirmation.
+    if (!$confirm) {
+        $PAGE->set_title(get_string('confirm_move_all_triage_to_olution', 'local_question_diagnostic'));
+        $PAGE->set_heading(get_string('confirm_move_all_triage_to_olution', 'local_question_diagnostic'));
+
+        echo $OUTPUT->header();
+
+        echo html_writer::tag('h2', get_string('confirm_move_all_triage_to_olution', 'local_question_diagnostic'));
+
+        $triagestats = olution_manager::get_triage_stats();
+        $count = !empty($triagestats->movable_questions) ? (int)$triagestats->movable_questions : 0;
+
+        echo html_writer::start_div('alert alert-info');
+        echo html_writer::tag('h4', get_string('move_all_details', 'local_question_diagnostic'));
+        echo html_writer::tag('p', html_writer::tag('strong', get_string('total_questions_to_move', 'local_question_diagnostic')) . ': ' . $count);
+        echo html_writer::end_div();
+
+        echo html_writer::start_div('alert alert-danger');
+        echo html_writer::tag('h4', '⚠️ ' . get_string('warning', 'core'));
+        echo html_writer::tag('p', get_string('triage_move_all_warning', 'local_question_diagnostic'));
+        echo html_writer::end_div();
+
+        $confirm_url = new moodle_url('/local/question_diagnostic/actions/move_to_olution.php', [
+            'action' => 'move_triage_all',
+            'confirm' => 1,
+            'sesskey' => sesskey()
+        ]);
+
+        echo html_writer::link(
+            $confirm_url,
+            get_string('confirm', 'core'),
+            ['class' => 'btn btn-danger btn-lg mr-2']
+        );
+        echo html_writer::link(
+            $return_url,
+            get_string('cancel', 'core'),
+            ['class' => 'btn btn-secondary btn-lg']
+        );
+
+        echo $OUTPUT->footer();
+        exit;
+    }
+
+    // Confirmation donnée : effectuer le déplacement des questions triables.
+    $triagestats = olution_manager::get_triage_stats();
+    $total = !empty($triagestats->movable_questions) ? (int)$triagestats->movable_questions : 0;
+    if ($total <= 0) {
+        redirect($return_url, get_string('no_movable_questions', 'local_question_diagnostic'),
+            null, \core\output\notification::NOTIFY_WARNING);
+    }
+
+    $pagesize = 100;
+    $success = 0;
+    $failed = 0;
+    $errors = [];
+
+    // IMPORTANT: ne pas paginer avec un offset qui avance sur un dataset qui change,
+    // sinon on risque de "sauter" des questions après déplacement.
+    // On récupère toujours la première page et on recommence jusqu'à épuisement.
+    $loops = 0;
+    $maxloops = 1000; // garde-fou
+    while ($loops < $maxloops) {
+        $page_total = 0;
+        $candidates = olution_manager::get_triage_move_candidates_paginated($pagesize, 0, $page_total);
+        if (empty($candidates)) {
+            break;
+        }
+
+        $operations = [];
+        foreach ($candidates as $cand) {
+            $q = $cand['question'];
+            $target = $cand['target_category'];
+            if (empty($q->id) || empty($target->id)) {
+                continue;
+            }
+            $operations[] = [
+                'questionid' => (int)$q->id,
+                'target_category_id' => (int)$target->id
+            ];
+        }
+
+        if (!empty($operations)) {
+            $result = olution_manager::move_questions_batch($operations);
+            $success += (int)($result['success'] ?? 0);
+            $failed += (int)($result['failed'] ?? 0);
+            if (!empty($result['errors'])) {
+                $errors = array_merge($errors, (array)$result['errors']);
+            }
+
+            // Si aucune question n'a pu être déplacée, on évite une boucle infinie.
+            if ((int)($result['success'] ?? 0) === 0) {
+                break;
+            }
+        }
+
+        $loops++;
+    }
+
+    $message = get_string('move_batch_result', 'local_question_diagnostic', [
+        'success' => $success,
+        'failed' => $failed
+    ]);
+
+    if ($success > 0 && $failed == 0) {
+        redirect($return_url, $message, null, \core\output\notification::NOTIFY_SUCCESS);
+    } else if ($success > 0) {
         redirect($return_url, $message, null, \core\output\notification::NOTIFY_WARNING);
     } else {
         redirect($return_url, $message, null, \core\output\notification::NOTIFY_ERROR);

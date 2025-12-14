@@ -523,6 +523,23 @@ $string['to_course_category'] = 'Cours Olution cible / Catégorie';
 $string['move_all_warning'] = 'Cette action va déplacer TOUTES les questions en doublon détectées vers leurs catégories Olution correspondantes. Bien que cette opération soit réversible (déplacement manuel), elle affecte potentiellement un grand nombre de questions. Assurez-vous d\'avoir vérifié la liste des doublons avant de continuer.';
 $string['no_movable_questions'] = 'Aucune question déplaçable trouvée';
 $string['move_batch_result'] = '{$a->success} question(s) déplacée(s) avec succès, {$a->failed} erreur(s)';
+
+// Olution triage (commun > Question à trier).
+$string['olution_triage_title'] = 'Triage des questions (commun → sous-catégories)';
+$string['olution_triage_heading'] = 'Trier les questions de \"Question à trier\"';
+$string['olution_triage_button'] = 'Trier \"Question à trier\" ({$a})';
+$string['olution_triage_not_found'] = 'Catégorie \"Question à trier\" introuvable sous \"commun\".';
+$string['olution_triage_not_found_help'] = 'Pour utiliser ce triage, créez une sous-catégorie de questions nommée \"Question à trier\" sous la catégorie \"commun\" (elle-même sous Olution).';
+$string['olution_triage_detected'] = 'Catégorie de triage détectée :';
+$string['olution_triage_signatures'] = '{$a} signature(s) (nom + type) avec une cible détectée';
+$string['olution_triage_movable_questions'] = 'Questions triables';
+$string['olution_triage_explain'] = 'Déplace les questions placées dans \"Question à trier\" vers la sous-catégorie de \"commun\" où un doublon (même nom + même type) existe déjà.';
+$string['olution_triage_move_all_button'] = 'Déplacer toutes les questions triables ({$a})';
+$string['olution_triage_no_movable'] = 'Aucune question à déplacer (aucune correspondance trouvée dans les autres sous-catégories de commun).';
+$string['olution_triage_list_title'] = 'Questions de \"Question à trier\" avec une correspondance';
+$string['olution_triage_no_candidates_page'] = 'Aucun résultat à afficher sur cette page.';
+$string['confirm_move_all_triage_to_olution'] = 'Confirmer le triage (déplacement des questions)';
+$string['triage_move_all_warning'] = 'Cette action va déplacer les questions situées dans \"Question à trier\" vers les sous-catégories correspondantes de \"commun\" lorsque des doublons (nom + type) existent. Vérifiez la liste avant de confirmer.';
 $string['invalid_parameters'] = 'Paramètres invalides';
 $string['invalid_action'] = 'Action invalide';
 

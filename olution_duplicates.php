@@ -174,6 +174,20 @@ if ($stats->movable_questions > 0) {
     echo html_writer::end_div();
 }
 
+// Bouton triage (commun > Question à trier).
+$triagestats = olution_manager::get_triage_stats();
+if (!empty($triagestats->triage_exists)) {
+    echo html_writer::start_div('mb-3');
+    $triage_url = new moodle_url('/local/question_diagnostic/olution_triage.php');
+    $label = get_string('olution_triage_button', 'local_question_diagnostic', (int)$triagestats->movable_questions);
+    $classes = 'btn btn-secondary btn-lg';
+    if ((int)$triagestats->movable_questions > 0) {
+        $classes = 'btn btn-warning btn-lg';
+    }
+    echo html_writer::link($triage_url, $label, ['class' => $classes]);
+    echo html_writer::end_div();
+}
+
 // Récupérer les groupes de doublons pour la page actuelle
 $offset = $page * $perpage;
 $totalgroups = 0;
