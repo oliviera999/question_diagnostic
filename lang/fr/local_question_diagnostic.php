@@ -82,6 +82,17 @@ $string['welcomemessage'] = 'Bienvenue dans l\'outil de diagnostic de la banque 
 $string['tool_categories_title'] = 'Gestion des Catégories à Supprimer';
 $string['tool_categories_desc'] = 'Gérez les catégories de questions : détectez et corrigez les catégories orphelines, vides ou en doublon. Fusionnez, déplacez ou supprimez les catégories problématiques.';
 
+// 🆕 Diagnostic cohérence catégories (Moodle best practices)
+$string['categories_integrity_title'] = 'Diagnostic de cohérence des catégories';
+$string['categories_integrity_desc'] = 'Vérifie la cohérence des catégories de questions (contextes, hiérarchie parent/enfant, idnumber, références orphelines) selon les bonnes pratiques Moodle. Aucun changement n’est effectué.';
+$string['categories_integrity_run'] = 'Lancer le diagnostic';
+$string['categories_integrity_stop'] = 'Masquer le diagnostic';
+$string['categories_integrity_ok'] = 'Aucun problème critique détecté';
+$string['categories_integrity_issues_found'] = 'Problèmes critiques détectés';
+$string['categories_integrity_warnings_found'] = 'Avertissements détectés';
+$string['categories_integrity_summary'] = '{$a->categories} catégorie(s) analysée(s) — erreurs : {$a->errors}, avertissements : {$a->warnings}.';
+$string['categories_integrity_details'] = 'Détails du diagnostic';
+
 // Outil 2 : Vérification des liens
 $string['tool_links_title'] = 'Vérification des Liens';
 $string['tool_links_desc'] = 'Détectez les questions avec des liens cassés vers des images ou fichiers manquants dans moodledata. Supporte tous les types de questions, y compris les plugins tiers comme "drag and drop sur image".';

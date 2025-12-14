@@ -124,6 +124,11 @@ class category_manager {
                 );
                 $course_context_ids = array_keys($course_contexts);
             }
+            // Set pour lookup O(1) dans la boucle.
+            $course_context_id_map = [];
+            if (!empty($course_context_ids)) {
+                $course_context_id_map = array_fill_keys(array_map('intval', $course_context_ids), true);
+            }
             
             // Étape 5.3 : Construire le résultat avec données pré-chargées
             $result = [];
@@ -170,7 +175,12 @@ class category_manager {
                 // 🔧 v1.9.29 : Protection renforcée pour toutes les catégories racine
                 else if ($cat->parent == 0 && $context_valid) {
                     $is_protected = true;
-                    $protection_reason = 'Catégorie racine (top-level)';
+                    // 🆕 v1.11.20 : préciser le type de racine (cours vs autre)
+                    if (!empty($course_context_id_map[(int)$cat->contextid])) {
+                        $protection_reason = 'Catégorie racine de cours (parent=0)';
+                    } else {
+                        $protection_reason = 'Catégorie racine (top-level)';
+                    }
                 }
                 
                 // Vérifier si c'est un doublon
@@ -336,6 +346,15 @@ class category_manager {
             else if ($category->parent == 0 && $stats->context_valid) {
                 $stats->is_protected = true;
                 $stats->protection_reason = 'Catégorie racine (top-level)';
+                // 🆕 v1.11.20 : préciser si c'est une racine de cours (contexte COURSE)
+                try {
+                    $context = \context::instance_by_id($category->contextid, IGNORE_MISSING);
+                    if ($context && (int)$context->contextlevel === CONTEXT_COURSE) {
+                        $stats->protection_reason = 'Catégorie racine de cours (parent=0)';
+                    }
+                } catch (\Exception $e) {
+                    // Ignorer : on garde le libellé générique.
+                }
             }
             
         } catch (\Exception $e) {
@@ -556,7 +575,11 @@ class category_manager {
                 try {
                     $context = \context::instance_by_id($category->contextid, IGNORE_MISSING);
                     if ($context) {
-                        // Protéger TOUTE catégorie racine avec contexte valide
+                        // Protéger TOUTE catégorie racine avec contexte valide.
+                        // 🆕 v1.11.20 : message spécifique pour les racines de cours.
+                        if ((int)$context->contextlevel === CONTEXT_COURSE) {
+                            return "❌ PROTÉGÉE : Cette catégorie est une catégorie racine de cours (parent=0, contexte COURSE). Elle est critique pour la banque de questions du cours et ne doit jamais être supprimée.";
+                        }
                         return "❌ PROTÉGÉE : Cette catégorie est une catégorie racine (parent=0, top-level). Les catégories racine sont critiques pour la structure de Moodle et ne doivent jamais être supprimées.";
                     }
                 } catch (\Exception $e) {
@@ -1253,10 +1276,396 @@ class category_manager {
 
             return $all_categories;
 
-        } catch (Exception $e) {
+        } catch (\Exception $e) {
             debugging('Error loading all site categories: ' . $e->getMessage(), DEBUG_DEVELOPER);
             return [];
         }
+    }
+
+    /**
+     * 🆕 Diagnostic : Vérifie la cohérence des catégories de questions (lecture seule).
+     *
+     * Objectif : détecter des incohérences structurelles susceptibles de casser la banque de questions,
+     * en s'alignant sur les bonnes pratiques Moodle (contexte valide, hiérarchie saine, idnumber unique, etc.).
+     *
+     * Contrôles effectués (si structures disponibles en base) :
+     * - Contexte manquant (contextid inexistant)
+     * - Parent manquant (parent pointe vers une catégorie inexistante)
+     * - Parent dans un autre contexte (incohérence Moodle)
+     * - Boucles dans la hiérarchie (cycles)
+     * - Zéro / multiples racines (parent=0) par contexte (anomalie structurelle)
+     * - Noms vides
+     * - idnumber dupliqués dans un même contexte (si colonne idnumber existe)
+     * - question_bank_entries orphelines (questioncategoryid inexistant)
+     *
+     * @param int $samplelimit Nombre maximum d'éléments listés par check
+     * @return \stdClass Rapport structuré
+     */
+    public static function get_categories_integrity_report(int $samplelimit = 50): \stdClass {
+        global $DB;
+
+        $report = (object)[
+            'generatedat' => time(),
+            'summary' => (object)[
+                'categories' => 0,
+                'contexts' => 0,
+                'errors' => 0,
+                'warnings' => 0,
+            ],
+            'checks' => [],
+        ];
+
+        // Charger les catégories (en vérifiant la structure réelle Moodle).
+        $columns = $DB->get_columns('question_categories');
+        $fields = ['id', 'name', 'contextid', 'parent'];
+        if (isset($columns['idnumber'])) {
+            $fields[] = 'idnumber';
+        }
+        if (isset($columns['sortorder'])) {
+            $fields[] = 'sortorder';
+        }
+
+        $categories = $DB->get_records('question_categories', null, '', implode(',', $fields));
+        $report->summary->categories = count($categories);
+
+        if (empty($categories)) {
+            return $report;
+        }
+
+        // Charger les contextes correspondants en batch.
+        $contextids = [];
+        foreach ($categories as $cat) {
+            $contextids[(int)$cat->contextid] = true;
+        }
+        $contextids = array_keys($contextids);
+        $report->summary->contexts = count($contextids);
+
+        $contexts = [];
+        if (!empty($contextids)) {
+            list($insql, $params) = $DB->get_in_or_equal($contextids, SQL_PARAMS_NAMED);
+            $contexts = $DB->get_records_sql(
+                "SELECT id, contextlevel, instanceid
+                   FROM {context}
+                  WHERE id $insql",
+                $params
+            );
+        }
+
+        $addcheck = function(string $key, string $severity, string $title, string $description, array $items) use (&$report, $samplelimit) {
+            $count = count($items);
+            $sample = $items;
+            if ($samplelimit > 0 && $count > $samplelimit) {
+                $sample = array_slice($items, 0, $samplelimit);
+            }
+            $report->checks[$key] = (object)[
+                'severity' => $severity, // error|warning|info
+                'title' => $title,
+                'description' => $description,
+                'count' => $count,
+                'sample' => $sample,
+            ];
+            if ($severity === 'error') {
+                $report->summary->errors += $count;
+            } else if ($severity === 'warning') {
+                $report->summary->warnings += $count;
+            }
+        };
+
+        // 1) Contexte manquant.
+        $missingcontext = [];
+        foreach ($categories as $cat) {
+            if (!isset($contexts[(int)$cat->contextid])) {
+                $missingcontext[] = (object)[
+                    'categoryid' => (int)$cat->id,
+                    'name' => $cat->name,
+                    'contextid' => (int)$cat->contextid,
+                    'parent' => (int)$cat->parent,
+                ];
+            }
+        }
+        $addcheck(
+            'missing_context',
+            'error',
+            'Contexte manquant',
+            'Catégories dont le contextid ne correspond à aucun contexte Moodle (risque de références orphelines).',
+            $missingcontext
+        );
+
+        // 2) Parent manquant.
+        $missingparent = [];
+        foreach ($categories as $cat) {
+            $parentid = (int)$cat->parent;
+            if ($parentid > 0 && !isset($categories[$parentid])) {
+                $missingparent[] = (object)[
+                    'categoryid' => (int)$cat->id,
+                    'name' => $cat->name,
+                    'contextid' => (int)$cat->contextid,
+                    'parent' => $parentid,
+                ];
+            }
+        }
+        $addcheck(
+            'missing_parent',
+            'error',
+            'Parent manquant',
+            'Catégories dont le parent pointe vers une catégorie inexistante (hiérarchie cassée).',
+            $missingparent
+        );
+
+        // 3) Parent dans un autre contexte.
+        $parentcontextmismatch = [];
+        foreach ($categories as $cat) {
+            $parentid = (int)$cat->parent;
+            if ($parentid > 0 && isset($categories[$parentid])) {
+                $parent = $categories[$parentid];
+                if ((int)$parent->contextid !== (int)$cat->contextid) {
+                    $parentcontextmismatch[] = (object)[
+                        'categoryid' => (int)$cat->id,
+                        'name' => $cat->name,
+                        'contextid' => (int)$cat->contextid,
+                        'parent' => $parentid,
+                        'parentcontextid' => (int)$parent->contextid,
+                    ];
+                }
+            }
+        }
+        $addcheck(
+            'parent_context_mismatch',
+            'error',
+            'Parent dans un autre contexte',
+            'Une catégorie doit avoir un parent dans le même contexte (bonne pratique Moodle).',
+            $parentcontextmismatch
+        );
+
+        // 4) Noms vides.
+        $emptyname = [];
+        foreach ($categories as $cat) {
+            if (trim((string)$cat->name) === '') {
+                $emptyname[] = (object)[
+                    'categoryid' => (int)$cat->id,
+                    'contextid' => (int)$cat->contextid,
+                    'parent' => (int)$cat->parent,
+                ];
+            }
+        }
+        $addcheck(
+            'empty_name',
+            'warning',
+            'Nom vide',
+            'Noms de catégories vides ou composés uniquement d’espaces (à corriger).',
+            $emptyname
+        );
+
+        // 5) Boucles dans la hiérarchie.
+        $cycles = [];
+        $cycleids = [];
+        $parentmap = [];
+        foreach ($categories as $cat) {
+            $parentmap[(int)$cat->id] = (int)$cat->parent;
+        }
+        foreach ($categories as $cat) {
+            $startid = (int)$cat->id;
+            // Parcours avec pile pour détecter un cycle.
+            $stack = [$startid];
+            $index = [$startid => 0];
+            $current = $startid;
+            while (true) {
+                $next = $parentmap[$current] ?? 0;
+                if ($next <= 0) {
+                    break;
+                }
+                if (!isset($categories[$next])) {
+                    break; // parent manquant déjà détecté.
+                }
+                if (isset($index[$next])) {
+                    $loop = array_slice($stack, $index[$next]);
+                    foreach ($loop as $cid) {
+                        $cycleids[$cid] = true;
+                    }
+                    // Enregistrer un exemple de cycle (une seule fois par start).
+                    $cycles[] = (object)[
+                        'categoryid' => $startid,
+                        'cycle' => $loop,
+                    ];
+                    break;
+                }
+                $stack[] = $next;
+                $index[$next] = count($stack) - 1;
+                $current = $next;
+                // Sécurité anti-boucle infinie si données énormes.
+                if (count($stack) > 2000) {
+                    break;
+                }
+            }
+        }
+        // Réduire les exemples : 1 entrée par catégorie impliquée.
+        $cycleitems = [];
+        foreach (array_keys($cycleids) as $cid) {
+            $c = $categories[$cid];
+            $cycleitems[] = (object)[
+                'categoryid' => (int)$c->id,
+                'name' => $c->name,
+                'contextid' => (int)$c->contextid,
+                'parent' => (int)$c->parent,
+            ];
+        }
+        $addcheck(
+            'hierarchy_cycles',
+            'error',
+            'Boucles dans la hiérarchie',
+            'Cycles détectés dans les relations parent/enfant (structure invalide).',
+            $cycleitems
+        );
+
+        // 6) Racines (parent=0) par contexte.
+        $rootsbycontext = [];
+        foreach ($categories as $cat) {
+            if ((int)$cat->parent === 0) {
+                $ctxid = (int)$cat->contextid;
+                if (!isset($rootsbycontext[$ctxid])) {
+                    $rootsbycontext[$ctxid] = [];
+                }
+                $rootsbycontext[$ctxid][] = (int)$cat->id;
+            }
+        }
+        $missingroot = [];
+        $multipleroot = [];
+        foreach ($contextids as $ctxid) {
+            $rootids = $rootsbycontext[$ctxid] ?? [];
+            if (empty($rootids)) {
+                $missingroot[] = (object)[
+                    'contextid' => (int)$ctxid,
+                    'contextlevel' => isset($contexts[$ctxid]) ? (int)$contexts[$ctxid]->contextlevel : null,
+                ];
+            } else if (count($rootids) > 1) {
+                $multipleroot[] = (object)[
+                    'contextid' => (int)$ctxid,
+                    'rootids' => $rootids,
+                    'count' => count($rootids),
+                ];
+            }
+        }
+        $addcheck(
+            'missing_root_per_context',
+            'error',
+            'Aucune catégorie racine par contexte',
+            'Chaque contexte devrait avoir une catégorie racine (parent=0) pour une hiérarchie stable.',
+            $missingroot
+        );
+        $addcheck(
+            'multiple_roots_per_context',
+            'warning',
+            'Plusieurs catégories racine par contexte',
+            'Plusieurs catégories parent=0 dans un même contexte : généralement non souhaité dans Moodle.',
+            $multipleroot
+        );
+
+        // 7) idnumber dupliqués (si colonne présente).
+        if (isset($columns['idnumber'])) {
+            $idgroups = [];
+            foreach ($categories as $cat) {
+                $idnumber = trim((string)($cat->idnumber ?? ''));
+                if ($idnumber === '') {
+                    continue;
+                }
+                $ctxid = (int)$cat->contextid;
+                if (!isset($idgroups[$ctxid])) {
+                    $idgroups[$ctxid] = [];
+                }
+                if (!isset($idgroups[$ctxid][$idnumber])) {
+                    $idgroups[$ctxid][$idnumber] = [];
+                }
+                $idgroups[$ctxid][$idnumber][] = (int)$cat->id;
+            }
+            $duplicates = [];
+            foreach ($idgroups as $ctxid => $byid) {
+                foreach ($byid as $idnumber => $ids) {
+                    if (count($ids) > 1) {
+                        $duplicates[] = (object)[
+                            'contextid' => (int)$ctxid,
+                            'idnumber' => $idnumber,
+                            'categoryids' => $ids,
+                            'count' => count($ids),
+                        ];
+                    }
+                }
+            }
+            $addcheck(
+                'duplicate_idnumber',
+                'error',
+                'idnumber dupliqués',
+                'Le champ idnumber devrait être unique dans un même contexte (import/export, références).',
+                $duplicates
+            );
+        } else {
+            $addcheck(
+                'duplicate_idnumber',
+                'info',
+                'idnumber dupliqués',
+                'Colonne idnumber non présente sur cette installation Moodle.',
+                []
+            );
+        }
+
+        // 8) question_bank_entries orphelines (Moodle 4.x).
+        $orphanqbe = [];
+        try {
+            $qbecols = $DB->get_columns('question_bank_entries');
+            if (isset($qbecols['questioncategoryid'])) {
+                $sqlcount = "SELECT COUNT(1)
+                               FROM {question_bank_entries} qbe
+                          LEFT JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
+                              WHERE qbe.questioncategoryid IS NOT NULL
+                                AND qc.id IS NULL";
+                $count = (int)$DB->count_records_sql($sqlcount);
+
+                if ($count > 0) {
+                    $sqlsample = "SELECT qbe.id, qbe.questioncategoryid
+                                    FROM {question_bank_entries} qbe
+                               LEFT JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
+                                   WHERE qbe.questioncategoryid IS NOT NULL
+                                     AND qc.id IS NULL
+                                ORDER BY qbe.id ASC";
+                    $rows = $DB->get_records_sql($sqlsample, [], 0, $samplelimit > 0 ? $samplelimit : 50);
+                    foreach ($rows as $row) {
+                        $orphanqbe[] = (object)[
+                            'questionbankentryid' => (int)$row->id,
+                            'questioncategoryid' => (int)$row->questioncategoryid,
+                        ];
+                    }
+                }
+
+                // Injecter le count réel même si sample limité.
+                $report->checks['orphan_question_bank_entries'] = (object)[
+                    'severity' => $count > 0 ? 'error' : 'info',
+                    'title' => 'Entrées de banque orphelines',
+                    'description' => 'question_bank_entries référencant une catégorie inexistante (incohérence).',
+                    'count' => $count,
+                    'sample' => $orphanqbe,
+                ];
+                if ($count > 0) {
+                    $report->summary->errors += $count;
+                }
+            } else {
+                $addcheck(
+                    'orphan_question_bank_entries',
+                    'info',
+                    'Entrées de banque orphelines',
+                    'Colonne questioncategoryid absente sur question_bank_entries.',
+                    []
+                );
+            }
+        } catch (\Exception $e) {
+            $addcheck(
+                'orphan_question_bank_entries',
+                'info',
+                'Entrées de banque orphelines',
+                'Table question_bank_entries non disponible sur cette installation.',
+                []
+            );
+        }
+
+        return $report;
     }
 }
 

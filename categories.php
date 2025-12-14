@@ -37,6 +37,7 @@ $PAGE->set_pagelayout('report');
 // Récupérer les paramètres de filtrage
 $view_type = optional_param('view_type', 'questions', PARAM_TEXT);
 $course_category_filter = optional_param('course_category', 0, PARAM_INT); // 0 = all
+$integritycheck = optional_param('integritycheck', 0, PARAM_BOOL);
 
 // Validation des paramètres
 if (!in_array($view_type, ['questions', 'all'])) {
@@ -80,6 +81,125 @@ echo html_writer::end_div();
 echo html_writer::start_tag('div', ['style' => 'margin-bottom: 20px;']);
 echo local_question_diagnostic_render_back_link('categories.php');
 echo html_writer::end_tag('div');
+
+// ======================================================================
+// 🆕 Diagnostic de cohérence (bonnes pratiques Moodle)
+// ======================================================================
+
+$integrityreport = null;
+if (!empty($integritycheck)) {
+    $integrityreport = category_manager::get_categories_integrity_report(50);
+}
+
+// Barre rapide : lancer / arrêter le diagnostic.
+$integrityrunurl = new moodle_url('/local/question_diagnostic/categories.php', [
+    'integritycheck' => 1,
+    'view_type' => $view_type,
+    'course_category' => $course_category_filter,
+]);
+$integritystopurl = new moodle_url('/local/question_diagnostic/categories.php', [
+    'view_type' => $view_type,
+    'course_category' => $course_category_filter,
+]);
+
+echo html_writer::start_div('alert alert-secondary', ['style' => 'margin-bottom: 20px; border-left: 4px solid #6c757d;']);
+echo html_writer::tag('strong', '🧪 ' . get_string('categories_integrity_title', 'local_question_diagnostic'));
+echo html_writer::tag('div', get_string('categories_integrity_desc', 'local_question_diagnostic'), ['style' => 'margin-top: 6px;']);
+echo html_writer::start_div('text-right', ['style' => 'margin-top: 10px;']);
+if (empty($integritycheck)) {
+    echo html_writer::link($integrityrunurl, '▶ ' . get_string('categories_integrity_run', 'local_question_diagnostic'), ['class' => 'btn btn-sm btn-secondary']);
+} else {
+    echo html_writer::link($integritystopurl, '⏹ ' . get_string('categories_integrity_stop', 'local_question_diagnostic'), ['class' => 'btn btn-sm btn-secondary']);
+}
+echo html_writer::end_div();
+echo html_writer::end_div();
+
+// Affichage du rapport si activé.
+if (!empty($integrityreport)) {
+    $errors = (int)($integrityreport->summary->errors ?? 0);
+    $warnings = (int)($integrityreport->summary->warnings ?? 0);
+    $totalcats = (int)($integrityreport->summary->categories ?? 0);
+
+    $healthclass = 'alert-success';
+    $healthtitle = get_string('categories_integrity_ok', 'local_question_diagnostic');
+    if ($errors > 0) {
+        $healthclass = 'alert-danger';
+        $healthtitle = get_string('categories_integrity_issues_found', 'local_question_diagnostic');
+    } else if ($warnings > 0) {
+        $healthclass = 'alert-warning';
+        $healthtitle = get_string('categories_integrity_warnings_found', 'local_question_diagnostic');
+    }
+
+    echo html_writer::start_div('alert ' . $healthclass, ['style' => 'margin-bottom: 20px; border-left: 4px solid rgba(0,0,0,0.2);']);
+    echo html_writer::tag('strong', '📋 ' . $healthtitle);
+    echo html_writer::tag('div', get_string('categories_integrity_summary', 'local_question_diagnostic', (object)[
+        'categories' => $totalcats,
+        'errors' => $errors,
+        'warnings' => $warnings,
+    ]), ['style' => 'margin-top: 6px;']);
+    echo html_writer::end_div();
+
+    // Détails par check.
+    echo html_writer::tag('h3', '🔎 ' . get_string('categories_integrity_details', 'local_question_diagnostic'), ['style' => 'margin-top: 10px;']);
+
+    foreach (($integrityreport->checks ?? []) as $checkkey => $check) {
+        $severity = $check->severity ?? 'info';
+        $count = (int)($check->count ?? 0);
+
+        $boxclass = 'alert-info';
+        if ($severity === 'error') {
+            $boxclass = 'alert-danger';
+        } else if ($severity === 'warning') {
+            $boxclass = 'alert-warning';
+        }
+
+        echo html_writer::start_div('alert ' . $boxclass, ['style' => 'margin-bottom: 12px;']);
+        echo html_writer::tag('strong', ($check->title ?? $checkkey) . ' — ' . $count);
+        if (!empty($check->description)) {
+            echo html_writer::tag('div', s($check->description), ['style' => 'margin-top: 6px;']);
+        }
+
+        // Afficher un échantillon des éléments détectés (si applicable).
+        if ($count > 0 && !empty($check->sample) && is_array($check->sample)) {
+            echo html_writer::start_tag('ul', ['style' => 'margin-top: 8px; margin-bottom: 0;']);
+
+            foreach ($check->sample as $item) {
+                // Formatage simple selon la forme des items.
+                $line = '';
+                if ($checkkey === 'orphan_question_bank_entries') {
+                    $line = 'qbe.id=' . (int)($item->questionbankentryid ?? 0) . ' → questioncategoryid=' . (int)($item->questioncategoryid ?? 0);
+                } else if ($checkkey === 'duplicate_idnumber') {
+                    $line = 'contextid=' . (int)($item->contextid ?? 0) . ' / idnumber=' . s($item->idnumber ?? '') . ' / categories=' . s(implode(',', $item->categoryids ?? []));
+                } else if ($checkkey === 'multiple_roots_per_context') {
+                    $line = 'contextid=' . (int)($item->contextid ?? 0) . ' / rootids=' . s(implode(',', $item->rootids ?? []));
+                } else if ($checkkey === 'missing_root_per_context') {
+                    $line = 'contextid=' . (int)($item->contextid ?? 0) . ' / contextlevel=' . s($item->contextlevel ?? 'n/a');
+                } else {
+                    // Par défaut : catégories.
+                    $line = 'catid=' . (int)($item->categoryid ?? 0);
+                    if (isset($item->name)) {
+                        $line .= ' / ' . format_string($item->name);
+                    }
+                    if (isset($item->contextid)) {
+                        $line .= ' / contextid=' . (int)$item->contextid;
+                    }
+                    if (isset($item->parent)) {
+                        $line .= ' / parent=' . (int)$item->parent;
+                    }
+                    if (isset($item->parentcontextid)) {
+                        $line .= ' / parentcontextid=' . (int)$item->parentcontextid;
+                    }
+                }
+
+                echo html_writer::tag('li', $line);
+            }
+
+            echo html_writer::end_tag('ul');
+        }
+
+        echo html_writer::end_div();
+    }
+}
 
 // ======================================================================
 // STATISTIQUES GLOBALES (Dashboard) - Calculées après détection du type de vue
@@ -502,7 +622,7 @@ if ($view_type === 'all') {
 
         // Mode "banque de questions" hiérarchique: arbre des catégories
         if (!empty($bankview)) {
-            echo html_writer::tag('h3', 'Catégories de question de « Catégorie: ' . format_string($course_category_name) . ' »');
+            echo html_writer::tag('h3', 'Catégories de questions de la catégorie de cours « ' . format_string($course_category_name) . ' »');
             
             // Récupérer la hiérarchie des catégories
             $hierarchy = local_question_diagnostic_get_question_categories_hierarchy($course_category_filter);

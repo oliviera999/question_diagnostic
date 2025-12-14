@@ -82,6 +82,17 @@ $string['welcomemessage'] = 'Welcome to the question bank diagnostic tool. This 
 $string['tool_categories_title'] = 'Category Management for Deletion';
 $string['tool_categories_desc'] = 'Manage question categories: detect and fix orphan, empty or duplicate categories. Merge, move or delete problematic categories.';
 
+// 🆕 Category integrity diagnostic (Moodle best practices)
+$string['categories_integrity_title'] = 'Category integrity diagnostic';
+$string['categories_integrity_desc'] = 'Checks question category integrity (contexts, parent/child hierarchy, idnumber, orphan references) using Moodle best practices. No changes are performed.';
+$string['categories_integrity_run'] = 'Run diagnostic';
+$string['categories_integrity_stop'] = 'Hide diagnostic';
+$string['categories_integrity_ok'] = 'No critical issues detected';
+$string['categories_integrity_issues_found'] = 'Critical issues detected';
+$string['categories_integrity_warnings_found'] = 'Warnings detected';
+$string['categories_integrity_summary'] = '{$a->categories} category(ies) analyzed — errors: {$a->errors}, warnings: {$a->warnings}.';
+$string['categories_integrity_details'] = 'Diagnostic details';
+
 // Tool 2: Link checking
 $string['tool_links_title'] = 'Link Verification';
 $string['tool_links_desc'] = 'Detect questions with broken links to missing images or files in moodledata. Supports all question types, including third-party plugins like "drag and drop on image".';

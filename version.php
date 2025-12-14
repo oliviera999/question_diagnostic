@@ -9,8 +9,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'local_question_diagnostic';
-$plugin->version = 2025121402;  // YYYYMMDDXX format (v1.11.25 - Fix category deletion API + bypass info protection)
+$plugin->version = 2025121403;  // YYYYMMDDXX format (v1.11.26 - Quick check + course root protection)
 $plugin->requires = 2022041900; // Moodle 4.0+ (architecture question_bank_entries requise)
 $plugin->maturity = MATURITY_STABLE;
-$plugin->release = 'v1.11.25';
+$plugin->release = 'v1.11.26';
 

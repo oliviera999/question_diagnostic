@@ -4,6 +4,7 @@
  */
 
 require_once(__DIR__ . '/../../config.php');
+require_once(__DIR__ . '/classes/category_manager.php');
 
 require_login();
 if (!is_siteadmin()) {
@@ -144,7 +145,7 @@ if (!empty($root_categories)) {
 echo html_writer::tag('h3', '2. Requête de protection actuelle', ['style' => 'margin-top: 40px;']);
 
 echo html_writer::start_div('alert alert-warning');
-echo '<strong>⚠️ Pattern de recherche actuel :</strong><br>';
+echo '<strong>⚠️ Pattern de recherche (nommage uniquement, pas une règle de protection) :</strong><br>';
 echo '<code>WHERE name LIKE \'%Default for%\'</code><br>';
 echo '<em>Cherche uniquement "Default for" (anglais, casse insensible)</em>';
 echo html_writer::end_div();
@@ -230,25 +231,34 @@ echo html_writer::end_div();
 
 echo html_writer::tag('h3', '4. Catégories racine dans des contextes de cours', ['style' => 'margin-top: 40px;']);
 
-$root_in_courses = $DB->get_records_sql("
+// Compter TOUTES les catégories racine en contexte COURSE (pas limité).
+$total_root_courses = (int)$DB->count_records_sql("
+    SELECT COUNT(qc.id)
+    FROM {question_categories} qc
+    INNER JOIN {context} ctx ON ctx.id = qc.contextid
+    WHERE qc.parent = 0
+      AND ctx.contextlevel = " . CONTEXT_COURSE . "
+");
+
+// Échantillon d'affichage (limité).
+$root_in_courses_sample = $DB->get_records_sql("
     SELECT qc.*, ctx.contextlevel
     FROM {question_categories} qc
     INNER JOIN {context} ctx ON ctx.id = qc.contextid
     WHERE qc.parent = 0
-    AND ctx.contextlevel = " . CONTEXT_COURSE . "
+      AND ctx.contextlevel = " . CONTEXT_COURSE . "
     ORDER BY qc.id DESC
-    LIMIT 50
-");
+", [], 0, 50);
 
-echo html_writer::div('<strong>' . count($root_in_courses) . '</strong> catégorie(s) racine dans des contextes de COURS (affichage limité à 50)', 'alert alert-info');
+echo html_writer::div('<strong>' . $total_root_courses . '</strong> catégorie(s) racine dans des contextes de COURS (affichage limité à 50)', 'alert alert-info');
 
-if (!empty($root_in_courses)) {
-    echo '<p><strong>🛡️ TOUTES ces catégories devraient être protégées</strong> car elles sont à la racine d\'un cours.</p>';
+if (!empty($root_in_courses_sample)) {
+    echo '<p><strong>🛡️ Règle de protection attendue :</strong> parent=0 + contexte COURSE (indépendamment du nom).</p>';
     
     echo '<table class="generaltable">';
-    echo '<thead><tr><th>ID</th><th>Nom EXACT</th><th>Questions</th><th>Sous-cat</th></tr></thead><tbody>';
+    echo '<thead><tr><th>ID</th><th>Nom EXACT</th><th>Protégée ?</th><th>Raison</th><th>Questions</th><th>Sous-cat</th></tr></thead><tbody>';
     
-    foreach ($root_in_courses as $cat) {
+    foreach ($root_in_courses_sample as $cat) {
         $q_count = $DB->count_records_sql("
             SELECT COUNT(DISTINCT q.id)
             FROM {question} q
@@ -258,10 +268,24 @@ if (!empty($root_in_courses)) {
         ", ['categoryid' => $cat->id]);
         
         $subcat_count = $DB->count_records('question_categories', ['parent' => $cat->id]);
+
+        // Vérifier la protection selon la logique du plugin.
+        $isprotected = false;
+        $reason = '';
+        try {
+            $stats = \local_question_diagnostic\category_manager::get_category_stats($cat);
+            $isprotected = !empty($stats->is_protected);
+            $reason = $stats->protection_reason ?? '';
+        } catch (Exception $e) {
+            $isprotected = false;
+            $reason = 'Erreur lecture stats';
+        }
         
         echo '<tr>';
         echo '<td>' . $cat->id . '</td>';
         echo '<td><strong>' . s($cat->name) . '</strong></td>';
+        echo '<td style="text-align: center; font-weight: bold; color: ' . ($isprotected ? '#5cb85c' : '#d9534f') . ';">' . ($isprotected ? '✅ OUI' : '❌ NON') . '</td>';
+        echo '<td style="font-size: 0.85em;">' . s($reason) . '</td>';
         echo '<td style="text-align: center;">' . $q_count . '</td>';
         echo '<td style="text-align: center;">' . $subcat_count . '</td>';
         echo '</tr>';
@@ -277,13 +301,32 @@ if (!empty($root_in_courses)) {
 echo html_writer::start_div('alert alert-danger', ['style' => 'margin-top: 40px; border-left: 4px solid #d9534f;']);
 echo '<h4>🚨 ACTION REQUISE</h4>';
 
-$total_root_courses = count($root_in_courses);
+// Vérifier si certaines racines de cours ne sont PAS protégées (devrait être 0).
+$unprotected_root_courses = 0;
+if ($total_root_courses > 0) {
+    $root_in_courses_all = $DB->get_records_sql("
+        SELECT qc.*
+        FROM {question_categories} qc
+        INNER JOIN {context} ctx ON ctx.id = qc.contextid
+        WHERE qc.parent = 0
+          AND ctx.contextlevel = " . CONTEXT_COURSE . "
+    ");
+    foreach ($root_in_courses_all as $cat) {
+        try {
+            $stats = \local_question_diagnostic\category_manager::get_category_stats($cat);
+            if (empty($stats->is_protected)) {
+                $unprotected_root_courses++;
+            }
+        } catch (Exception $e) {
+            $unprotected_root_courses++;
+        }
+    }
+}
 
-if ($total_default_for < $total_root_courses) {
+if ($unprotected_root_courses > 0) {
     echo '<p><strong>Problème détecté :</strong></p>';
-    echo '<p>Vous avez <strong>' . $total_root_courses . ' catégories racine de cours</strong> mais seulement <strong>' . $total_default_for . ' catégorie(s)</strong> détectée(s) avec le pattern "Default for".</p>';
-    
-    echo '<p><strong>Cela signifie que ' . ($total_root_courses - $total_default_for) . ' catégorie(s) racine ne sont PAS protégées !</strong></p>';
+    echo '<p>Vous avez <strong>' . $total_root_courses . ' catégories racine de cours</strong> (parent=0, contexte COURSE) mais <strong>' . $unprotected_root_courses . '</strong> ne sont pas détectées comme protégées par la logique du plugin.</p>';
+    echo '<p><strong>Cela signifie que ' . $unprotected_root_courses . ' catégorie(s) racine de cours sont potentiellement supprimables, ce qui est dangereux.</strong></p>';
     
     echo '<p><strong>Solution :</strong></p>';
     echo '<p>Le code de protection doit être modifié pour protéger <strong>TOUTES les catégories racine (parent=0) dans des contextes COURSE</strong>, indépendamment de leur nom.</p>';
@@ -300,7 +343,7 @@ if (stripos($category->name, \'Default for\') !== false) {
     echo '<pre style="background: #d4edda; padding: 10px;">
 // ✅ Protection basée sur parent=0 + contexte COURSE
 if ($category->parent == 0) {
-    $context = context::instance_by_id($category->contextid);
+    $context = context::instance_by_id($category->contextid, IGNORE_MISSING);
     if ($context && $context->contextlevel == CONTEXT_COURSE) {
         return "PROTÉGÉE : Catégorie racine de cours";
     }
@@ -309,7 +352,7 @@ if ($category->parent == 0) {
     
 } else {
     echo '<p><strong style="color: #5cb85c;">✅ Toutes les catégories racine de cours semblent protégées</strong></p>';
-    echo '<p>Le pattern "Default for" couvre toutes les catégories racine.</p>';
+    echo '<p>La protection est bien basée sur <strong>parent=0 + contexte COURSE</strong> (le nom "Default for" n\'est pas nécessaire).</p>';
 }
 
 echo html_writer::end_div();
