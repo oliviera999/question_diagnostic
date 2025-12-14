@@ -71,8 +71,8 @@ if ($action === 'unhide_all' && $confirm) {
     
     debug_manager::progress('Starting unhide process...');
     
-    // Exécuter l'action : Rendre TOUTES les questions cachées visibles
-    // 🔧 v1.9.60 : false = inclure TOUTES (même soft delete si l'utilisateur le demande)
+    // Exécuter l'action : Rendre visibles TOUTES les questions cachées (y compris celles utilisées dans des quiz).
+    // ⚠️ Cela peut modifier la visibilité de questions "soft delete".
     $all_hidden_questions = question_analyzer::get_hidden_questions(false, 0);
     $question_ids = array_map(function($q) { return $q->id; }, $all_hidden_questions);
     
@@ -89,9 +89,7 @@ if ($action === 'unhide_all' && $confirm) {
     }
     
     // Exécuter en masse
-    debugging('unhide_questions.php: Calling unhide_questions_batch...', DEBUG_DEVELOPER);
     $result = question_analyzer::unhide_questions_batch($question_ids);
-    debugging('unhide_questions.php: Result - success=' . $result['success'] . ', failed=' . $result['failed'], DEBUG_DEVELOPER);
     
     // Purger le cache
     question_analyzer::purge_all_caches();
@@ -100,8 +98,6 @@ if ($action === 'unhide_all' && $confirm) {
     if ($result['failed'] > 0) {
         $message .= ' ' . $result['failed'] . ' échec(s). Détails : ' . implode('; ', array_slice($result['errors'], 0, 5));
     }
-    
-    debugging('unhide_questions.php: Redirecting with message: ' . $message, DEBUG_DEVELOPER);
     
     redirect(
         new moodle_url('/local/question_diagnostic/unhide_questions.php'),
@@ -115,12 +111,8 @@ if ($action === 'unhide_all' && $confirm) {
 if ($action === 'unhide_selected' && $confirm && !empty($question_ids)) {
     require_sesskey();
     
-    debugging('unhide_questions.php: Starting unhide selected process...', DEBUG_DEVELOPER);
-    
     // Parser les IDs des questions sélectionnées
     $selected_ids = array_filter(array_map('intval', explode(',', $question_ids)));
-    
-    debugging('unhide_questions.php: Selected ' . count($selected_ids) . ' questions to unhide', DEBUG_DEVELOPER);
     
     if (empty($selected_ids)) {
         redirect(
@@ -132,9 +124,7 @@ if ($action === 'unhide_selected' && $confirm && !empty($question_ids)) {
     }
     
     // Exécuter en masse sur les questions sélectionnées
-    debugging('unhide_questions.php: Calling unhide_questions_batch...', DEBUG_DEVELOPER);
     $result = question_analyzer::unhide_questions_batch($selected_ids);
-    debugging('unhide_questions.php: Result - success=' . $result['success'] . ', failed=' . $result['failed'], DEBUG_DEVELOPER);
     
     // Purger le cache
     question_analyzer::purge_all_caches();
@@ -143,8 +133,6 @@ if ($action === 'unhide_selected' && $confirm && !empty($question_ids)) {
     if ($result['failed'] > 0) {
         $message .= ' ' . $result['failed'] . ' échec(s). Détails : ' . implode('; ', array_slice($result['errors'], 0, 5));
     }
-    
-    debugging('unhide_questions.php: Redirecting with message: ' . $message, DEBUG_DEVELOPER);
     
     redirect(
         new moodle_url('/local/question_diagnostic/unhide_questions.php'),
@@ -158,11 +146,7 @@ if ($action === 'unhide_selected' && $confirm && !empty($question_ids)) {
 if ($action === 'unhide_single' && $confirm && !empty($question_ids)) {
     require_sesskey();
     
-    debugging('unhide_questions.php: Starting unhide single process...', DEBUG_DEVELOPER);
-    
     $question_id = intval($question_ids);
-    
-    debugging('unhide_questions.php: Unhiding single question ID: ' . $question_id, DEBUG_DEVELOPER);
     
     if ($question_id <= 0) {
         redirect(
@@ -186,8 +170,6 @@ if ($action === 'unhide_single' && $confirm && !empty($question_ids)) {
         $message = '❌ Échec pour la question ID ' . $question_id . ': ' . $result;
         $notification_type = \core\output\notification::NOTIFY_ERROR;
     }
-    
-    debugging('unhide_questions.php: Single unhide result: ' . $message, DEBUG_DEVELOPER);
     
     redirect(
         new moodle_url('/local/question_diagnostic/unhide_questions.php'),
@@ -214,8 +196,8 @@ echo html_writer::tag('h2', '👁️ ' . get_string('unhide_questions_title', 'l
 
 // Introduction
 echo html_writer::start_tag('div', ['class' => 'alert alert-info', 'style' => 'margin: 20px 0;']);
-echo html_writer::tag('p', '🔍 Cette page affiche <strong>TOUTES</strong> les questions avec status="hidden" dans question_versions, quelle qu\'en soit la raison (cachée manuellement ou soft delete).');
-echo html_writer::tag('p', 'Le bouton ci-dessous rendra <strong>TOUTES ces questions visibles</strong> en changeant leur statut de "hidden" à "ready".');
+echo html_writer::tag('p', '🔍 Cette page affiche <strong>TOUTES</strong> les questions avec <code>status="hidden"</code> dans <code>question_versions</code> (cachées manuellement ou soft delete).');
+echo html_writer::tag('p', '⚠️ Le bouton ci-dessous rendra visibles <strong>toutes</strong> ces questions, y compris celles utilisées dans des quiz (soft delete).');
 echo html_writer::end_tag('div');
 
 // Charger TOUTES les questions cachées (y compris soft delete)
@@ -256,38 +238,6 @@ if (!empty($hidden_question_ids)) {
     }
 }
 
-// 🔧 DEBUG : Afficher un résumé détaillé pour vérifier
-echo html_writer::start_tag('div', ['class' => 'alert alert-light', 'style' => 'margin: 20px 0; font-size: 12px; border-left: 3px solid #0f6cbf;']);
-echo html_writer::tag('strong', '🔍 Debug SQL : ');
-echo 'Requête exécutée : <code>SELECT DISTINCT questionid FROM mdl_question_versions WHERE status = \'hidden\'</code><br>';
-echo '<strong>Résultat :</strong> ' . $total_hidden . ' question(s) trouvée(s)<br>';
-
-// Vérification supplémentaire : Compter directement dans la BDD
-try {
-    $direct_count = $DB->count_records_sql(
-        "SELECT COUNT(DISTINCT qv.questionid) 
-         FROM {question_versions} qv 
-         WHERE qv.status = 'hidden'"
-    );
-
-    // #region agent log
-    file_put_contents('c:\Users\olivi\OneDrive\Bureau\moodle_dev-questions\.cursor\debug.log', json_encode(['location'=>'unhide_questions.php:271','message'=>'direct_count verification','data'=>['direct_count'=>$direct_count, 'total_hidden_var'=>$total_hidden],'timestamp'=>time()*1000,'sessionId'=>'debug-session','hypothesisId'=>'7'])."\n", FILE_APPEND);
-    // #endregion
-
-    echo '<strong>Vérification directe BDD :</strong> ' . $direct_count . ' question(s) avec status=\'hidden\'<br>';
-    
-    if ($direct_count != $total_hidden) {
-        echo '<span style="color: red; font-weight: bold;">⚠️ DIFFÉRENCE DÉTECTÉE ! La fonction get_hidden_questions() ne retourne pas toutes les questions.</span><br>';
-    }
-} catch (Exception $e) {
-    echo '<span style="color: orange;">⚠️ Erreur vérification: ' . $e->getMessage() . '</span><br>';
-}
-
-if ($total_hidden > 0) {
-    echo '<strong>IDs trouvés :</strong> ' . implode(', ', array_slice($hidden_question_ids, 0, 50)) . ($total_hidden > 50 ? '... (+ ' . ($total_hidden - 50) . ' autres)' : '');
-}
-echo html_writer::end_tag('div');
-
 // Statistiques
 echo html_writer::start_tag('div', ['class' => 'qd-dashboard', 'style' => 'margin: 30px 0;']);
 
@@ -306,7 +256,7 @@ echo html_writer::end_tag('div');
 echo html_writer::start_tag('div', ['class' => 'qd-card danger']);
 echo html_writer::tag('div', 'Soft Delete', ['class' => 'qd-card-title']);
 echo html_writer::tag('div', $soft_deleted, ['class' => 'qd-card-value']);
-echo html_writer::tag('div', 'Utilisées dans quiz - SERONT AUSSI RENDUES VISIBLES ⚠️', ['class' => 'qd-card-subtitle']);
+echo html_writer::tag('div', 'Utilisées dans des quiz - SERONT AUSSI RENDUES VISIBLES ⚠️', ['class' => 'qd-card-subtitle']);
 echo html_writer::end_tag('div');
 
 echo html_writer::end_tag('div');
@@ -355,11 +305,11 @@ if ($total_hidden > 0) {
     // 🔧 Utiliser un FORMULAIRE POST pour que ça fonctionne
     $confirm_message = "⚠️ ATTENTION CRITIQUE\n\n";
     $confirm_message .= "Vous allez rendre visible " . $total_hidden . " question(s) cachée(s).\n\n";
-    $confirm_message .= "Cela inclut:\n";
+    $confirm_message .= "Cela inclut :\n";
     $confirm_message .= "- " . $manually_hidden . " question(s) cachées manuellement\n";
-    $confirm_message .= "- " . $soft_deleted . " question(s) soft delete (utilisées dans quiz)\n\n";
-    $confirm_message .= "Êtes-vous ABSOLUMENT sûr ?\n\n";
-    $confirm_message .= "Cliquez OK pour continuer ou Annuler pour arrêter.";
+    $confirm_message .= "- " . $soft_deleted . " question(s) soft delete (utilisées dans des quiz)\n\n";
+    $confirm_message .= "Cette opération peut impacter la banque de questions et certains workflows.\n\n";
+    $confirm_message .= "Êtes-vous ABSOLUMENT sûr ?";
     
     echo html_writer::start_tag('form', [
         'method' => 'post',
@@ -380,13 +330,8 @@ if ($total_hidden > 0) {
     echo html_writer::start_tag('div', ['class' => 'alert alert-danger', 'style' => 'margin-top: 20px; max-width: 800px; margin-left: auto; margin-right: auto;']);
     echo html_writer::tag('strong', '⚠️ ATTENTION IMPORTANTE : ');
     echo 'Cette action rendra visibles <strong>ABSOLUMENT TOUTES</strong> les ' . $total_hidden . ' question(s) cachées :<br><br>';
-    echo '✅ <strong>' . $manually_hidden . '</strong> question(s) cachées manuellement (sans risque)<br>';
-    echo '⚠️ <strong>' . $soft_deleted . '</strong> question(s) soft delete (utilisées dans ' . array_sum(array_map(function($q) use ($usage_map) {
-        return isset($usage_map[$q->id]['quiz_count']) ? $usage_map[$q->id]['quiz_count'] : 0;
-    }, array_filter($all_hidden_questions, function($q) use ($usage_map) {
-        $qc = isset($usage_map[$q->id]['quiz_count']) ? $usage_map[$q->id]['quiz_count'] : 0;
-        return $qc > 0;
-    }))) . ' quiz - peut affecter les tentatives de quiz)';
+    echo '✅ <strong>' . $manually_hidden . '</strong> question(s) cachées manuellement<br>';
+    echo '⚠️ <strong>' . $soft_deleted . '</strong> question(s) soft delete (utilisées dans des quiz)';
     echo html_writer::end_tag('div');
     
     echo html_writer::end_tag('div');
@@ -436,7 +381,8 @@ if ($total_hidden > 0) {
             'class' => 'question-select-checkbox',
             'value' => $question->id,
             'data-question-id' => $question->id,
-            'onchange' => 'updateSelectionCounter()'
+            'onchange' => 'updateSelectionCounter()',
+            'title' => $is_used ? 'Utilisée dans un quiz (soft delete) - sera rendue visible si sélectionnée' : 'Sélectionner'
         ]);
         echo html_writer::end_tag('td');
         
@@ -484,7 +430,7 @@ if ($total_hidden > 0) {
             'type' => 'submit',
             'value' => '👁️',
             'class' => 'btn btn-sm btn-success',
-            'title' => 'Rendre visible cette question'
+            'title' => $is_used ? 'Rendre visible (utilisée dans un quiz / soft delete)' : 'Rendre visible cette question'
         ]);
         echo html_writer::end_tag('form');
         

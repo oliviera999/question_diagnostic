@@ -71,6 +71,9 @@ $string['categoryquestions'] = 'Questions';
 $string['categorysubcats'] = 'Sous-catégories';
 $string['categorystatus'] = 'Statut';
 
+// Libellés génériques.
+$string['type'] = 'Type';
+
 // Menu principal
 $string['mainmenu'] = 'Menu principal';
 $string['toolsmenu'] = 'Outils disponibles';

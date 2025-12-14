@@ -45,6 +45,9 @@ $PAGE->set_heading(local_question_diagnostic_get_heading_with_version($pagetitle
 $PAGE->set_pagelayout('report');
 $PAGE->requires->css('/local/question_diagnostic/styles/main.css');
 
+// String manager (pour éviter les warnings get_string si cache/pack non à jour).
+$stringmanager = get_string_manager();
+
 // ----------------------------------------------------------------------
 // Paramètres
 // ----------------------------------------------------------------------
@@ -148,26 +151,37 @@ echo html_writer::end_div();
 
 // Recherche de cours (si on ne veut pas saisir un ID).
 echo html_writer::start_div('qd-filter-group');
-echo html_writer::tag('label', get_string('tool_categories_by_context_course_search', 'local_question_diagnostic'), ['for' => 'qd-course-search']);
+$coursesearchlabel = $stringmanager->string_exists('tool_categories_by_context_course_search', 'local_question_diagnostic') ?
+    get_string('tool_categories_by_context_course_search', 'local_question_diagnostic') :
+    ((strpos(current_language(), 'fr') === 0) ? 'Rechercher un cours' : 'Search a course');
+echo html_writer::tag('label', $coursesearchlabel, ['for' => 'qd-course-search']);
 echo html_writer::empty_tag('input', [
     'type' => 'text',
     'id' => 'qd-course-search',
     'name' => 'course_search',
     'value' => $coursesearch,
     'class' => 'form-control',
-    'placeholder' => get_string('tool_categories_by_context_course_search_placeholder', 'local_question_diagnostic'),
+    'placeholder' => ($stringmanager->string_exists('tool_categories_by_context_course_search_placeholder', 'local_question_diagnostic') ?
+        get_string('tool_categories_by_context_course_search_placeholder', 'local_question_diagnostic') :
+        ((strpos(current_language(), 'fr') === 0) ? 'Nom du cours ou shortname (au moins 2 caractères)…' : 'Course name or shortname (at least 2 characters)…')),
 ]);
 echo html_writer::end_div();
 
 // Sélection du cours.
 echo html_writer::start_div('qd-filter-group');
-echo html_writer::tag('label', get_string('tool_categories_by_context_course', 'local_question_diagnostic'), ['for' => 'qd-courseid']);
+$courselabel = $stringmanager->string_exists('tool_categories_by_context_course', 'local_question_diagnostic') ?
+    get_string('tool_categories_by_context_course', 'local_question_diagnostic') :
+    ((strpos(current_language(), 'fr') === 0) ? 'Cours' : 'Course');
+echo html_writer::tag('label', $courselabel, ['for' => 'qd-courseid']);
 echo html_writer::start_tag('select', [
     'id' => 'qd-courseid',
     'name' => 'courseid',
     'class' => 'form-control',
 ]);
-echo html_writer::tag('option', get_string('tool_categories_by_context_course_placeholder', 'local_question_diagnostic'), ['value' => 0]);
+$courseplaceholder = $stringmanager->string_exists('tool_categories_by_context_course_placeholder', 'local_question_diagnostic') ?
+    get_string('tool_categories_by_context_course_placeholder', 'local_question_diagnostic') :
+    ((strpos(current_language(), 'fr') === 0) ? '— Sélectionner un cours —' : '— Select a course —');
+echo html_writer::tag('option', $courseplaceholder, ['value' => 0]);
 foreach ($courseoptions as $cid => $label) {
     echo html_writer::tag('option', $label, [
         'value' => (int)$cid,
@@ -175,7 +189,12 @@ foreach ($courseoptions as $cid => $label) {
     ]);
 }
 echo html_writer::end_tag('select');
-echo html_writer::tag('div', get_string('tool_categories_by_context_course_help', 'local_question_diagnostic'), [
+$coursehelp = $stringmanager->string_exists('tool_categories_by_context_course_help', 'local_question_diagnostic') ?
+    get_string('tool_categories_by_context_course_help', 'local_question_diagnostic') :
+    ((strpos(current_language(), 'fr') === 0) ?
+        'Choisissez une catégorie de cours pour obtenir une liste déroulante, ou tapez une recherche (nom/shortname) puis validez pour afficher une liste de résultats.' :
+        'Pick a course category to populate a dropdown, or type a search (name/shortname) then submit to get a result list.');
+echo html_writer::tag('div', $coursehelp, [
     'style' => 'margin-top: 6px; font-size: 12px; color: #666;',
 ]);
 echo html_writer::end_div();

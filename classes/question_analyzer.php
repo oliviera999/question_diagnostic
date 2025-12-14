@@ -1104,9 +1104,9 @@ class question_analyzer {
         // Estimation rapide des doublons (GROUP BY simple, pas de calcul de similarité)
         try {
             $exact_name_dupes = $DB->get_records_sql("
-                SELECT name, qtype, COUNT(*) as count
-                FROM {question}
-                GROUP BY name, qtype
+                SELECT MIN(q.id) AS id, q.name, q.qtype, COUNT(*) AS count
+                FROM {question} q
+                GROUP BY q.name, q.qtype
                 HAVING COUNT(*) > 1
             ");
             $stats->duplicate_questions = count($exact_name_dupes);
@@ -1233,9 +1233,9 @@ class question_analyzer {
             } else {
                 // Pour les grandes bases ou si non demandé, utiliser une estimation rapide
                 $exact_name_dupes = $DB->get_records_sql("
-                    SELECT name, qtype, COUNT(*) as count
-                    FROM {question}
-                    GROUP BY name, qtype
+                    SELECT MIN(q.id) AS id, q.name, q.qtype, COUNT(*) AS count
+                    FROM {question} q
+                    GROUP BY q.name, q.qtype
                     HAVING COUNT(*) > 1
                 ");
                 $stats->duplicate_questions = count($exact_name_dupes);
@@ -1613,14 +1613,7 @@ class question_analyzer {
                     WHERE qv.status = 'hidden'
                     ORDER BY qv.questionid DESC";
             
-            // 🔧 DEBUG : Ajouter un log pour voir combien on en trouve
             $hidden_question_ids = $DB->get_fieldset_sql($sql, [], 0, $limit > 0 ? $limit : 0);
-            
-            // #region agent log
-            file_put_contents('c:\Users\olivi\OneDrive\Bureau\moodle_dev-questions\.cursor\debug.log', json_encode(['location'=>'classes/question_analyzer.php:1577','message'=>'get_hidden_questions counts','data'=>['found_ids'=>count($hidden_question_ids)],'timestamp'=>time()*1000,'sessionId'=>'debug-session','hypothesisId'=>'7'])."\n", FILE_APPEND);
-            // #endregion
-
-            debugging('get_hidden_questions: Found ' . count($hidden_question_ids) . ' hidden question IDs', DEBUG_DEVELOPER);
             
             if (empty($hidden_question_ids)) {
                 return [];
@@ -1629,10 +1622,6 @@ class question_analyzer {
             // Récupérer les détails des questions
             list($insql, $params) = $DB->get_in_or_equal($hidden_question_ids);
             $questions = $DB->get_records_select('question', "id $insql", $params);
-
-            // #region agent log
-            file_put_contents('c:\Users\olivi\OneDrive\Bureau\moodle_dev-questions\.cursor\debug.log', json_encode(['location'=>'classes/question_analyzer.php:1586','message'=>'get_hidden_questions records','data'=>['questions_retrieved'=>count($questions), 'missing'=>count($hidden_question_ids)-count($questions)],'timestamp'=>time()*1000,'sessionId'=>'debug-session','hypothesisId'=>'7'])."\n", FILE_APPEND);
-            // #endregion
             
             // Si on exclut les questions utilisées, charger les infos d'usage
             if ($exclude_used) {
@@ -1720,21 +1709,34 @@ class question_analyzer {
             return 'Erreur lors du changement de statut : ' . $e->getMessage();
         }
     }
-    
+
     /**
      * Rend plusieurs questions visibles en masse
      * 
      * 🆕 v1.9.58 : Opération en masse pour rendre visibles
      * 
      * @param array $questionids Tableau d'IDs de questions
-     * @return array ['success' => int, 'failed' => int, 'errors' => array]
+     * @return array ['success' => int, 'failed' => int, 'protected' => int, 'errors' => array]
      */
     public static function unhide_questions_batch($questionids) {
         $success = 0;
         $failed = 0;
+        // Conservé pour compatibilité avec l'appelant (ancienne logique "protégée").
+        $protected = 0;
         $errors = [];
-        
-        foreach ($questionids as $qid) {
+
+        // Normaliser / dédupliquer
+        $ids = array_values(array_unique(array_filter(array_map('intval', (array)$questionids))));
+        if (empty($ids)) {
+            return [
+                'success' => 0,
+                'failed' => 0,
+                'protected' => 0,
+                'errors' => []
+            ];
+        }
+
+        foreach ($ids as $qid) {
             $result = self::unhide_question($qid);
             if ($result === true) {
                 $success++;
@@ -1747,6 +1749,7 @@ class question_analyzer {
         return [
             'success' => $success,
             'failed' => $failed,
+            'protected' => $protected,
             'errors' => $errors
         ];
     }

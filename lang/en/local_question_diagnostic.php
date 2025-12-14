@@ -71,6 +71,9 @@ $string['categoryquestions'] = 'Questions';
 $string['categorysubcats'] = 'Subcategories';
 $string['categorystatus'] = 'Status';
 
+// Generic labels.
+$string['type'] = 'Type';
+
 // Main menu
 $string['mainmenu'] = 'Main menu';
 $string['toolsmenu'] = 'Available tools';
