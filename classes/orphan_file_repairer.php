@@ -572,6 +572,13 @@ class orphan_file_repairer {
      * @return array Statistiques de réparabilité
      */
     public static function analyze_bulk_repairability($orphan_files) {
+        // Tolérance: sécuriser l'entrée pour éviter count(null) / foreach(null).
+        if ($orphan_files instanceof \Traversable) {
+            $orphan_files = iterator_to_array($orphan_files, false);
+        } else if (!is_array($orphan_files)) {
+            $orphan_files = [];
+        }
+
         $stats = [
             'high_confidence' => 0,
             'medium_confidence' => 0,

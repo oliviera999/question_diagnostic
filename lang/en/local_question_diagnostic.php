@@ -583,10 +583,11 @@ $string['tool_categories_by_context_title'] = 'Categories by course / activity';
 $string['tool_categories_by_context_desc'] = 'Lists question categories linked to a course (and/or an activity such as a quiz) and keeps only those that contain questions (directly or via subcategories).';
 $string['tool_categories_by_context_open'] = 'Open list';
 
-$string['tool_categories_by_context_courseid'] = 'Course ID';
-$string['tool_categories_by_context_course_select'] = 'Course (list)';
-$string['tool_categories_by_context_course_select_placeholder'] = '— Select a course —';
-$string['tool_categories_by_context_course_select_help'] = 'Tip: pick a course category first, then choose a course from the list. The courseid will be filled automatically.';
+$string['tool_categories_by_context_course_search'] = 'Search a course';
+$string['tool_categories_by_context_course_search_placeholder'] = 'Course name or shortname (at least 2 characters)…';
+$string['tool_categories_by_context_course'] = 'Course';
+$string['tool_categories_by_context_course_placeholder'] = '— Select a course —';
+$string['tool_categories_by_context_course_help'] = 'Pick a course category to populate a dropdown, or type a search (name/shortname) then submit to get a result list.';
 
 $string['tool_categories_by_context_scope'] = 'Scope';
 $string['tool_categories_by_context_scope_all'] = 'Course + activities';
@@ -601,7 +602,7 @@ $string['tool_categories_by_context_include_system'] = 'Include system context';
 $string['tool_categories_by_context_apply'] = 'Show';
 
 $string['tool_categories_by_context_intro_title'] = 'Select a course';
-$string['tool_categories_by_context_intro'] = 'Choose a course category and a course (or type a courseid) to list question categories that contain questions.';
+$string['tool_categories_by_context_intro'] = 'Choose a course category and a course, or use the search to select a course, to list question categories that contain questions.';
 $string['tool_categories_by_context_activity_required'] = 'Please select an activity (cmid) for the “specific activity” scope.';
 
 $string['tool_categories_by_context_no_contexts'] = 'No contexts to analyze with the current criteria.';

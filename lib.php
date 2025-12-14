@@ -958,8 +958,8 @@ function local_question_diagnostic_find_olution_category() {
         // ==================================================================================
         // PRIORITÉ 1 : Nom EXACT "Olution" (case-sensitive) au niveau SYSTÈME
         // ==================================================================================
-        // Utiliser une requête LIMIT 1 ordonnée pour éviter les warnings "found more than one record!"
-        // si plusieurs catégories portent le même nom dans le même contexte.
+        // IMPORTANT : il peut exister plusieurs catégories "Olution" dans le même contexte.
+        // On les SCORE et on choisit la meilleure (présence de "commun" / arbre le plus riche).
         $sql = "SELECT *
                   FROM {question_categories}
                  WHERE contextid = :contextid
@@ -967,19 +967,30 @@ function local_question_diagnostic_find_olution_category() {
               ORDER BY CASE WHEN parent = :topid THEN 0 ELSE 1 END,
                        sortorder ASC,
                        id ASC";
+
         // Encapsuler la phase 1 pour pouvoir en sortir sans return().
         do {
             $records = $DB->get_records_sql($sql, [
                 'contextid' => $systemcontext->id,
                 'name' => 'Olution',
                 'topid' => $system_top_id,
-            ], 0, 1);
-            $olution = $records ? reset($records) : false;
-            
-            if ($olution) {
-                local_question_diagnostic_debug_log('✅ Olution category found - EXACT match: Olution (ID: ' . $olution->id . ')', DEBUG_DEVELOPER);
-                $systemcandidate = $olution;
-                break;
+            ], 0, 50);
+
+            if ($records) {
+                $best = null;
+                $bestscore = 0;
+                foreach ($records as $cand) {
+                    $score = $scorecategory($cand);
+                    if ($best === null || $score > $bestscore) {
+                        $best = $cand;
+                        $bestscore = $score;
+                    }
+                }
+                if ($best) {
+                    local_question_diagnostic_debug_log('✅ Olution category found - EXACT match (best score=' . $bestscore . '): Olution (ID: ' . $best->id . ')', DEBUG_DEVELOPER);
+                    $systemcandidate = $best;
+                    break;
+                }
             }
         
             local_question_diagnostic_debug_log('❌ No exact match for "Olution" found', DEBUG_DEVELOPER);
@@ -994,12 +1005,24 @@ function local_question_diagnostic_find_olution_category() {
                     'contextid' => $systemcontext->id,
                     'name' => $variant,
                     'topid' => $system_top_id,
-                ], 0, 1);
-                $olution = $records ? reset($records) : false;
-                
-                if ($olution) {
-                    local_question_diagnostic_debug_log('✅ Olution question category found - Case variant: ' . $variant, DEBUG_DEVELOPER);
-                    $systemcandidate = $olution;
+                ], 0, 50);
+
+                if (!$records) {
+                    continue;
+                }
+
+                $best = null;
+                $bestscore = 0;
+                foreach ($records as $cand) {
+                    $score = $scorecategory($cand);
+                    if ($best === null || $score > $bestscore) {
+                        $best = $cand;
+                        $bestscore = $score;
+                    }
+                }
+                if ($best) {
+                    local_question_diagnostic_debug_log('✅ Olution question category found - Case variant "' . $variant . '" (best score=' . $bestscore . ', ID: ' . $best->id . ')', DEBUG_DEVELOPER);
+                    $systemcandidate = $best;
                     break;
                 }
             }

@@ -373,9 +373,16 @@ var_dump($variable); // ou print_r()
 - [ ] Préfixes CSS `qd-`
 - [ ] Commentaires en français dans le code
 - [ ] Header GPL sur nouveaux fichiers
-- [ ] Version incrémentée dans version.php si nécessaire
+- [ ] **Toute modification importante** incrémente la version (obligatoire)
+  - [ ] Mettre à jour `version.php` : `$plugin->version` (build Moodle) + `$plugin->release` (ex: v1.11.28)
+  - [ ] Mettre à jour `CHANGELOG.md` si présent (résumé clair)
+  - [ ] Si modification “structure/BDD” (même rare) : ajouter/adapter les scripts d’upgrade Moodle (`db/upgrade.php`) selon les standards Moodle
 - [ ] Cache Moodle purgé après test
 - [ ] Testé sur Moodle 4.3+
+- [ ] **Git / GitHub** : historique propre et publication sur `master`
+  - [ ] `git status` propre (pas de fichiers temporaires, pas de debug résiduel)
+  - [ ] Commit(s) clairs (message orienté “pourquoi”)
+  - [ ] Push propre vers GitHub sur la branche `master` (synchronisée avec `origin/master`)
 
 ## 💡 Philosophie du Plugin
 
@@ -418,6 +425,11 @@ Quand tu développes une nouvelle fonctionnalité, tu DOIS vérifier :
 2. **TOUJOURS demander confirmation à l'utilisateur** AVANT toute modification de la base de données (suppression, fusion, mise à jour).
 
 3. **JAMAIS modifier la BDD directement** depuis une action utilisateur sans page de confirmation intermédiaire.
+
+4. **TOUTE modification importante** (feature, fix significatif, changements UI/UX notables) **DOIT** :
+   - incrémenter la version du plugin dans `version.php`,
+   - être commitée proprement,
+   - et être poussée proprement sur GitHub dans la branche `master`.
 
 Ne jamais supposer. Toujours vérifier. Toujours confirmer.
 

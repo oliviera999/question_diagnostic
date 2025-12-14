@@ -583,10 +583,11 @@ $string['tool_categories_by_context_title'] = 'Catégories par cours / activité
 $string['tool_categories_by_context_desc'] = 'Liste les catégories de questions liées à un cours (et/ou une activité comme un quiz) et ne garde que celles qui contiennent des questions (directement ou via des sous-catégories).';
 $string['tool_categories_by_context_open'] = 'Ouvrir la liste';
 
-$string['tool_categories_by_context_courseid'] = 'Course ID';
-$string['tool_categories_by_context_course_select'] = 'Cours (liste)';
-$string['tool_categories_by_context_course_select_placeholder'] = '— Sélectionner un cours —';
-$string['tool_categories_by_context_course_select_help'] = 'Astuce : choisissez d’abord une catégorie de cours, puis sélectionnez un cours dans la liste. Le courseid sera rempli automatiquement.';
+$string['tool_categories_by_context_course_search'] = 'Rechercher un cours';
+$string['tool_categories_by_context_course_search_placeholder'] = 'Nom du cours ou shortname (au moins 2 caractères)…';
+$string['tool_categories_by_context_course'] = 'Cours';
+$string['tool_categories_by_context_course_placeholder'] = '— Sélectionner un cours —';
+$string['tool_categories_by_context_course_help'] = 'Choisissez une catégorie de cours pour obtenir une liste déroulante, ou tapez une recherche (nom/shortname) puis validez pour afficher une liste de résultats.';
 
 $string['tool_categories_by_context_scope'] = 'Périmètre';
 $string['tool_categories_by_context_scope_all'] = 'Cours + activités';
@@ -601,7 +602,7 @@ $string['tool_categories_by_context_include_system'] = 'Inclure le contexte syst
 $string['tool_categories_by_context_apply'] = 'Afficher';
 
 $string['tool_categories_by_context_intro_title'] = 'Sélectionnez un cours';
-$string['tool_categories_by_context_intro'] = 'Choisissez une catégorie de cours puis un cours (ou saisissez directement un courseid) pour afficher les catégories de questions qui contiennent des questions.';
+$string['tool_categories_by_context_intro'] = 'Choisissez une catégorie de cours puis un cours, ou utilisez la recherche pour sélectionner un cours, afin d’afficher les catégories de questions qui contiennent des questions.';
 $string['tool_categories_by_context_activity_required'] = 'Veuillez sélectionner une activité (cmid) pour le périmètre « activité spécifique ».';
 
 $string['tool_categories_by_context_no_contexts'] = 'Aucun contexte à analyser avec les critères actuels.';

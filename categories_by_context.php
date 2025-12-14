@@ -50,6 +50,7 @@ $PAGE->requires->css('/local/question_diagnostic/styles/main.css');
 // ----------------------------------------------------------------------
 $coursecategoryid = optional_param('course_category', 0, PARAM_INT);
 $courseid = optional_param('courseid', 0, PARAM_INT);
+$coursesearch = optional_param('course_search', '', PARAM_TEXT);
 $cmid = optional_param('cmid', 0, PARAM_INT);
 $scope = optional_param('scope', 'all', PARAM_ALPHA);
 $includesystem = optional_param('include_system', 0, PARAM_BOOL);
@@ -60,6 +61,7 @@ if (!in_array($scope, $allowedscopes, true)) {
 }
 $coursecategoryid = max(0, (int)$coursecategoryid);
 $courseid = max(0, (int)$courseid);
+$coursesearch = trim((string)$coursesearch);
 $cmid = max(0, (int)$cmid);
 
 // ----------------------------------------------------------------------
@@ -85,6 +87,27 @@ $coursecategories = local_question_diagnostic_get_course_categories();
 $coursesincategory = [];
 if ($coursecategoryid > 0) {
     $coursesincategory = local_question_diagnostic_get_courses_in_category_recursive($coursecategoryid);
+}
+
+$courseoptions = [];
+if (!empty($coursesincategory)) {
+    foreach ($coursesincategory as $c) {
+        $courseoptions[(int)$c->id] = format_string($c->shortname) . ' — ' . format_string($c->fullname);
+    }
+    asort($courseoptions);
+} else if ($coursesearch !== '' && core_text::strlen($coursesearch) >= 2) {
+    // Recherche globale (limite) si on ne passe pas par une catégorie de cours.
+    $like = '%' . $DB->sql_like_escape($coursesearch) . '%';
+    $sql = "SELECT id, fullname, shortname
+              FROM {course}
+             WHERE id <> :siteid
+               AND (" . $DB->sql_like('fullname', ':q', false, false) . "
+                    OR " . $DB->sql_like('shortname', ':q', false, false) . ")
+          ORDER BY fullname ASC";
+    $records = $DB->get_records_sql($sql, ['siteid' => SITEID, 'q' => $like], 0, 50);
+    foreach ($records as $c) {
+        $courseoptions[(int)$c->id] = format_string($c->shortname) . ' — ' . format_string($c->fullname);
+    }
 }
 
 $baseurl = new moodle_url('/local/question_diagnostic/categories_by_context.php');
@@ -123,43 +146,36 @@ foreach ($coursecategories as $cc) {
 echo html_writer::end_tag('select');
 echo html_writer::end_div();
 
-// Courseid (manuel).
+// Recherche de cours (si on ne veut pas saisir un ID).
 echo html_writer::start_div('qd-filter-group');
-echo html_writer::tag('label', get_string('tool_categories_by_context_courseid', 'local_question_diagnostic'), ['for' => 'qd-courseid']);
+echo html_writer::tag('label', get_string('tool_categories_by_context_course_search', 'local_question_diagnostic'), ['for' => 'qd-course-search']);
 echo html_writer::empty_tag('input', [
-    'type' => 'number',
-    'min' => 0,
-    'id' => 'qd-courseid',
-    'name' => 'courseid',
-    'value' => $courseid,
+    'type' => 'text',
+    'id' => 'qd-course-search',
+    'name' => 'course_search',
+    'value' => $coursesearch,
     'class' => 'form-control',
-    'placeholder' => 'ex: 42',
+    'placeholder' => get_string('tool_categories_by_context_course_search_placeholder', 'local_question_diagnostic'),
 ]);
 echo html_writer::end_div();
 
-// Liste de cours (si catégorie de cours sélectionnée).
+// Sélection du cours.
 echo html_writer::start_div('qd-filter-group');
-echo html_writer::tag('label', get_string('tool_categories_by_context_course_select', 'local_question_diagnostic'), ['for' => 'qd-course-select']);
+echo html_writer::tag('label', get_string('tool_categories_by_context_course', 'local_question_diagnostic'), ['for' => 'qd-courseid']);
 echo html_writer::start_tag('select', [
-    'id' => 'qd-course-select',
+    'id' => 'qd-courseid',
+    'name' => 'courseid',
     'class' => 'form-control',
 ]);
-echo html_writer::tag('option', get_string('tool_categories_by_context_course_select_placeholder', 'local_question_diagnostic'), ['value' => 0]);
-if (!empty($coursesincategory)) {
-    $courseoptions = [];
-    foreach ($coursesincategory as $c) {
-        $courseoptions[(int)$c->id] = format_string($c->fullname);
-    }
-    asort($courseoptions);
-    foreach ($courseoptions as $cid => $label) {
-        echo html_writer::tag('option', $label . ' (ID: ' . (int)$cid . ')', [
-            'value' => (int)$cid,
-            'selected' => ($courseid === (int)$cid),
-        ]);
-    }
+echo html_writer::tag('option', get_string('tool_categories_by_context_course_placeholder', 'local_question_diagnostic'), ['value' => 0]);
+foreach ($courseoptions as $cid => $label) {
+    echo html_writer::tag('option', $label, [
+        'value' => (int)$cid,
+        'selected' => ($courseid === (int)$cid),
+    ]);
 }
 echo html_writer::end_tag('select');
-echo html_writer::tag('div', get_string('tool_categories_by_context_course_select_help', 'local_question_diagnostic'), [
+echo html_writer::tag('div', get_string('tool_categories_by_context_course_help', 'local_question_diagnostic'), [
     'style' => 'margin-top: 6px; font-size: 12px; color: #666;',
 ]);
 echo html_writer::end_div();
@@ -254,18 +270,36 @@ echo html_writer::end_div(); // qd-filters-row
 echo html_writer::start_tag('script');
 ?>
 (function() {
-  var select = document.getElementById('qd-course-select');
-  var input = document.getElementById('qd-courseid');
-  if (!select || !input) { return; }
-  select.addEventListener('change', function() {
-    var v = parseInt(select.value || '0', 10);
-    if (v > 0) {
-      input.value = String(v);
-      if (select.form) {
-        select.form.submit();
+  var form = document.querySelector('form.qd-filters');
+  if (!form) { return; }
+
+  var courseCategory = document.getElementById('qd-course-category');
+  var courseId = document.getElementById('qd-courseid');
+  var courseSearch = document.getElementById('qd-course-search');
+
+  if (courseCategory) {
+    courseCategory.addEventListener('change', function() {
+      // Quand on change de catégorie de cours, on recharge la page pour remplir la liste.
+      if (form) { form.submit(); }
+    });
+  }
+
+  if (courseId) {
+    courseId.addEventListener('change', function() {
+      if (parseInt(courseId.value || '0', 10) > 0 && form) {
+        form.submit();
       }
-    }
-  });
+    });
+  }
+
+  if (courseSearch) {
+    courseSearch.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (form) { form.submit(); }
+      }
+    });
+  }
 })();
 <?php
 echo html_writer::end_tag('script');

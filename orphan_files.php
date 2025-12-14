@@ -83,6 +83,10 @@ echo html_writer::tag('h2', '📊 ' . get_string('orphan_files_stats', 'local_qu
 
 $globalstats = orphan_file_detector::get_global_stats();
 
+// Charger la liste des orphelins (utilisée par l'analyse + le tableau).
+// Important: on doit la récupérer AVANT l'analyse de réparabilité.
+$orphan_files = orphan_file_detector::get_orphan_files(true, 1000);
+
 echo html_writer::start_tag('div', ['class' => 'qd-dashboard']);
 
 // Carte 1 : Total fichiers orphelins
@@ -241,8 +245,6 @@ echo html_writer::end_tag('div');
 // ======================================================================
 
 echo html_writer::tag('h3', '🗑️ ' . get_string('orphan_files', 'local_question_diagnostic'), ['style' => 'margin-top: 30px;']);
-
-$orphan_files = orphan_file_detector::get_orphan_files(true, 1000);
 
 // Afficher un avertissement si limite atteinte
 if (count($orphan_files) >= 1000) {
