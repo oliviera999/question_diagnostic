@@ -2312,56 +2312,71 @@ class question_analyzer {
         global $DB;
 
         try {
-            // 🔧 v1.11.21 : Détection d’usage plus complète.
-            // Moodle 4.5+ : question_references (tous composants/areas)
-            // Moodle 4.0-4.4 : quiz_slots et/ou question_attempts en fallback.
+            // 🔧 v1.12.x : IMPORTANT (Moodle 4.x) — Les questions sont versionnées.
+            // Une "question logique" = question_bank_entries (QBE) ; plusieurs enregistrements existent dans {question}.
+            //
+            // L’ancien calcul en {question}.id pouvait classer à tort comme "inutilisée" une version
+            // alors que l’entrée QBE est bien référencée (ex: quiz qui pointe l’entrée, puis question éditée).
+            //
+            // Solution : calculer l’inutilisation AU NIVEAU DES ENTRÉES (QBE), puis afficher la dernière version.
             $dbman = $DB->get_manager();
 
+            if (!$dbman->table_exists('question_bank_entries') || !$dbman->table_exists('question_versions')) {
+                // Architecture non attendue (pré-4.0) : on force le fallback PHP plus bas.
+                throw new \moodle_exception('missingquestionbanktables', 'local_question_diagnostic');
+            }
+
+            // 1) Déterminer les entrées de questions "utilisées" (références déclaratives ou quiz_slots en fallback).
+            $used_entries_sql = null;
+
             if ($dbman->table_exists('question_references')) {
-                // Références = usages déclaratifs (quiz, leçon, etc.)
-                $used_questions_sql = "SELECT DISTINCT qv.questionid
-                                     FROM {question_references} qr
-                                     INNER JOIN {question_bank_entries} qbe ON qbe.id = qr.questionbankentryid
-                                     INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
-                                         AND qv.version = (
-                                             SELECT MAX(v.version)
-                                             FROM {question_versions} v
-                                             WHERE v.questionbankentryid = qbe.id
-                                         )";
+                // Moodle 4.5+ : usages déclaratifs (quiz, leçon, etc.) au niveau de l’entrée.
+                $used_entries_sql = "SELECT DISTINCT qr.questionbankentryid AS entryid
+                                       FROM {question_references} qr";
             } else {
-                // Fallback : détecter l'architecture quiz_slots (Moodle 4.0-4.4).
-                $columns = $DB->get_columns('quiz_slots');
-                if (isset($columns['questionbankentryid'])) {
-                    // Moodle 4.1-4.4 : utilise questionbankentryid
-                    $used_questions_sql = "SELECT DISTINCT qv.questionid
-                                         FROM {quiz_slots} qs
-                                         INNER JOIN {question_bank_entries} qbe ON qbe.id = qs.questionbankentryid
-                                         INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id";
-                } elseif (isset($columns['questionid'])) {
-                    // Moodle 4.0 : utilise questionid directement
-                    $used_questions_sql = "SELECT DISTINCT qs.questionid
-                                         FROM {quiz_slots} qs";
-                } else {
-                    // Worst-case fallback : aucun slot exploitable, on retourne "toutes" (puis filtrage plus bas via attempts).
-                    $used_questions_sql = "SELECT 0 AS questionid";
+                // Moodle 4.0-4.4 : fallback via quiz_slots (selon colonnes).
+                if ($dbman->table_exists('quiz_slots')) {
+                    $columns = $DB->get_columns('quiz_slots');
+                    if (isset($columns['questionbankentryid'])) {
+                        // Moodle 4.1-4.4 : qs.questionbankentryid.
+                        $used_entries_sql = "SELECT DISTINCT qs.questionbankentryid AS entryid
+                                               FROM {quiz_slots} qs
+                                              WHERE qs.questionbankentryid IS NOT NULL";
+                    } else if (isset($columns['questionid'])) {
+                        // Moodle 4.0 : qs.questionid (mapper vers entrée via question_versions).
+                        $used_entries_sql = "SELECT DISTINCT qv.questionbankentryid AS entryid
+                                               FROM {quiz_slots} qs
+                                               JOIN {question_versions} qv ON qv.questionid = qs.questionid";
+                    }
                 }
             }
-            
-            // Ajouter les questions utilisées dans les tentatives
-            $used_in_attempts_sql = "SELECT DISTINCT qa.questionid
-                                    FROM {question_attempts} qa";
-            
-            // Récupérer les questions NON utilisées (avec limite et offset)
-            $unused_sql = "SELECT * 
-                          FROM {question} q
-                          WHERE q.id NOT IN ($used_questions_sql)
-                          AND q.id NOT IN ($used_in_attempts_sql)
-                          ORDER BY q.id DESC";
-            
-            // Utiliser get_records_sql avec limit et offset
-            $unused_questions = $DB->get_records_sql($unused_sql, [], $offset, $limit);
-            
-            return $unused_questions;
+
+            if (empty($used_entries_sql)) {
+                // Worst-case : pas de source d'usage déclaratif. On ne bloquera que via tentatives.
+                $used_entries_sql = "SELECT 0 AS entryid";
+            }
+
+            // 2) Entrées "utilisées" via tentatives (les tentatives pointent une version {question}.id).
+            $used_entries_in_attempts_sql = "SELECT DISTINCT qv.questionbankentryid AS entryid
+                                               FROM {question_attempts} qa
+                                               JOIN {question_versions} qv ON qv.questionid = qa.questionid";
+
+            // 3) Entrées "inutilisées" = pas de référence + pas de tentative.
+            //    Puis on renvoie la DERNIÈRE version (MAX(version)) pour affichage.
+            $unused_sql = "SELECT q.*
+                             FROM {question_bank_entries} qbe
+                             JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+                             JOIN {question} q ON q.id = qv.questionid
+                            WHERE qv.version = (
+                                    SELECT MAX(v.version)
+                                      FROM {question_versions} v
+                                     WHERE v.questionbankentryid = qbe.id
+                                  )
+                              AND qbe.id NOT IN ($used_entries_sql)
+                              AND qbe.id NOT IN ($used_entries_in_attempts_sql)
+                         ORDER BY q.id DESC";
+
+            return $DB->get_records_sql($unused_sql, [], $offset, $limit);
             
         } catch (\Exception $e) {
             debugging('Erreur lors de la récupération des questions inutilisées : ' . $e->getMessage(), DEBUG_DEVELOPER);
