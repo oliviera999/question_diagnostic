@@ -954,6 +954,58 @@ function local_question_diagnostic_find_olution_category() {
         ], 'sortorder ASC, id ASC', '*', 0, 1);
         $system_root_category = $roots ? reset($roots) : false;
         $system_top_id = $system_root_category ? (int)$system_root_category->id : 0;
+
+        // ----------------------------------------------------------------------------------
+        // RÈGLE PRIORITAIRE (robuste) : si on trouve une catégorie nommée exactement "commun"
+        // dans le contexte système, alors son parent est un candidat "Olution" extrêmement probable.
+        //
+        // Cela corrige le cas fréquent où plusieurs catégories "Olution" existent au niveau système,
+        // dont certaines sont vides / de test, et où la "vraie" arborescence est celle qui contient "commun".
+        // ----------------------------------------------------------------------------------
+        try {
+            $communpattern = '%commun%';
+            $sqlcommun = "SELECT id, name, parent, contextid
+                            FROM {question_categories}
+                           WHERE contextid = :ctxid
+                             AND " . $DB->sql_like('name', ':pattern', false, false);
+            $communrecs = $DB->get_records_sql($sqlcommun, [
+                'ctxid' => (int)$systemcontext->id,
+                'pattern' => $communpattern,
+            ]);
+
+            $bestparent = null;
+            $bestparentscore = 0;
+            foreach ($communrecs as $rec) {
+                if (empty($rec->parent) || (int)$rec->parent <= 0) {
+                    continue;
+                }
+                if ($normalize((string)$rec->name) !== 'commun') {
+                    continue;
+                }
+
+                $parent = $DB->get_record('question_categories', ['id' => (int)$rec->parent], '*', IGNORE_MISSING);
+                if (!$parent || (int)$parent->contextid !== (int)$systemcontext->id) {
+                    continue;
+                }
+
+                // Bonus massif pour "parent de commun".
+                $score = $scorecategory($parent) + 1000;
+                if ($bestparent === null || $score > $bestparentscore) {
+                    $bestparent = $parent;
+                    $bestparentscore = $score;
+                }
+            }
+
+            if ($bestparent) {
+                local_question_diagnostic_debug_log(
+                    '✅ Found system \"commun\"; selecting its parent as Olution candidate (ID: ' . (int)$bestparent->id . ', score=' . (int)$bestparentscore . ')',
+                    DEBUG_DEVELOPER
+                );
+                $systemcandidate = $bestparent;
+            }
+        } catch (\Exception $e) {
+            // Si la recherche échoue, on continue avec les heuristiques existantes.
+        }
         
         // ==================================================================================
         // PRIORITÉ 1 : Nom EXACT "Olution" (case-sensitive) au niveau SYSTÈME
@@ -970,6 +1022,11 @@ function local_question_diagnostic_find_olution_category() {
 
         // Encapsuler la phase 1 pour pouvoir en sortir sans return().
         do {
+            // Si on a déjà un candidat robuste via \"commun\", on évite de l'écraser.
+            if ($systemcandidate) {
+                break;
+            }
+
             $records = $DB->get_records_sql($sql, [
                 'contextid' => $systemcontext->id,
                 'name' => 'Olution',
