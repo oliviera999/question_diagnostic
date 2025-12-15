@@ -114,6 +114,14 @@ if (!empty($coursesincategory)) {
 }
 
 $baseurl = new moodle_url('/local/question_diagnostic/categories_by_context.php');
+$returnurl = new moodle_url('/local/question_diagnostic/categories_by_context.php', [
+    'course_category' => $coursecategoryid,
+    'courseid' => $courseid,
+    'course_search' => $coursesearch,
+    'cmid' => $cmid,
+    'scope' => $scope,
+    'include_system' => $includesystem ? 1 : 0,
+]);
 
 echo html_writer::start_tag('form', [
     'method' => 'get',
@@ -634,6 +642,76 @@ foreach ($contextids as $ctxid) {
     $contextlabels[(int)$ctxid] = $details->context_name;
 }
 
+// ----------------------------------------------------------------------
+// Options de déplacement (nouveau parent) par contexte
+// ----------------------------------------------------------------------
+// On construit une liste "plate" des catégories disponibles comme parent, par contexte,
+// avec indentation. Le déplacement de catégorie est limité au même contexte par Moodle.
+$categoriesbyid = $categories; // map id => record
+$childrenbycontext = [];
+foreach ($categories as $cat) {
+    $ctxid = (int)$cat->contextid;
+    if (!isset($childrenbycontext[$ctxid])) {
+        $childrenbycontext[$ctxid] = [];
+    }
+    $parentid = (int)$cat->parent;
+    if (!isset($childrenbycontext[$ctxid][$parentid])) {
+        $childrenbycontext[$ctxid][$parentid] = [];
+    }
+    $childrenbycontext[$ctxid][$parentid][] = (int)$cat->id;
+}
+// Tri stable par sortorder puis id (approx) : on réutilise l'ordre déjà trié en SQL,
+// mais on sécurise quand même.
+foreach ($childrenbycontext as $ctxid => $map) {
+    foreach ($map as $pid => $ids) {
+        sort($childrenbycontext[$ctxid][$pid]);
+    }
+}
+
+$build_flat_options = function(int $contextid) use (&$build_flat_options, &$childrenbycontext, &$categoriesbyid): array {
+    $options = [];
+
+    // Option racine (parent=0).
+    $options[0] = get_string('tool_categories_by_context_move_root', 'local_question_diagnostic');
+
+    $walk = function(int $parentid, int $depth) use (&$walk, &$options, $contextid, &$childrenbycontext, &$categoriesbyid): void {
+        if (empty($childrenbycontext[$contextid][$parentid])) {
+            return;
+        }
+        foreach ($childrenbycontext[$contextid][$parentid] as $cid) {
+            if (!isset($categoriesbyid[$cid])) {
+                continue;
+            }
+            $cat = $categoriesbyid[$cid];
+            $prefix = str_repeat('— ', max(0, $depth));
+            $options[(int)$cid] = $prefix . format_string($cat->name) . ' (ID: ' . (int)$cid . ')';
+            $walk((int)$cid, $depth + 1);
+        }
+    };
+
+    $walk(0, 0);
+    return $options;
+};
+
+$moveparentoptionsbycontext = [];
+foreach ($contextids as $ctxid) {
+    $moveparentoptionsbycontext[(int)$ctxid] = $build_flat_options((int)$ctxid);
+}
+
+$get_descendants = function(int $catid, int $contextid) use (&$get_descendants, &$childrenbycontext): array {
+    $result = [];
+    if (empty($childrenbycontext[$contextid][$catid])) {
+        return $result;
+    }
+    foreach ($childrenbycontext[$contextid][$catid] as $childid) {
+        $result[$childid] = true;
+        foreach ($get_descendants((int)$childid, $contextid) as $d => $_) {
+            $result[(int)$d] = true;
+        }
+    }
+    return $result;
+};
+
 foreach ($filtered as $cat) {
     $cid = (int)$cat->id;
     $subcats = !empty($children[$cid]) ? count($children[$cid]) : 0;
@@ -672,6 +750,62 @@ foreach ($filtered as $cat) {
     } else {
         echo html_writer::tag('span', '-', ['class' => 'text-muted']);
     }
+
+    // Déplacer la catégorie (changer de parent) : sélecteur + confirmation via actions/move.php.
+    $ctxid = (int)$cat->contextid;
+    $options = $moveparentoptionsbycontext[$ctxid] ?? [];
+    if (!empty($options)) {
+        // Ne jamais proposer comme parent la catégorie elle-même ni ses descendants (évite les boucles).
+        $invalid = $get_descendants($cid, $ctxid);
+        $invalid[$cid] = true;
+
+        $actionurl = new moodle_url('/local/question_diagnostic/actions/move.php');
+        echo html_writer::start_tag('form', [
+            'method' => 'get',
+            'action' => $actionurl->out(false),
+            'style' => 'display:inline-flex; gap:6px; align-items:center; margin-left: 8px;',
+        ]);
+        echo html_writer::empty_tag('input', [
+            'type' => 'hidden',
+            'name' => 'id',
+            'value' => $cid,
+        ]);
+        echo html_writer::empty_tag('input', [
+            'type' => 'hidden',
+            'name' => 'returnurl',
+            'value' => $returnurl->out(false),
+        ]);
+        echo html_writer::empty_tag('input', [
+            'type' => 'hidden',
+            'name' => 'sesskey',
+            'value' => sesskey(),
+        ]);
+
+        echo html_writer::start_tag('select', [
+            'name' => 'parent',
+            'class' => 'form-control form-control-sm',
+            'title' => get_string('tool_categories_by_context_move_to', 'local_question_diagnostic'),
+            'style' => 'max-width: 260px;',
+        ]);
+        foreach ($options as $pid => $label) {
+            if (!empty($invalid[(int)$pid])) {
+                continue;
+            }
+            echo html_writer::tag('option', $label, [
+                'value' => (int)$pid,
+                'selected' => ((int)$cat->parent === (int)$pid),
+            ]);
+        }
+        echo html_writer::end_tag('select');
+
+        echo html_writer::tag('button', get_string('move', 'local_question_diagnostic'), [
+            'type' => 'submit',
+            'class' => 'btn btn-sm btn-primary',
+            'title' => get_string('tool_categories_by_context_move_button_help', 'local_question_diagnostic'),
+        ]);
+        echo html_writer::end_tag('form');
+    }
+
     echo html_writer::end_tag('td');
 
     echo html_writer::end_tag('tr');

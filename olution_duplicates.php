@@ -197,7 +197,38 @@ $duplicate_groups = olution_manager::find_all_duplicates_for_olution_paginated($
 echo html_writer::tag('h3', get_string('olution_duplicates_list', 'local_question_diagnostic'));
 
 if (!empty($duplicate_groups)) {
+    // Formulaire global pour déplacer une sélection de questions (multi-sélection).
+    $move_selected_url = new moodle_url('/local/question_diagnostic/actions/move_to_olution.php', [
+        'action' => 'move_selected',
+        'sesskey' => sesskey(),
+    ]);
+    echo html_writer::start_tag('form', [
+        'method' => 'post',
+        'action' => $move_selected_url->out(false),
+        'id' => 'qd-olution-move-selected-form',
+    ]);
+    echo html_writer::empty_tag('input', [
+        'type' => 'hidden',
+        'name' => 'sesskey',
+        'value' => sesskey(),
+    ]);
+
+    // Barre d'action sélection.
+    echo html_writer::start_div('mb-3');
+    echo html_writer::tag('strong', get_string('selected_questions', 'local_question_diagnostic') . ': ', ['class' => 'mr-1']);
+    echo html_writer::tag('span', '0', ['id' => 'qd-olution-selected-count']);
+    echo ' ';
+    echo html_writer::empty_tag('input', [
+        'type' => 'submit',
+        'value' => get_string('move_selected_button', 'local_question_diagnostic'),
+        'class' => 'btn btn-primary btn-sm ml-2',
+        'id' => 'qd-olution-move-selected-btn',
+        'disabled' => 'disabled',
+    ]);
+    echo html_writer::end_div();
+
     foreach ($duplicate_groups as $group) {
+        $groupid = 'g' . md5($group['group_name'] . '|' . $group['group_type']);
         // Afficher le groupe
         echo html_writer::start_div('card mb-3');
         echo html_writer::start_div('card-header bg-light');
@@ -208,12 +239,29 @@ if (!empty($duplicate_groups)) {
         echo html_writer::tag('span', $group['olution_count'] . ' dans Olution', ['class' => 'badge badge-success']);
         echo ' ';
         echo html_writer::tag('span', $group['non_olution_count'] . ' hors Olution', ['class' => 'badge badge-warning']);
+
+        // Sélectionner tout le groupe (uniquement les lignes déplaçables).
+        echo html_writer::empty_tag('br');
+        echo html_writer::tag('label',
+            html_writer::empty_tag('input', [
+                'type' => 'checkbox',
+                'class' => 'qd-olution-select-group',
+                'data-group' => $groupid,
+            ]) . ' ' . get_string('select_group', 'local_question_diagnostic'),
+            ['class' => 'small text-muted']
+        );
         
         // Catégorie cible (plus profonde)
         if ($group['target_category']) {
             echo html_writer::empty_tag('br');
             echo '🎯 Catégorie cible (profondeur ' . $group['target_depth'] . ') : ';
-            echo html_writer::tag('strong', format_string($group['target_category']->name));
+            $targetcrumb = local_question_diagnostic_get_question_category_breadcrumb((int)$group['target_category']->id);
+            $targeturl = local_question_diagnostic_get_question_bank_url($group['target_category']);
+            if ($targeturl) {
+                echo html_writer::link($targeturl, html_writer::tag('strong', $targetcrumb), ['target' => '_blank']);
+            } else {
+                echo html_writer::tag('strong', $targetcrumb);
+            }
         }
         echo html_writer::end_div();
         
@@ -222,11 +270,13 @@ if (!empty($duplicate_groups)) {
         echo html_writer::start_tag('table', ['class' => 'table table-sm table-striped']);
         echo html_writer::start_tag('thead');
         echo html_writer::start_tag('tr');
-        echo html_writer::tag('th', 'ID');
-        echo html_writer::tag('th', 'Catégorie actuelle');
-        echo html_writer::tag('th', 'Dans Olution?');
-        echo html_writer::tag('th', 'Profondeur');
-        echo html_writer::tag('th', 'Action');
+        echo html_writer::tag('th', get_string('select', 'local_question_diagnostic'));
+        echo html_writer::tag('th', get_string('question_id', 'local_question_diagnostic'));
+        echo html_writer::tag('th', get_string('question_name', 'local_question_diagnostic'));
+        echo html_writer::tag('th', get_string('context', 'local_question_diagnostic'));
+        echo html_writer::tag('th', get_string('current_category_path', 'local_question_diagnostic'));
+        echo html_writer::tag('th', get_string('olution_target_category', 'local_question_diagnostic'));
+        echo html_writer::tag('th', get_string('actions', 'local_question_diagnostic'));
         echo html_writer::end_tag('tr');
         echo html_writer::end_tag('thead');
         echo html_writer::start_tag('tbody');
@@ -243,23 +293,79 @@ if (!empty($duplicate_groups)) {
             }
             
             echo html_writer::start_tag('tr', ['class' => $row_class]);
-            
-            echo html_writer::tag('td', $q->id);
-            echo html_writer::tag('td', format_string($cat->name) . ' (ID: ' . $cat->id . ')');
-            echo html_writer::tag('td', $in_olution ? '✅ Oui' : '❌ Non');
-            echo html_writer::tag('td', $depth);
+
+            $canmove = (!$in_olution && $group['target_category'] && $cat->id != $group['target_category']->id);
+            $opvalue = '';
+            if ($canmove) {
+                $opvalue = (int)$q->id . ':' . (int)$group['target_category']->id;
+            }
+            echo html_writer::start_tag('td');
+            if ($canmove) {
+                echo html_writer::empty_tag('input', [
+                    'type' => 'checkbox',
+                    'name' => 'ops[]',
+                    'value' => $opvalue,
+                    'class' => 'qd-olution-op-checkbox',
+                    'data-group' => $groupid,
+                ]);
+            } else {
+                echo '-';
+            }
+            echo html_writer::end_tag('td');
+
+            echo html_writer::tag('td', (int)$q->id);
+
+            // Question cliquable : ouverture de la banque de questions à l'emplacement (catégorie + qid).
+            $qname = format_string($q->name);
+            $qurl = local_question_diagnostic_get_question_bank_url($cat, (int)$q->id);
+            if ($qurl) {
+                echo html_writer::tag('td', html_writer::link($qurl, $qname, ['target' => '_blank']));
+            } else {
+                echo html_writer::tag('td', $qname);
+            }
+
+            // Contexte.
+            $ctx = local_question_diagnostic_get_context_details((int)$cat->contextid);
+            echo html_writer::tag('td', s($ctx->context_name));
+
+            // Catégorie actuelle (chemin).
+            $crumb = local_question_diagnostic_get_question_category_breadcrumb((int)$cat->id);
+            $caturl = local_question_diagnostic_get_question_bank_url($cat);
+            $catlabel = $crumb . ' (ID: ' . (int)$cat->id . ')';
+            if ($caturl) {
+                echo html_writer::tag('td', html_writer::link($caturl, s($catlabel), ['target' => '_blank']));
+            } else {
+                echo html_writer::tag('td', s($catlabel));
+            }
+
+            // Cible Olution (chemin).
+            echo html_writer::start_tag('td');
+            if (!empty($group['target_category'])) {
+                $tcat = $group['target_category'];
+                $tcrumb = local_question_diagnostic_get_question_category_breadcrumb((int)$tcat->id);
+                $turl = local_question_diagnostic_get_question_bank_url($tcat);
+                if ($turl) {
+                    echo html_writer::link($turl, s($tcrumb . ' (ID: ' . (int)$tcat->id . ')'), ['target' => '_blank']);
+                } else {
+                    echo s($tcrumb . ' (ID: ' . (int)$tcat->id . ')');
+                }
+            } else {
+                echo '-';
+            }
+            echo html_writer::end_tag('td');
             
             // Action : déplacer vers catégorie cible (uniquement si la question est hors Olution)
             echo html_writer::start_tag('td');
-            if (!$in_olution && $group['target_category'] && $cat->id != $group['target_category']->id) {
+            if ($canmove) {
                 $move_url = new moodle_url('/local/question_diagnostic/actions/move_to_olution.php', [
+                    'action' => 'move_one',
                     'questionid' => $q->id,
                     'targetcatid' => $group['target_category']->id,
                     'sesskey' => sesskey()
                 ]);
                 echo html_writer::link(
                     $move_url,
-                    'Déplacer →',
+                    get_string('move', 'local_question_diagnostic') . ' →',
                     ['class' => 'btn btn-sm btn-primary']
                 );
             } else if ($cat->id == $group['target_category']->id) {
@@ -279,6 +385,36 @@ if (!empty($duplicate_groups)) {
         echo html_writer::end_div(); // card-body
         echo html_writer::end_div(); // card
     }
+
+    // Fin formulaire global.
+    echo html_writer::end_tag('form');
+
+    // JS minimal pour comptage + sélection par groupe.
+    echo html_writer::tag('script', "
+        (function() {
+            var countEl = document.getElementById('qd-olution-selected-count');
+            var btn = document.getElementById('qd-olution-move-selected-btn');
+            function update() {
+                var checked = document.querySelectorAll('.qd-olution-op-checkbox:checked').length;
+                if (countEl) { countEl.textContent = String(checked); }
+                if (btn) { btn.disabled = checked === 0; }
+            }
+            document.addEventListener('change', function(e) {
+                var t = e.target;
+                if (!t) return;
+                if (t.classList && t.classList.contains('qd-olution-op-checkbox')) {
+                    update();
+                }
+                if (t.classList && t.classList.contains('qd-olution-select-group')) {
+                    var group = t.getAttribute('data-group');
+                    var boxes = document.querySelectorAll('.qd-olution-op-checkbox[data-group=\"' + group + '\"]');
+                    for (var i=0; i<boxes.length; i++) { boxes[i].checked = t.checked; }
+                    update();
+                }
+            });
+            update();
+        })();
+    ", ['type' => 'text/javascript']);
     
     // Pagination
     if ($totalgroups > $perpage) {

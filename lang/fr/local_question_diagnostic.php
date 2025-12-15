@@ -48,9 +48,19 @@ $string['actions'] = 'Actions';
 $string['delete'] = 'Supprimer';
 $string['merge'] = 'Fusionner';
 $string['move'] = 'Déplacer';
+$string['move_root_parent'] = 'Racine (parent=0)';
 $string['export'] = 'Exporter en CSV';
 $string['bulkdelete'] = 'Supprimer la sélection';
 $string['selectall'] = 'Tout sélectionner';
+$string['select'] = 'Sélection';
+$string['selected_questions'] = 'Questions sélectionnées';
+$string['select_group'] = 'Sélectionner ce groupe';
+
+$string['current_category_path'] = 'Emplacement (catégorie)';
+$string['move_selected_button'] = 'Déplacer la sélection';
+$string['no_selected_questions'] = 'Aucune question sélectionnée';
+$string['confirm_move_selected_to_olution'] = 'Confirmer le déplacement de la sélection vers Olution';
+$string['move_selected_warning'] = 'Cette action va déplacer les questions sélectionnées vers leurs catégories Olution cibles. Vérifiez la liste avant de confirmer.';
 
 // Messages
 $string['deleteconfirm'] = 'Êtes-vous sûr de vouloir supprimer cette catégorie ?';
@@ -658,4 +668,7 @@ $string['tool_categories_by_context_total'] = 'Total (arbre)';
 $string['tool_categories_by_context_total_help'] = 'Nombre d’entrées de questions dans cette catégorie + toutes ses sous-catégories (récursif).';
 $string['tool_categories_by_context_visible_direct'] = 'Visibles (direct)';
 $string['tool_categories_by_context_visible_total'] = 'Visibles (arbre)';
+$string['tool_categories_by_context_move_root'] = '— Racine (parent = 0) —';
+$string['tool_categories_by_context_move_to'] = 'Déplacer la catégorie vers un nouveau parent (même contexte)';
+$string['tool_categories_by_context_move_button_help'] = 'Déplace la catégorie (change son parent). Une confirmation sera demandée.';
 

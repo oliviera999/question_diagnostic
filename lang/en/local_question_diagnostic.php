@@ -48,9 +48,19 @@ $string['actions'] = 'Actions';
 $string['delete'] = 'Delete';
 $string['merge'] = 'Merge';
 $string['move'] = 'Move';
+$string['move_root_parent'] = 'Root (parent=0)';
 $string['export'] = 'Export to CSV';
 $string['bulkdelete'] = 'Delete selection';
 $string['selectall'] = 'Select all';
+$string['select'] = 'Select';
+$string['selected_questions'] = 'Selected questions';
+$string['select_group'] = 'Select this group';
+
+$string['current_category_path'] = 'Location (category)';
+$string['move_selected_button'] = 'Move selected';
+$string['no_selected_questions'] = 'No questions selected';
+$string['confirm_move_selected_to_olution'] = 'Confirm moving the selected questions to Olution';
+$string['move_selected_warning'] = 'This action will move the selected questions into their target Olution categories. Review the list before confirming.';
 
 // Messages
 $string['deleteconfirm'] = 'Are you sure you want to delete this category?';
@@ -658,4 +668,7 @@ $string['tool_categories_by_context_total'] = 'Total (tree)';
 $string['tool_categories_by_context_total_help'] = 'Number of question bank entries in this category + all its subcategories (recursive).';
 $string['tool_categories_by_context_visible_direct'] = 'Visible (direct)';
 $string['tool_categories_by_context_visible_total'] = 'Visible (tree)';
+$string['tool_categories_by_context_move_root'] = '— Root (parent = 0) —';
+$string['tool_categories_by_context_move_to'] = 'Move category to a new parent (same context)';
+$string['tool_categories_by_context_move_button_help'] = 'Moves the category (changes its parent). A confirmation will be required.';
 

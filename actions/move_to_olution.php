@@ -44,9 +44,171 @@ if ($action === 'move_triage_all') {
 }
 
 // Valider explicitement l'action (sécurité + éviter les valeurs inattendues).
-$allowedactions = ['move_one', 'move_all', 'move_triage_all'];
+$allowedactions = ['move_one', 'move_all', 'move_triage_all', 'move_selected'];
 if (!in_array($action, $allowedactions, true)) {
     $action = 'invalid';
+}
+
+// ===========================================================================
+// ACTION : DÉPLACER UNE SÉLECTION DE QUESTIONS (multi-sélection)
+// ===========================================================================
+if ($action === 'move_selected') {
+    $ops = optional_param_array('ops', [], PARAM_RAW);
+
+    // Valider / parser.
+    $operations = [];
+    $seen = [];
+    foreach ($ops as $op) {
+        $op = trim((string)$op);
+        if ($op === '' || !preg_match('/^\d+:\d+$/', $op)) {
+            continue;
+        }
+        list($qid, $tid) = explode(':', $op, 2);
+        $qid = (int)$qid;
+        $tid = (int)$tid;
+        if ($qid <= 0 || $tid <= 0) {
+            continue;
+        }
+        if (isset($seen[$qid])) {
+            continue;
+        }
+        $seen[$qid] = true;
+        $operations[] = [
+            'questionid' => $qid,
+            'target_category_id' => $tid,
+        ];
+    }
+
+    if (empty($operations)) {
+        redirect($return_url, get_string('no_selected_questions', 'local_question_diagnostic'),
+            null, \core\output\notification::NOTIFY_WARNING);
+    }
+
+    // Si pas de confirmation, afficher la page de confirmation avec détails.
+    if (!$confirm) {
+        $PAGE->set_title(get_string('confirm_move_selected_to_olution', 'local_question_diagnostic'));
+        $PAGE->set_heading(get_string('confirm_move_selected_to_olution', 'local_question_diagnostic'));
+
+        echo $OUTPUT->header();
+        echo html_writer::tag('h2', get_string('confirm_move_selected_to_olution', 'local_question_diagnostic'));
+
+        echo html_writer::start_div('alert alert-info');
+        echo html_writer::tag('h4', get_string('move_details', 'local_question_diagnostic'));
+        echo html_writer::tag('p', html_writer::tag('strong', get_string('total_questions_to_move', 'local_question_diagnostic')) . ': ' . count($operations));
+        echo html_writer::end_div();
+
+        // Détails par question.
+        echo html_writer::start_tag('table', ['class' => 'table table-sm table-striped']);
+        echo html_writer::start_tag('thead');
+        echo html_writer::start_tag('tr');
+        echo html_writer::tag('th', get_string('question_id', 'local_question_diagnostic'));
+        echo html_writer::tag('th', get_string('question_name', 'local_question_diagnostic'));
+        echo html_writer::tag('th', get_string('context', 'local_question_diagnostic'));
+        echo html_writer::tag('th', get_string('current_category_path', 'local_question_diagnostic'));
+        echo html_writer::tag('th', get_string('olution_target_category', 'local_question_diagnostic'));
+        echo html_writer::end_tag('tr');
+        echo html_writer::end_tag('thead');
+        echo html_writer::start_tag('tbody');
+
+        foreach ($operations as $op) {
+            $qid = (int)$op['questionid'];
+            $tid = (int)$op['target_category_id'];
+            $question = $DB->get_record('question', ['id' => $qid], 'id,name,qtype', IGNORE_MISSING);
+            $target_category = $DB->get_record('question_categories', ['id' => $tid], 'id,name,contextid', IGNORE_MISSING);
+
+            // Catégorie source.
+            $sql_source_cat = "SELECT qc.*
+                                 FROM {question_categories} qc
+                                 INNER JOIN {question_bank_entries} qbe ON qbe.questioncategoryid = qc.id
+                                 INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+                                WHERE qv.questionid = :questionid
+                                LIMIT 1";
+            $source_category = $DB->get_record_sql($sql_source_cat, ['questionid' => $qid]);
+
+            echo html_writer::start_tag('tr');
+            echo html_writer::tag('td', $qid);
+
+            $qname = $question ? format_string($question->name) : ('#' . $qid);
+            $qcell = $qname;
+            if ($question && $source_category) {
+                $qurl = local_question_diagnostic_get_question_bank_url($source_category, $qid);
+                if ($qurl) {
+                    $qcell = html_writer::link($qurl, $qname, ['target' => '_blank']);
+                }
+            }
+            echo html_writer::tag('td', $qcell);
+
+            if ($source_category) {
+                $ctx = local_question_diagnostic_get_context_details((int)$source_category->contextid);
+                echo html_writer::tag('td', s($ctx->context_name));
+                $crumb = local_question_diagnostic_get_question_category_breadcrumb((int)$source_category->id);
+                echo html_writer::tag('td', s($crumb . ' (ID: ' . (int)$source_category->id . ')'));
+            } else {
+                echo html_writer::tag('td', '-');
+                echo html_writer::tag('td', '-');
+            }
+
+            if ($target_category) {
+                $tcrumb = local_question_diagnostic_get_question_category_breadcrumb((int)$target_category->id);
+                $turl = local_question_diagnostic_get_question_bank_url($target_category);
+                if ($turl) {
+                    echo html_writer::tag('td', html_writer::link($turl, s($tcrumb . ' (ID: ' . (int)$target_category->id . ')'), ['target' => '_blank']));
+                } else {
+                    echo html_writer::tag('td', s($tcrumb . ' (ID: ' . (int)$target_category->id . ')'));
+                }
+            } else {
+                echo html_writer::tag('td', '-');
+            }
+
+            echo html_writer::end_tag('tr');
+        }
+
+        echo html_writer::end_tag('tbody');
+        echo html_writer::end_tag('table');
+
+        // Avertissement.
+        echo html_writer::start_div('alert alert-danger');
+        echo html_writer::tag('h4', '⚠️ ' . get_string('warning', 'core'));
+        echo html_writer::tag('p', get_string('move_selected_warning', 'local_question_diagnostic'));
+        echo html_writer::end_div();
+
+        // Boutons de confirmation : repost des ops[].
+        echo html_writer::start_tag('form', [
+            'method' => 'post',
+            'action' => (new moodle_url('/local/question_diagnostic/actions/move_to_olution.php'))->out(false),
+        ]);
+        echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'action', 'value' => 'move_selected']);
+        echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'confirm', 'value' => 1]);
+        echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]);
+        foreach ($ops as $opraw) {
+            $opraw = (string)$opraw;
+            echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'ops[]', 'value' => $opraw]);
+        }
+        echo html_writer::empty_tag('input', [
+            'type' => 'submit',
+            'class' => 'btn btn-danger btn-lg mr-2',
+            'value' => get_string('confirm', 'core'),
+        ]);
+        echo html_writer::link($return_url, get_string('cancel', 'core'), ['class' => 'btn btn-secondary btn-lg']);
+        echo html_writer::end_tag('form');
+
+        echo $OUTPUT->footer();
+        exit;
+    }
+
+    // Confirmation donnée : exécuter en batch.
+    $result = olution_manager::move_questions_batch($operations);
+    $message = get_string('move_batch_result', 'local_question_diagnostic', [
+        'success' => $result['success'],
+        'failed' => $result['failed'],
+    ]);
+    if (!empty($result['success']) && empty($result['failed'])) {
+        redirect($return_url, $message, null, \core\output\notification::NOTIFY_SUCCESS);
+    } else if (!empty($result['success'])) {
+        redirect($return_url, $message, null, \core\output\notification::NOTIFY_WARNING);
+    } else {
+        redirect($return_url, $message, null, \core\output\notification::NOTIFY_ERROR);
+    }
 }
 
 // ===========================================================================
@@ -81,37 +243,44 @@ if ($action === 'move_one') {
         
         echo html_writer::tag('h2', get_string('confirm_move_to_olution', 'local_question_diagnostic'));
         
-        // Récupérer les cours source et cible
-        $source_course = null;
-        $target_course = null;
-        
-        if ($source_category) {
-            $source_context = $DB->get_record('context', ['id' => $source_category->contextid]);
-            if ($source_context && $source_context->contextlevel == CONTEXT_COURSE) {
-                $source_course = $DB->get_record('course', ['id' => $source_context->instanceid]);
-            }
-        }
-        
-        $target_context = $DB->get_record('context', ['id' => $target_category->contextid]);
-        if ($target_context && $target_context->contextlevel == CONTEXT_COURSE) {
-            $target_course = $DB->get_record('course', ['id' => $target_context->instanceid]);
-        }
-        
         // Afficher les détails du déplacement
         echo html_writer::start_div('alert alert-info');
         echo html_writer::tag('h4', get_string('move_details', 'local_question_diagnostic'));
-        echo html_writer::tag('p', html_writer::tag('strong', get_string('question', 'question')) . ': ' . 
-                              format_string($question->name) . ' (ID: ' . $question->id . ')');
-        echo html_writer::tag('p', html_writer::tag('strong', get_string('question_type', 'local_question_diagnostic')) . ': ' . 
-                              $question->qtype);
-        if ($source_category && $source_course) {
-            echo html_writer::tag('p', html_writer::tag('strong', get_string('from_course_category', 'local_question_diagnostic')) . ': ' . 
-                                  format_string($source_course->fullname) . ' / ' . format_string($source_category->name));
+        $qname = format_string($question->name) . ' (ID: ' . (int)$question->id . ')';
+        if ($source_category) {
+            $qurl = local_question_diagnostic_get_question_bank_url($source_category, (int)$question->id);
+            if ($qurl) {
+                $qname = html_writer::link($qurl, $qname, ['target' => '_blank']);
+            }
         }
-        if ($target_course) {
-            echo html_writer::tag('p', html_writer::tag('strong', get_string('to_course_category', 'local_question_diagnostic')) . ': ' . 
-                                  format_string($target_course->fullname) . ' / ' . format_string($target_category->name));
+        echo html_writer::tag('p', html_writer::tag('strong', get_string('question', 'question')) . ': ' . $qname);
+        echo html_writer::tag('p', html_writer::tag('strong', get_string('question_type', 'local_question_diagnostic')) . ': ' . s($question->qtype));
+
+        if ($source_category) {
+            $srcctx = local_question_diagnostic_get_context_details((int)$source_category->contextid);
+            $srccrumb = local_question_diagnostic_get_question_category_breadcrumb((int)$source_category->id);
+            $srccaturl = local_question_diagnostic_get_question_bank_url($source_category);
+            $srclabel = $srccrumb . ' (ID: ' . (int)$source_category->id . ')';
+            if ($srccaturl) {
+                $srclabel = html_writer::link($srccaturl, s($srclabel), ['target' => '_blank']);
+            } else {
+                $srclabel = s($srclabel);
+            }
+            echo html_writer::tag('p', html_writer::tag('strong', get_string('from_category', 'local_question_diagnostic')) . ': ' . $srclabel);
+            echo html_writer::tag('p', html_writer::tag('strong', get_string('context', 'local_question_diagnostic')) . ': ' . s($srcctx->context_name));
         }
+
+        $tgtctx = local_question_diagnostic_get_context_details((int)$target_category->contextid);
+        $tgtcrumb = local_question_diagnostic_get_question_category_breadcrumb((int)$target_category->id);
+        $tgturl = local_question_diagnostic_get_question_bank_url($target_category);
+        $tgtlabel = $tgtcrumb . ' (ID: ' . (int)$target_category->id . ')';
+        if ($tgturl) {
+            $tgtlabel = html_writer::link($tgturl, s($tgtlabel), ['target' => '_blank']);
+        } else {
+            $tgtlabel = s($tgtlabel);
+        }
+        echo html_writer::tag('p', html_writer::tag('strong', get_string('to_category', 'local_question_diagnostic')) . ': ' . $tgtlabel);
+        echo html_writer::tag('p', html_writer::tag('strong', get_string('context', 'local_question_diagnostic')) . ': ' . s($tgtctx->context_name));
         echo html_writer::end_div();
         
         // Avertissement

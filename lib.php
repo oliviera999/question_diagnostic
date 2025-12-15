@@ -409,6 +409,128 @@ function local_question_diagnostic_get_question_bank_url($category, $questionid 
 }
 
 /**
+ * Construit un chemin lisible d'une catégorie de questions (breadcrumb) pour l'affichage.
+ *
+ * - Utilise question_categories.path si disponible (Moodle standard)
+ * - Fallback sur la relation parent (parcours) si path absent
+ *
+ * @param int $categoryid
+ * @param string $separator
+ * @return string
+ */
+function local_question_diagnostic_get_question_category_breadcrumb(int $categoryid, string $separator = ' / '): string {
+    global $DB;
+
+    $categoryid = (int)$categoryid;
+    if ($categoryid <= 0) {
+        return '';
+    }
+
+    static $haspath = null;
+    static $pathcache = [];
+    static $namecache = [];
+    static $parentcache = [];
+    static $crumbcache = [];
+
+    $cachekey = $categoryid . '|' . $separator;
+    if (isset($crumbcache[$cachekey])) {
+        return $crumbcache[$cachekey];
+    }
+
+    if ($haspath === null) {
+        try {
+            $cols = $DB->get_columns('question_categories');
+            $haspath = isset($cols['path']);
+        } catch (\Exception $e) {
+            $haspath = false;
+        }
+    }
+
+    // Charger infos minimales.
+    if (!isset($namecache[$categoryid]) || (!isset($parentcache[$categoryid]) && !$haspath)) {
+        $fields = 'id,name,parent';
+        if ($haspath) {
+            $fields .= ',path';
+        }
+        $rec = $DB->get_record('question_categories', ['id' => $categoryid], $fields, IGNORE_MISSING);
+        if (!$rec) {
+            $crumbcache[$cachekey] = '';
+            return '';
+        }
+        $namecache[$categoryid] = (string)$rec->name;
+        $parentcache[$categoryid] = (int)$rec->parent;
+        if ($haspath) {
+            $pathcache[$categoryid] = (string)($rec->path ?? '');
+        }
+    }
+
+    $ids = [];
+
+    if ($haspath && !empty($pathcache[$categoryid])) {
+        // Path du type "/12/34/56".
+        $raw = trim((string)$pathcache[$categoryid]);
+        $parts = array_values(array_filter(explode('/', $raw)));
+        foreach ($parts as $p) {
+            $pid = (int)$p;
+            if ($pid > 0) {
+                $ids[] = $pid;
+            }
+        }
+    } else {
+        // Fallback parent chain.
+        $current = $categoryid;
+        $visited = [];
+        while ($current > 0) {
+            if (isset($visited[$current])) {
+                break;
+            }
+            $visited[$current] = true;
+            $ids[] = $current;
+
+            if (!isset($parentcache[$current])) {
+                $p = $DB->get_record('question_categories', ['id' => $current], 'id,parent,name', IGNORE_MISSING);
+                if (!$p) {
+                    break;
+                }
+                $namecache[$current] = (string)$p->name;
+                $parentcache[$current] = (int)$p->parent;
+            }
+
+            $current = (int)($parentcache[$current] ?? 0);
+        }
+        $ids = array_reverse($ids);
+    }
+
+    // Charger les noms manquants en batch.
+    $missing = [];
+    foreach ($ids as $id) {
+        if (!isset($namecache[$id])) {
+            $missing[] = (int)$id;
+        }
+    }
+    if (!empty($missing)) {
+        $recs = $DB->get_records_list('question_categories', 'id', $missing, '', 'id,name,parent');
+        foreach ($recs as $r) {
+            $namecache[(int)$r->id] = (string)$r->name;
+            $parentcache[(int)$r->id] = (int)$r->parent;
+        }
+    }
+
+    $names = [];
+    foreach ($ids as $id) {
+        $n = $namecache[$id] ?? null;
+        if ($n === null || trim((string)$n) === '') {
+            continue;
+        }
+        $names[] = format_string((string)$n);
+    }
+
+    $crumb = implode($separator, $names);
+    $crumbcache[$cachekey] = $crumb;
+    return $crumb;
+}
+
+/**
  * Generate pagination controls HTML
  * 
  * 🆕 v1.9.30 : Pagination serveur pour gros sites

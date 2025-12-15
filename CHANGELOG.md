@@ -83,6 +83,41 @@ Fichiers :
 - `lib.php`
 - `version.php`
 
+## [1.11.36] - 2025-12-15
+
+### ✨ Amélioration : déplacer une catégorie depuis “Catégories par cours / activité”
+
+- Ajout d’un sélecteur **Nouveau parent** + bouton **Déplacer** sur chaque ligne (avec confirmation Moodle).
+- Retour automatique à la page “Catégories par cours / activité” après confirmation (paramètre `returnurl`).
+
+Fichiers :
+- `categories_by_context.php`
+- `actions/move.php`
+- `lang/fr/local_question_diagnostic.php`
+- `lang/en/local_question_diagnostic.php`
+- `version.php`
+
+## [1.11.37] - 2025-12-15
+
+### ✨ Amélioration : doublons Olution — détails riches + déplacements multi-sélection
+
+- Dans **Liste des doublons détectés** :
+  - affichage du **nom de la question** (cliquable : ouvre la banque de questions au bon contexte)
+  - affichage du **contexte** et du **chemin complet de catégorie**
+  - affichage du **chemin complet de la catégorie cible Olution** (cliquable)
+  - ajout d’une **sélection multiple** (cases à cocher) + bouton **Déplacer la sélection**
+  - “Sélectionner ce groupe” pour cocher rapidement les questions déplaçables d’un groupe
+- Dans **Détails du déplacement** (confirmation) :
+  - affichage du contexte + chemins source/cible, liens vers les catégories
+
+Fichiers :
+- `olution_duplicates.php`
+- `actions/move_to_olution.php`
+- `lib.php`
+- `lang/fr/local_question_diagnostic.php`
+- `lang/en/local_question_diagnostic.php`
+- `version.php`
+
 ## [1.10.9] - 2025-10-14
 
 ### 🎯 CORRECTION FINALE : Olution = Catégorie de QUESTIONS système
