@@ -974,6 +974,33 @@ function local_question_diagnostic_find_olution_category() {
             return false;
         };
 
+        // ------------------------------------------------------------------------------
+        // ANCRAGE (site spécifique) : si une catégorie de questions "commun" est connue par ID,
+        // on peut retrouver la racine Olution via son parent.
+        //
+        // L'utilisateur indique : "commun" a très probablement l'ID 9472 et "olution" est en minuscules.
+        // On ne hardcode pas une dépendance : si l'ID n'existe pas / n'est pas "commun", on ignore.
+        // ------------------------------------------------------------------------------
+        $forcedcommunid = 9472;
+        try {
+            $commun = $DB->get_record('question_categories', ['id' => (int)$forcedcommunid], 'id,name,parent,contextid', IGNORE_MISSING);
+            if ($commun && (int)$commun->parent > 0 && $normalize((string)$commun->name) === 'commun') {
+                $parent = $DB->get_record('question_categories', ['id' => (int)$commun->parent], '*', IGNORE_MISSING);
+                if ($parent && (int)$parent->contextid === (int)$commun->contextid) {
+                    // Vérification stricte : le parent doit bien avoir "commun" comme enfant direct.
+                    if ($has_direct_commun_child((int)$parent->id, (int)$parent->contextid)) {
+                        local_question_diagnostic_debug_log(
+                            '✅ Forced detection via commun ID ' . (int)$forcedcommunid . ' → Olution root ID ' . (int)$parent->id,
+                            DEBUG_DEVELOPER
+                        );
+                        return $parent;
+                    }
+                }
+            }
+        } catch (\Exception $e) {
+            // Ignore: fallback to heuristics.
+        }
+
         $systemcandidate = false;
         $coursecandidate = false;
         $bestcoursescore = 0;
@@ -1259,20 +1286,77 @@ function local_question_diagnostic_find_olution_category() {
         local_question_diagnostic_debug_log('🔄 Trying Phase 2: Search in course category "Olution" for better match', DEBUG_DEVELOPER);
         
         // 1. Rechercher la catégorie de cours "Olution" (ID 78 selon l'utilisateur)
-        $course_category_sql = "SELECT id, name 
-                               FROM {course_categories} 
-                               WHERE " . $DB->sql_like('name', ':pattern', false, false) . "
-                               OR id = 78
-                               ORDER BY CASE WHEN id = 78 THEN 0 ELSE 1 END, " . $DB->sql_position("'Olution'", 'name') . " ASC, LENGTH(name) ASC
-                               LIMIT 1";
-        
-        $olution_course_category = $DB->get_record_sql($course_category_sql, ['pattern' => '%Olution%']);
+        $course_category_sql = "SELECT id, name
+                                  FROM {course_categories}
+                                 WHERE " . $DB->sql_like($DB->sql_lower('name'), ':pattern', false, false) . "
+                                    OR id = 78
+                              ORDER BY CASE WHEN id = 78 THEN 0 ELSE 1 END,
+                                       " . $DB->sql_position("'olution'", $DB->sql_lower('name')) . " ASC,
+                                       LENGTH(name) ASC
+                                 LIMIT 1";
+
+        $olution_course_category = $DB->get_record_sql($course_category_sql, ['pattern' => '%olution%']);
         
         if (!$olution_course_category) {
             local_question_diagnostic_debug_log('❌ No course category "Olution" found', DEBUG_DEVELOPER);
         } else {
         
             local_question_diagnostic_debug_log('✅ Found course category "Olution": ' . $olution_course_category->name . ' (ID: ' . $olution_course_category->id . ')', DEBUG_DEVELOPER);
+
+        // 1.5) NOUVEAU : vérifier d'abord le CONTEXTE "catégorie de cours" (question bank partagée par catégorie).
+        // C'est le cas attendu par l'utilisateur : Olution est lié à une catégorie de cours (pas à un cours).
+        try {
+            $coursecatcontext = $DB->get_record('context', [
+                'contextlevel' => CONTEXT_COURSECAT,
+                'instanceid' => (int)$olution_course_category->id,
+            ], 'id,contextlevel,instanceid', IGNORE_MISSING);
+
+            if ($coursecatcontext) {
+                // Priorité A : ancrage via commun ID 9472 si ce "commun" est dans ce contexte.
+                $commun = $DB->get_record('question_categories', ['id' => (int)$forcedcommunid], 'id,name,parent,contextid', IGNORE_MISSING);
+                if ($commun && (int)$commun->contextid === (int)$coursecatcontext->id
+                    && (int)$commun->parent > 0
+                    && $normalize((string)$commun->name) === 'commun') {
+                    $parent = $DB->get_record('question_categories', ['id' => (int)$commun->parent], '*', IGNORE_MISSING);
+                    if ($parent && (int)$parent->contextid === (int)$coursecatcontext->id
+                        && $has_direct_commun_child((int)$parent->id, (int)$coursecatcontext->id)) {
+                        $parent->course_category_name = $olution_course_category->name;
+                        $parent->course_category_id = (int)$olution_course_category->id;
+                        $parent->context_type = 'course_category';
+                        local_question_diagnostic_debug_log('✅ Olution detected in course CATEGORY context via commun ID ' . (int)$forcedcommunid . ' (root ID: ' . (int)$parent->id . ')', DEBUG_DEVELOPER);
+                        $coursecandidate = $parent;
+                        $bestcoursescore = max($bestcoursescore, $scorecategory($parent) + 20000);
+                    }
+                }
+
+                // Priorité B : chercher des racines "olution" dans ce contexte (case-insensitive) qui ont "commun" enfant direct.
+                $sqlqcats = "SELECT *
+                               FROM {question_categories}
+                              WHERE contextid = :ctxid
+                                AND " . $DB->sql_like($DB->sql_lower('name'), ':pattern', false, false) . "
+                           ORDER BY LENGTH(name) ASC, id ASC";
+                $candidates = $DB->get_records_sql($sqlqcats, [
+                    'ctxid' => (int)$coursecatcontext->id,
+                    'pattern' => '%olution%',
+                ], 0, 50);
+
+                foreach ($candidates as $cand) {
+                    if (!$has_direct_commun_child((int)$cand->id, (int)$coursecatcontext->id)) {
+                        continue;
+                    }
+                    $cand->course_category_name = $olution_course_category->name;
+                    $cand->course_category_id = (int)$olution_course_category->id;
+                    $cand->context_type = 'course_category';
+                    $score = $scorecategory($cand) + 15000;
+                    if ($score > $bestcoursescore) {
+                        $bestcoursescore = $score;
+                        $coursecandidate = $cand;
+                    }
+                }
+            }
+        } catch (\Exception $e) {
+            // Continuer : fallback cours ci-dessous.
+        }
         
         // 2. Rechercher tous les cours dans cette catégorie (et ses sous-catégories).
         // 🔧 v1.11.8 : Utiliser la recherche récursive (la catégorie "Olution" peut contenir des sous-catégories).

@@ -71,6 +71,18 @@ Fichiers :
 - `lang/en/local_question_diagnostic.php`
 - `version.php`
 
+## [1.11.35] - 2025-12-15
+
+### 🐛 Fix : Olution non détectée (contexte catégorie de cours) + ancrage `commun` (ID 9472)
+
+- Ajout d’une détection dans le **contexte catégorie de cours** (CONTEXT_COURSECAT) pour les banques partagées au niveau d’une catégorie de cours.
+- Ajout d’un ancrage optionnel : si la catégorie **`commun`** existe avec l’ID **9472**, la racine Olution est résolue via son parent (avec validation stricte “commun enfant direct”).
+- Recherche de la catégorie de cours “olution” rendue **insensible à la casse**.
+
+Fichiers :
+- `lib.php`
+- `version.php`
+
 ## [1.10.9] - 2025-10-14
 
 ### 🎯 CORRECTION FINALE : Olution = Catégorie de QUESTIONS système

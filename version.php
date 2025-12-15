@@ -9,8 +9,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'local_question_diagnostic';
-$plugin->version = 2025121504;  // YYYYMMDDXX format (v1.11.34 - Olution detection: require direct "commun" child to validate candidates)
+$plugin->version = 2025121505;  // YYYYMMDDXX format (v1.11.35 - Detect Olution in course category context + anchor via commun id 9472)
 $plugin->requires = 2022041900; // Moodle 4.0+ (architecture question_bank_entries requise)
 $plugin->maturity = MATURITY_STABLE;
-$plugin->release = 'v1.11.34';
+$plugin->release = 'v1.11.35';
 
