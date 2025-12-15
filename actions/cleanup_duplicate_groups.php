@@ -56,24 +56,20 @@ if ($bulk) {
         print_error('Données invalides pour le nettoyage en masse');
     }
     
-    // Décoder chaque groupe (format: "nom|type")
+    // Décoder chaque groupe (format: "representative_id").
     foreach ($groups_data as $group_encoded) {
-        $parts = explode('|', $group_encoded);
-        if (count($parts) == 2) {
+        $repid = (int)$group_encoded;
+        if ($repid > 0) {
             $groups_to_clean[] = [
-                'name' => $parts[0],
-                'qtype' => $parts[1]
+                'repid' => $repid,
             ];
         }
     }
 } else {
-    // Mode individuel : récupérer nom et type
-    $name = required_param('name', PARAM_TEXT);
-    $qtype = required_param('qtype', PARAM_TEXT);
-    
+    // Mode individuel : utiliser l'ID représentatif (stable).
+    $repid = required_param('id', PARAM_INT);
     $groups_to_clean[] = [
-        'name' => $name,
-        'qtype' => $qtype
+        'repid' => (int)$repid,
     ];
 }
 
@@ -104,11 +100,23 @@ if (!$confirm) {
     $fallback_kept = []; // Versions conservées quand aucune version n'est utilisée.
     
     foreach ($groups_to_clean as $group) {
-        // Récupérer toutes les questions de ce groupe
-        $all_questions = $DB->get_records('question', [
-            'name' => $group['name'],
-            'qtype' => $group['qtype']
-        ], 'id ASC');
+        $repid = (int)($group['repid'] ?? 0);
+        if ($repid <= 0) {
+            continue;
+        }
+
+        $rep = $DB->get_record('question', ['id' => $repid], 'id,name,qtype', IGNORE_MISSING);
+        if (!$rep) {
+            continue;
+        }
+
+        // Récupérer toutes les questions de ce groupe selon la définition standard du plugin.
+        $question_ids = question_analyzer::get_duplicate_group_question_ids_by_representative_id($repid);
+        if (empty($question_ids)) {
+            continue;
+        }
+
+        $all_questions = $DB->get_records_list('question', 'id', $question_ids, 'id ASC');
         
         // Charger l'usage
         $question_ids = array_keys($all_questions);
@@ -140,8 +148,8 @@ if (!$confirm) {
                     return (int)$q->id !== (int)$best->question->id;
                 }));
                 $fallback_kept[] = (object)[
-                    'name' => $group['name'],
-                    'qtype' => $group['qtype'],
+                    'name' => $rep->name,
+                    'qtype' => $rep->qtype,
                     'question' => $best->question,
                     'score' => $best->score,
                     'info' => $best->info
@@ -151,8 +159,8 @@ if (!$confirm) {
                 $kept = array_shift($to_delete);
                 $to_keep[] = $kept;
                 $fallback_kept[] = (object)[
-                    'name' => $group['name'],
-                    'qtype' => $group['qtype'],
+                    'name' => $rep->name,
+                    'qtype' => $rep->qtype,
                     'question' => $kept,
                     'score' => null,
                     'info' => 'Fallback: première version'
@@ -163,8 +171,8 @@ if (!$confirm) {
         // Accumuler la liste finale à supprimer (après application de la règle "au moins 1 conservée").
         foreach ($to_delete as $q) {
             $questions_to_delete[] = (object)[
-                'groupname' => $group['name'],
-                'qtype' => $group['qtype'],
+                'groupname' => $rep->name,
+                'qtype' => $rep->qtype,
                 'question' => $q
             ];
             $total_to_delete++;
@@ -291,8 +299,7 @@ if (!$confirm) {
         echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'bulk', 'value' => 1]);
         echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'groups', 'value' => $groups_json]);
     } else {
-        echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'name', 'value' => $groups_to_clean[0]['name']]);
-        echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'qtype', 'value' => $groups_to_clean[0]['qtype']]);
+        echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'id', 'value' => (int)$groups_to_clean[0]['repid']]);
     }
     
     echo html_writer::tag('button', '✓ Confirmer la suppression', [
@@ -322,11 +329,23 @@ $kept_count = 0;
 $errors = [];
 
 foreach ($groups_to_clean as $group) {
-    // Récupérer toutes les questions de ce groupe
-    $all_questions = $DB->get_records('question', [
-        'name' => $group['name'],
-        'qtype' => $group['qtype']
-    ], 'id ASC');
+    $repid = (int)($group['repid'] ?? 0);
+    if ($repid <= 0) {
+        continue;
+    }
+
+    $rep = $DB->get_record('question', ['id' => $repid], 'id,name,qtype', IGNORE_MISSING);
+    if (!$rep) {
+        continue;
+    }
+
+    // Récupérer toutes les questions de ce groupe selon la définition standard du plugin.
+    $question_ids = question_analyzer::get_duplicate_group_question_ids_by_representative_id($repid);
+    if (empty($question_ids)) {
+        continue;
+    }
+
+    $all_questions = $DB->get_records_list('question', 'id', $question_ids, 'id ASC');
     
     if (count($all_questions) <= 1) {
         // Si une seule version, on ne supprime rien
@@ -367,7 +386,7 @@ foreach ($groups_to_clean as $group) {
             }));
             
             // 📝 Log pour traçabilité
-            debugging('Groupe "' . $group['name'] . '" : Version conservée ID ' . (int)$best->question->id .
+            debugging('Groupe "' . $rep->name . '" : Version conservée ID ' . (int)$best->question->id .
                 ' (Score: ' . (int)$best->score . ', ' . $best->info . ', créée le ' .
                 userdate((int)$best->timecreated, '%d/%m/%Y') . ')', DEBUG_DEVELOPER);
         } else {

@@ -45,6 +45,41 @@ Fichiers :
 - `lang/en/local_question_diagnostic.php`
 - `version.php`
 
+## [1.11.43] - 2025-12-15
+
+### 🐛 Fix : détection de doublons — définition unique “doublons certains” partout
+
+- La détection des doublons n’est plus basée uniquement sur le **titre** (`question.name`).
+- Le plugin utilise désormais, partout où il cherche des doublons, le critère **“doublon certain”** :
+  - **même type** (`qtype`)
+  - **même texte** (`questiontext`) **strictement identique** (et `questiontextformat` si disponible)
+- Les pages/actions de nettoyage identifient un groupe via `representative_id` (stable), plutôt que `name|qtype`.
+
+Fichiers :
+- `classes/question_analyzer.php`
+- `questions_cleanup.php`
+- `question_group_detail.php`
+- `actions/cleanup_duplicate_groups.php`
+- `actions/cleanup_all_duplicates.php`
+- `actions/delete_question.php`
+- `tests/question_analyzer_test.php`
+- `version.php`
+
+## [1.11.42] - 2025-12-15
+
+### ✨ Amélioration : Catégories par cours / activité — envoyer les questions vers “Question à trier”
+
+- Ajout d’un bouton (par catégorie) **📥 Envoyer vers “Question à trier”** qui déplace **toutes les questions de la catégorie** vers `Olution/commun/Question à trier`.
+- Si `Olution/commun` est dans un **autre contexte**, l’action vérifie que la catégorie cible est **accessible depuis le cours** via les *editing contexts* Moodle avant d’autoriser le déplacement.
+- Confirmation obligatoire avant modification BDD + retour à la page d’origine (`returnurl`).
+
+Fichiers :
+- `categories_by_context.php`
+- `actions/move_category_questions_to_olution_triage.php`
+- `lang/fr/local_question_diagnostic.php`
+- `lang/en/local_question_diagnostic.php`
+- `version.php`
+
 ## [1.11.38] - 2025-12-15
 
 ### ✨ Nouvelle page : tri automatisé (texte) — “commun > Question à trier”

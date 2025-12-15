@@ -42,18 +42,20 @@ $representative_id = optional_param('id', 0, PARAM_INT);
 $question_name = optional_param('name', '', PARAM_TEXT);
 $qtype = optional_param('qtype', '', PARAM_TEXT);
 
-// Validation : il faut soit un ID représentatif, soit nom + type
-if (!$representative_id && (!$question_name || !$qtype)) {
-    print_error('Paramètres manquants : ID ou (nom + type) requis');
+// Validation : privilégier l'ID représentatif (stable).
+// Compat : si on ne reçoit que (name + qtype), on prend la plus ancienne comme représentative.
+if (!$representative_id && ($question_name && $qtype)) {
+    $representative_id = (int)$DB->get_field('question', 'MIN(id)', ['name' => $question_name, 'qtype' => $qtype]);
+}
+
+if (!$representative_id) {
+    print_error('Paramètres manquants : ID requis');
     exit;
 }
 
-// Si on a un ID, récupérer le nom et le type
-if ($representative_id) {
-    $representative = $DB->get_record('question', ['id' => $representative_id], '*', MUST_EXIST);
-    $question_name = $representative->name;
-    $qtype = $representative->qtype;
-}
+$representative = $DB->get_record('question', ['id' => $representative_id], '*', MUST_EXIST);
+$question_name = $representative->name;
+$qtype = $representative->qtype;
 
 // Définir le contexte de la page (système).
 $context = context_system::instance();
@@ -61,8 +63,7 @@ $context = context_system::instance();
 // Définir le titre et l'URL de la page.
 $PAGE->set_context($context);
 $PAGE->set_url(new moodle_url('/local/question_diagnostic/question_group_detail.php', [
-    'name' => $question_name,
-    'qtype' => $qtype
+    'id' => $representative_id
 ]));
 $pagetitle = get_string('question_group_detail_title', 'local_question_diagnostic');
 $PAGE->set_title($pagetitle);
@@ -92,15 +93,17 @@ echo html_writer::end_tag('div');
 // Titre du groupe
 echo html_writer::tag('h2', '🔀 ' . get_string('question_group_detail_title', 'local_question_diagnostic'));
 
-// Récupérer toutes les questions du groupe (même nom + même type)
-$all_questions = $DB->get_records('question', [
-    'name' => $question_name,
-    'qtype' => $qtype
-], 'id ASC');
+// Récupérer toutes les questions du groupe selon la définition standard du plugin
+// (doublons certains = même type + même texte).
+$group_ids = question_analyzer::get_duplicate_group_question_ids_by_representative_id((int)$representative_id);
+$all_questions = [];
+if (!empty($group_ids)) {
+    $all_questions = $DB->get_records_list('question', 'id', $group_ids, 'id ASC');
+}
 
 if (empty($all_questions)) {
     echo html_writer::start_tag('div', ['class' => 'alert alert-warning']);
-    echo 'Aucune question trouvée avec ce nom et ce type.';
+    echo 'Aucune question trouvée pour ce groupe de doublons.';
     echo html_writer::end_tag('div');
     echo $OUTPUT->footer();
     exit;

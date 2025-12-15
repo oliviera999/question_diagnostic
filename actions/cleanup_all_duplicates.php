@@ -334,11 +334,11 @@ function execute_cleanup_batch($batch) {
     $batch_kept = 0;
     
     foreach ($groups as $group) {
-        // Récupérer toutes les questions du groupe
-        $all_questions = $DB->get_records('question', [
-            'name' => $group->question_name,
-            'qtype' => $group->qtype
-        ], 'id ASC');
+        // Récupérer toutes les questions du groupe (même définition que question_analyzer::get_duplicate_groups()).
+        $all_questions = [];
+        if (!empty($group->all_question_ids) && is_array($group->all_question_ids)) {
+            $all_questions = $DB->get_records_list('question', 'id', $group->all_question_ids, 'id ASC');
+        }
         
         if (count($all_questions) <= 1) {
             // Si une seule version, on ne supprime rien

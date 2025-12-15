@@ -171,7 +171,7 @@ if (empty($can_delete)) {
         echo html_writer::tag('p', '<strong>Nom de la question :</strong> ' . s($check->details['debug_name']));
         echo html_writer::tag('p', '<strong>Type de la question :</strong> ' . s($check->details['debug_type']));
         echo html_writer::tag('p', '<strong>Signature de détection :</strong> ' . s($check->details['debug_signature']));
-        echo html_writer::tag('p', '<em>Aucune autre question avec ce nom exact et ce type n\'a été trouvée.</em>');
+        echo html_writer::tag('p', '<em>Aucune autre question avec le même type et le même texte (mode “doublons certains”) n\'a été trouvée.</em>');
         echo html_writer::end_tag('div');
     }
     

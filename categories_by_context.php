@@ -28,6 +28,7 @@
 
 require_once(__DIR__ . '/../../config.php');
 require_once(__DIR__ . '/lib.php');
+require_once(__DIR__ . '/classes/olution_manager.php');
 
 require_login();
 if (!is_siteadmin()) {
@@ -650,6 +651,8 @@ $olution = false;
 $olutioncommun = null;
 $olutioncommunoptions = [];
 $olutioncommuncontextid = 0;
+$olutiontriage = null;
+
 try {
     $olution = local_question_diagnostic_find_olution_category();
     if ($olution && !empty($olution->id) && !empty($olution->contextid)) {
@@ -687,6 +690,9 @@ try {
         }
 
         if ($olutioncommun) {
+            // Triage ("Question à trier") sous commun, si présent.
+            $olutiontriage = \local_question_diagnostic\olution_manager::get_triage_category();
+
             $subcats = local_question_diagnostic_get_olution_subcategories((int)$olutioncommun->id);
             $targetids = [(int)$olutioncommun->id => true];
             foreach ($subcats as $sc) {
@@ -907,6 +913,27 @@ foreach ($filtered as $cat) {
                 ['class' => 'text-muted', 'style' => 'margin-left: 8px; font-size: 12px;']
             );
         }
+    }
+
+    // Déplacer les QUESTIONS de cette catégorie vers Olution/commun/Question à trier (par défaut),
+    // même si la cible est dans un autre contexte, si Moodle la considère "accessible" depuis le cours.
+    if (!empty($olutiontriage) && !empty($olutiontriage->id) && $courseid > 0) {
+        $actionurl = new moodle_url('/local/question_diagnostic/actions/move_category_questions_to_olution_triage.php');
+        echo html_writer::start_tag('form', [
+            'method' => 'get',
+            'action' => $actionurl->out(false),
+            'style' => 'display:inline-flex; gap:6px; align-items:center; margin-left: 8px;',
+        ]);
+        echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sourcecatid', 'value' => $cid]);
+        echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'courseid', 'value' => (int)$courseid]);
+        echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'returnurl', 'value' => $returnurl->out(false)]);
+        echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]);
+        echo html_writer::tag('button', get_string('tool_categories_by_context_move_questions_to_triage_button', 'local_question_diagnostic'), [
+            'type' => 'submit',
+            'class' => 'btn btn-sm btn-warning',
+            'title' => get_string('tool_categories_by_context_move_questions_to_triage_button_help', 'local_question_diagnostic'),
+        ]);
+        echo html_writer::end_tag('form');
     }
 
     // Déplacer la catégorie (changer de parent) : sélecteur + confirmation via actions/move.php.

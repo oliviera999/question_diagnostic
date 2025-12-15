@@ -22,6 +22,142 @@ require_once($CFG->dirroot . '/question/editlib.php');
 class question_analyzer {
 
     /**
+     * Cache des colonnes de la table {question} (runtime).
+     *
+     * @var array|null
+     */
+    private static $questiontablecolumns = null;
+
+    /**
+     * Retourne les colonnes de la table {question} (avec cache) pour compat Moodle 4.5+.
+     *
+     * @return array
+     */
+    private static function get_question_table_columns(): array {
+        global $DB;
+
+        if (self::$questiontablecolumns !== null) {
+            return self::$questiontablecolumns;
+        }
+
+        try {
+            self::$questiontablecolumns = (array)$DB->get_columns('question');
+        } catch (\Throwable $e) {
+            // En cas d'erreur, on force un fallback "safe" (pas de colonnes).
+            self::$questiontablecolumns = [];
+        }
+
+        return self::$questiontablecolumns;
+    }
+
+    /**
+     * Détermine si la détection "doublons certains" (qtype + questiontext + format) est disponible.
+     *
+     * @return bool
+     */
+    private static function can_use_certain_duplicates_definition(): bool {
+        $cols = self::get_question_table_columns();
+        return isset($cols['questiontext']) && isset($cols['questiontextformat']) && isset($cols['qtype']);
+    }
+
+    /**
+     * Signature interne d'un groupe de doublons "certains" (debug et regroupement en mémoire).
+     *
+     * On n'inclut PAS le titre : l'objectif est d'éviter les faux positifs "même titre, contenu différent".
+     *
+     * @param object $q
+     * @return string
+     */
+    private static function build_certain_duplicate_signature($q): string {
+        $qtype = (string)($q->qtype ?? '');
+        $fmt = (int)($q->questiontextformat ?? 0);
+        $qtext = (string)($q->questiontext ?? '');
+
+        // Hash court pour éviter de stocker/afficher un texte potentiellement très long.
+        $texthash = sha1($qtext);
+
+        return $qtype . '|||' . $fmt . '|||' . $texthash;
+    }
+
+    /**
+     * Retourne les IDs de toutes les questions du même groupe "doublon certain" que la question donnée.
+     *
+     * Fallback (anciens sites / colonnes manquantes) : name + qtype.
+     *
+     * @param object $question
+     * @return int[]
+     */
+    public static function get_duplicate_group_question_ids_for_question($question): array {
+        global $DB;
+
+        if (!is_object($question) || empty($question->id)) {
+            return [];
+        }
+
+        // Définition "doublons certains" : qtype + questiontextformat + questiontext strictement identiques.
+        if (self::can_use_certain_duplicates_definition()) {
+            $sql = "SELECT q.id
+                      FROM {question} q
+                     WHERE q.qtype = :qtype
+                       AND q.questiontextformat = :fmt
+                       AND " . $DB->sql_compare_text('q.questiontext') . ' = ' . $DB->sql_compare_text(':qtext') . "
+                  ORDER BY q.id ASC";
+
+            try {
+                $ids = $DB->get_fieldset_sql($sql, [
+                    'qtype' => (string)($question->qtype ?? ''),
+                    'fmt' => (int)($question->questiontextformat ?? 0),
+                    'qtext' => (string)($question->questiontext ?? ''),
+                ]);
+                return array_values(array_unique(array_map('intval', $ids)));
+            } catch (\Exception $e) {
+                debugging('Error in get_duplicate_group_question_ids_for_question (certain): ' . $e->getMessage(), DEBUG_DEVELOPER);
+                // Fallback ci-dessous.
+            }
+        }
+
+        // Fallback : name + qtype (ancien comportement).
+        try {
+            $ids = $DB->get_fieldset_select('question', 'id',
+                'name = :name AND qtype = :qtype',
+                ['name' => (string)($question->name ?? ''), 'qtype' => (string)($question->qtype ?? '')],
+                'id ASC'
+            );
+            return array_values(array_unique(array_map('intval', $ids)));
+        } catch (\Exception $e) {
+            debugging('Error in get_duplicate_group_question_ids_for_question (fallback): ' . $e->getMessage(), DEBUG_DEVELOPER);
+            return [];
+        }
+    }
+
+    /**
+     * Retourne les IDs de toutes les questions du groupe de doublons associé à un representative_id.
+     *
+     * @param int $representativeid
+     * @return int[]
+     */
+    public static function get_duplicate_group_question_ids_by_representative_id(int $representativeid): array {
+        global $DB;
+
+        $representativeid = (int)$representativeid;
+        if ($representativeid <= 0) {
+            return [];
+        }
+
+        $repfields = 'id, name, qtype';
+        if (self::can_use_certain_duplicates_definition()) {
+            $repfields .= ', questiontext, questiontextformat';
+        }
+
+        $rep = $DB->get_record('question', ['id' => $representativeid], $repfields, IGNORE_MISSING);
+        if (!$rep) {
+            return [];
+        }
+
+        return self::get_duplicate_group_question_ids_for_question($rep);
+    }
+
+    /**
      * Récupère toutes les questions avec leurs statistiques complètes
      *
      * @param bool $include_duplicates Inclure la détection de doublons (peut être lent)
@@ -485,42 +621,41 @@ class question_analyzer {
         }
 
         try {
-            // Créer un index des questions par nom pour recherche rapide
-            $questions_by_name = [];
+            // Créer un index des questions par signature "doublons certains" (ou fallback) pour recherche rapide.
+            $questions_by_sig = [];
             foreach ($questions as $question) {
-                $key = strtolower(trim($question->name)) . '|' . $question->qtype;
-                if (!isset($questions_by_name[$key])) {
-                    $questions_by_name[$key] = [];
+                $key = self::can_use_certain_duplicates_definition()
+                    ? self::build_certain_duplicate_signature($question)
+                    : (strtolower(trim((string)$question->name)) . '|' . (string)$question->qtype);
+
+                if (!isset($questions_by_sig[$key])) {
+                    $questions_by_sig[$key] = [];
                 }
-                $questions_by_name[$key][] = $question;
+                $questions_by_sig[$key][] = $question;
             }
-            
-            // Pour chaque groupe de noms, chercher les doublons dans la base complète
-            foreach ($questions_by_name as $key => $local_questions) {
-                list($name_part, $qtype_part) = explode('|', $key, 2);
-                
-                // Récupérer le nom original (non transformé) depuis une des questions
-                $original_name = $local_questions[0]->name;
-                
-                // Trouver TOUTES les questions avec ce nom exact dans la base
-                $all_with_name = $DB->get_records('question', [
-                    'name' => $original_name,
-                    'qtype' => $qtype_part
-                ]);
-                
-                // Si plus d'une question avec ce nom existe
-                if (count($all_with_name) > 1) {
-                    // Pour chaque question locale, lister les autres comme doublons
-                    foreach ($local_questions as $local_question) {
-                        $others = [];
-                        foreach ($all_with_name as $other) {
-                            if ($other->id != $local_question->id) {
-                                $others[] = $other->id;
-                            }
-                        }
-                        if (!empty($others)) {
-                            $duplicates_map[$local_question->id] = $others;
-                        }
+
+            // Pour chaque groupe, chercher les doublons dans la base complète.
+            foreach ($questions_by_sig as $local_questions) {
+                if (empty($local_questions)) {
+                    continue;
+                }
+
+                $rep = $local_questions[0];
+                $group_ids = self::get_duplicate_group_question_ids_for_question($rep);
+                if (count($group_ids) <= 1) {
+                    continue;
+                }
+
+                foreach ($local_questions as $local_question) {
+                    $qid = (int)$local_question->id;
+                    if ($qid <= 0) {
+                        continue;
+                    }
+                    $others = array_values(array_filter($group_ids, function($id) use ($qid) {
+                        return (int)$id !== (int)$qid;
+                    }));
+                    if (!empty($others)) {
+                        $duplicates_map[$qid] = $others;
                     }
                 }
             }
@@ -748,24 +883,25 @@ class question_analyzer {
                     continue;
                 }
                 
-                // Créer une signature unique pour éviter de traiter le même groupe plusieurs fois
-                $signature = strtolower(trim($question->name)) . '|' . $question->qtype;
+                // Créer une signature unique pour éviter de traiter le même groupe plusieurs fois.
+                // Définition "doublons certains" si possible, sinon fallback name+qtype.
+                $signature = self::can_use_certain_duplicates_definition()
+                    ? self::build_certain_duplicate_signature($question)
+                    : (strtolower(trim((string)$question->name)) . '|' . (string)$question->qtype);
                 if (in_array($signature, $processed_signatures)) {
                     continue; // Déjà traité ce groupe
                 }
                 
-                // Chercher les doublons de CETTE question (même nom + même type, ID différent)
-                $all_versions = $DB->get_records('question', [
-                    'name' => $question->name,
-                    'qtype' => $question->qtype
-                ]);
+                // Chercher les doublons de CETTE question selon la définition standard du plugin.
+                $group_ids = self::get_duplicate_group_question_ids_for_question($question);
                 
                 // Si au moins 2 versions (= 1 original + 1 doublon minimum) → C'est un groupe de doublons utilisés !
-                if (count($all_versions) > 1) {
+                if (count($group_ids) > 1) {
                     $processed_signatures[] = $signature;
                     $groups_found++;
                     
                     // Ajouter TOUTES les versions du groupe au résultat
+                    $all_versions = $DB->get_records_list('question', 'id', $group_ids);
                     foreach ($all_versions as $q) {
                         $all_result_questions[] = $q;
                     }
@@ -804,22 +940,33 @@ class question_analyzer {
      * @return bool True si doublons, false sinon
      */
     public static function are_duplicates($q1, $q2) {
-        // Même ID = même question, pas un doublon
-        if ($q1->id === $q2->id) {
+        // Même ID = même question, pas un doublon.
+        if (isset($q1->id) && isset($q2->id) && (int)$q1->id === (int)$q2->id) {
             return false;
         }
-        
-        // Critère 1 : Même nom (sensible à la casse)
-        if ($q1->name !== $q2->name) {
+
+        // Définition "doublons certains" : qtype + questiontextformat + questiontext strictement identiques.
+        // Fallback (si colonnes manquantes) : name + qtype (ancien comportement).
+        if (self::can_use_certain_duplicates_definition()) {
+            if ((string)($q1->qtype ?? '') !== (string)($q2->qtype ?? '')) {
+                return false;
+            }
+            if ((int)($q1->questiontextformat ?? 0) !== (int)($q2->questiontextformat ?? 0)) {
+                return false;
+            }
+            if ((string)($q1->questiontext ?? '') !== (string)($q2->questiontext ?? '')) {
+                return false;
+            }
+            return true;
+        }
+
+        // Fallback : même nom + même type.
+        if ((string)($q1->name ?? '') !== (string)($q2->name ?? '')) {
             return false;
         }
-        
-        // Critère 2 : Même type
-        if ($q1->qtype !== $q2->qtype) {
+        if ((string)($q1->qtype ?? '') !== (string)($q2->qtype ?? '')) {
             return false;
         }
-        
-        // Si les deux critères sont remplis → C'est un doublon
         return true;
     }
     
@@ -836,19 +983,39 @@ class question_analyzer {
         global $DB;
         
         try {
-            // Utiliser la définition standard : nom + type uniquement
-            $sql = "SELECT q.*
-                    FROM {question} q
-                    WHERE q.name = :name
-                    AND q.qtype = :qtype
-                    AND q.id != :questionid
-                    ORDER BY q.id";
-            
-            $duplicates = $DB->get_records_sql($sql, [
-                'name' => $question->name,
-                'qtype' => $question->qtype,
-                'questionid' => $question->id
-            ]);
+            $questionid = (int)($question->id ?? 0);
+
+            // Définition "doublons certains" : qtype + questiontextformat + questiontext strictement identiques.
+            if (self::can_use_certain_duplicates_definition()) {
+                $sql = "SELECT q.*
+                          FROM {question} q
+                         WHERE q.qtype = :qtype
+                           AND q.questiontextformat = :fmt
+                           AND " . $DB->sql_compare_text('q.questiontext') . ' = ' . $DB->sql_compare_text(':qtext') . "
+                           AND q.id != :questionid
+                      ORDER BY q.id ASC";
+
+                $duplicates = $DB->get_records_sql($sql, [
+                    'qtype' => (string)($question->qtype ?? ''),
+                    'fmt' => (int)($question->questiontextformat ?? 0),
+                    'qtext' => (string)($question->questiontext ?? ''),
+                    'questionid' => $questionid,
+                ]);
+            } else {
+                // Fallback : name + qtype (ancien comportement).
+                $sql = "SELECT q.*
+                          FROM {question} q
+                         WHERE q.name = :name
+                           AND q.qtype = :qtype
+                           AND q.id != :questionid
+                      ORDER BY q.id ASC";
+
+                $duplicates = $DB->get_records_sql($sql, [
+                    'name' => (string)($question->name ?? ''),
+                    'qtype' => (string)($question->qtype ?? ''),
+                    'questionid' => $questionid,
+                ]);
+            }
             
             return array_values($duplicates);
             
@@ -909,11 +1076,18 @@ class question_analyzer {
         $duplicates_map = [];
 
         try {
-            // Optimisation: utiliser un hash du nom pour grouper les candidats potentiels
-            // Cela réduit considérablement le nombre de comparaisons
-            $sql = "SELECT id, name, qtype, questiontext 
-                    FROM {question} 
-                    ORDER BY name, id ASC";
+            // Optimisation: utiliser une signature en mémoire pour grouper les candidats potentiels.
+            // Objectif : ne PAS se baser uniquement sur le titre (name), mais sur le contenu quand possible.
+            if (self::can_use_certain_duplicates_definition()) {
+                $sql = "SELECT id, name, qtype, questiontext, questiontextformat
+                          FROM {question}
+                      ORDER BY qtype, questiontextformat, id ASC";
+            } else {
+                // Fallback historique.
+                $sql = "SELECT id, name, qtype, questiontext
+                          FROM {question}
+                      ORDER BY name, id ASC";
+            }
             
             if ($limit > 0) {
                 $sql .= " LIMIT " . intval($limit);
@@ -992,19 +1166,22 @@ class question_analyzer {
      */
     private static function get_duplicates_map_fast($questions, $use_cache = true) {
         $duplicates_map = [];
-        $name_groups = [];
+        $signature_groups = [];
         
-        // Grouper par nom et type
+        // Grouper par signature.
         foreach ($questions as $question) {
-            $key = strtolower(trim($question->name)) . '|' . $question->qtype;
-            if (!isset($name_groups[$key])) {
-                $name_groups[$key] = [];
+            $key = self::can_use_certain_duplicates_definition()
+                ? self::build_certain_duplicate_signature($question)
+                : (strtolower(trim((string)$question->name)) . '|' . (string)$question->qtype);
+
+            if (!isset($signature_groups[$key])) {
+                $signature_groups[$key] = [];
             }
-            $name_groups[$key][] = $question->id;
+            $signature_groups[$key][] = (int)$question->id;
         }
         
         // Ne garder que les groupes avec plus d'une question
-        foreach ($name_groups as $group) {
+        foreach ($signature_groups as $group) {
             if (count($group) > 1) {
                 foreach ($group as $qid) {
                     $others = array_filter($group, function($id) use ($qid) {
@@ -1378,7 +1555,11 @@ class question_analyzer {
             
             // ÉTAPE 1 : Récupérer toutes les questions d'un coup
             list($insql, $params) = $DB->get_in_or_equal($questionids);
-            $questions = $DB->get_records_select('question', "id $insql", $params, '', 'id, name, qtype, questiontext');
+            $fields = 'id, name, qtype, questiontext';
+            if (self::can_use_certain_duplicates_definition()) {
+                $fields .= ', questiontextformat';
+            }
+            $questions = $DB->get_records_select('question', "id $insql", $params, '', $fields);
             
             // ÉTAPE 2 : Vérifier l'usage de TOUTES les questions en une seule requête
             $usage_map = self::get_questions_usage_by_ids($questionids);
@@ -1410,27 +1591,28 @@ class question_analyzer {
                 // Vérification 2 : Question a des doublons ?
                 // 🔧 v1.9.51 FIX CRITIQUE : Chercher TOUTES les questions avec ce nom+type dans la BASE
                 // (pas seulement parmi les questions passées en paramètre !)
-                $all_with_same_signature = $DB->get_records('question', [
-                    'name' => $q->name,
-                    'qtype' => $q->qtype
-                ]);
+                $group_ids = self::get_duplicate_group_question_ids_for_question($q);
                 
                 // Compter combien il y en a (en excluant la question elle-même)
                 $duplicate_count = 0;
                 $duplicate_ids = [];
-                foreach ($all_with_same_signature as $other) {
-                    if ($other->id != $qid) {
-                        $duplicate_count++;
-                        $duplicate_ids[] = $other->id;
+                foreach ($group_ids as $otherid) {
+                    $otherid = (int)$otherid;
+                    if ($otherid <= 0 || $otherid === (int)$qid) {
+                        continue;
                     }
+                    $duplicate_count++;
+                    $duplicate_ids[] = $otherid;
                 }
                 
                 if ($duplicate_count == 0) {
                     $results[$qid]->reason = 'Question unique (pas de doublon)';
                     $results[$qid]->details['is_unique'] = true;
-                    $results[$qid]->details['debug_signature'] = $q->name . '|||' . $q->qtype;
-                    $results[$qid]->details['debug_name'] = $q->name;
-                    $results[$qid]->details['debug_type'] = $q->qtype;
+                    $results[$qid]->details['debug_signature'] = self::can_use_certain_duplicates_definition()
+                        ? self::build_certain_duplicate_signature($q)
+                        : ((string)($q->name ?? '') . '|||' . (string)($q->qtype ?? ''));
+                    $results[$qid]->details['debug_name'] = (string)($q->name ?? '');
+                    $results[$qid]->details['debug_type'] = (string)($q->qtype ?? '');
                     continue;
                 }
                 
@@ -1439,9 +1621,11 @@ class question_analyzer {
                 $results[$qid]->reason = 'Doublon inutilisé';
                 $results[$qid]->details['duplicate_count'] = $duplicate_count;
                 $results[$qid]->details['duplicate_ids'] = $duplicate_ids;
-                $results[$qid]->details['debug_signature'] = $q->name . '|||' . $q->qtype;
-                $results[$qid]->details['debug_name'] = $q->name;
-                $results[$qid]->details['debug_type'] = $q->qtype;
+                $results[$qid]->details['debug_signature'] = self::can_use_certain_duplicates_definition()
+                    ? self::build_certain_duplicate_signature($q)
+                    : ((string)($q->name ?? '') . '|||' . (string)($q->qtype ?? ''));
+                $results[$qid]->details['debug_name'] = (string)($q->name ?? '');
+                $results[$qid]->details['debug_type'] = (string)($q->qtype ?? '');
             }
             
         } catch (\Exception $e) {
@@ -1859,12 +2043,23 @@ class question_analyzer {
         // 🆕 v1.9.53 : OPTIMISATION - Filtrage et priorisation des groupes supprimables
         // Grouper les questions par nom + type et ne garder que ceux qui ont des doublons (COUNT > 1)
         
-        // Étape 1 : Récupérer tous les groupes avec doublons (name + qtype + count)
-        $sql = "SELECT q.name, q.qtype, COUNT(*) as dup_count, MIN(q.id) as representative_id
-                FROM {question} q
-                GROUP BY q.name, q.qtype
-                HAVING COUNT(*) > 1
-                ORDER BY dup_count DESC";
+        // Étape 1 : Récupérer tous les groupes avec doublons.
+        // Définition "doublons certains" (si possible) : même qtype + questiontextformat + questiontext (compare_text) strictement identiques.
+        // Fallback historique : même name + qtype.
+        if (self::can_use_certain_duplicates_definition()) {
+            $qtext = $DB->sql_compare_text('q.questiontext');
+            $sql = "SELECT q.qtype, q.questiontextformat, COUNT(*) as dup_count, MIN(q.id) as representative_id
+                    FROM {question} q
+                    GROUP BY q.qtype, q.questiontextformat, {$qtext}
+                    HAVING COUNT(*) > 1
+                    ORDER BY dup_count DESC";
+        } else {
+            $sql = "SELECT q.name, q.qtype, COUNT(*) as dup_count, MIN(q.id) as representative_id
+                    FROM {question} q
+                    GROUP BY q.name, q.qtype
+                    HAVING COUNT(*) > 1
+                    ORDER BY dup_count DESC";
+        }
         
         // get_recordset_sql() ne nécessite pas de 1ère colonne unique (contrairement à get_records_sql()).
         $all_groups = [];
@@ -1893,11 +2088,8 @@ class question_analyzer {
         $current_index = 0;
         
         foreach ($all_groups as $group) {
-            // Récupérer tous les IDs des questions de ce groupe
-            $question_ids = $DB->get_fieldset_select('question', 'id', 
-                'name = :name AND qtype = :qtype',
-                ['name' => $group->name, 'qtype' => $group->qtype]
-            );
+            // Récupérer tous les IDs des questions de ce groupe via representative_id (même définition partout).
+            $question_ids = self::get_duplicate_group_question_ids_by_representative_id((int)$group->representative_id);
             
             if (empty($question_ids)) {
                 continue;
@@ -1942,10 +2134,22 @@ class question_analyzer {
                 continue;
             }
             
-            // Créer l'objet groupe
+            // Créer l'objet groupe (nom affiché = celui de la question représentative).
+            $repname = '';
+            $repqtype = (string)($group->qtype ?? '');
+            try {
+                $rep = $DB->get_record('question', ['id' => (int)$group->representative_id], 'id,name,qtype', IGNORE_MISSING);
+                if ($rep) {
+                    $repname = (string)$rep->name;
+                    $repqtype = (string)$rep->qtype;
+                }
+            } catch (\Exception $e) {
+                // Ignore.
+            }
+
             $group_obj = (object)[
-                'question_name' => $group->name,
-                'qtype' => $group->qtype,
+                'question_name' => $repname !== '' ? $repname : (string)($group->name ?? ''),
+                'qtype' => $repqtype,
                 'duplicate_count' => $group->dup_count,
                 'representative_id' => $group->representative_id,
                 'all_question_ids' => $question_ids,
@@ -1990,11 +2194,19 @@ class question_analyzer {
     public static function count_duplicate_groups($used_only = false, $deletable_only = false) {
         global $DB;
         
-        // 🎯 v1.9.45 : Compter le nombre total de groupes
-        $sql = "SELECT q.name, q.qtype, COUNT(*) as dup_count
-                FROM {question} q
-                GROUP BY q.name, q.qtype
-                HAVING COUNT(*) > 1";
+        // 🎯 Compter le nombre total de groupes (même définition que get_duplicate_groups()).
+        if (self::can_use_certain_duplicates_definition()) {
+            $qtext = $DB->sql_compare_text('q.questiontext');
+            $sql = "SELECT q.qtype, q.questiontextformat, COUNT(*) as dup_count, MIN(q.id) as representative_id
+                    FROM {question} q
+                    GROUP BY q.qtype, q.questiontextformat, {$qtext}
+                    HAVING COUNT(*) > 1";
+        } else {
+            $sql = "SELECT q.name, q.qtype, COUNT(*) as dup_count, MIN(q.id) as representative_id
+                    FROM {question} q
+                    GROUP BY q.name, q.qtype
+                    HAVING COUNT(*) > 1";
+        }
         
         // get_recordset_sql() ne nécessite pas de 1ère colonne unique (contrairement à get_records_sql()).
         $all_groups = [];
@@ -2018,11 +2230,8 @@ class question_analyzer {
         // Si filtre actif, on doit compter manuellement (plus lent mais nécessaire)
         $count = 0;
         foreach ($all_groups as $group) {
-            // Récupérer les IDs des questions de ce groupe
-            $question_ids = $DB->get_fieldset_select('question', 'id',
-                'name = :name AND qtype = :qtype',
-                ['name' => $group->name, 'qtype' => $group->qtype]
-            );
+            // Récupérer les IDs des questions de ce groupe via representative_id.
+            $question_ids = self::get_duplicate_group_question_ids_by_representative_id((int)($group->representative_id ?? 0));
             
             if (empty($question_ids)) {
                 continue;

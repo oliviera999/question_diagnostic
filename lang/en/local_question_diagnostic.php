@@ -689,4 +689,12 @@ $string['tool_categories_by_context_move_button_help'] = 'Moves the category (ch
 $string['tool_categories_by_context_move_to_olution_commun'] = 'Move to Olution / commun (same context)';
 $string['tool_categories_by_context_move_button'] = 'Move';
 $string['tool_categories_by_context_move_olution_commun_context_mismatch'] = 'Olution/commun was detected but in a different context (category move is not possible).';
+$string['tool_categories_by_context_move_questions_to_triage_title'] = 'Move questions to Olution / commun / Question à trier';
+$string['tool_categories_by_context_move_questions_to_triage_button'] = '📥 Send to “Question à trier”';
+$string['tool_categories_by_context_move_questions_to_triage_button_help'] = 'Moves all questions (from this category) to Olution/commun/Question à trier. A confirmation will be required.';
+$string['tool_categories_by_context_move_questions_to_triage_nothing'] = 'No questions to move from this category.';
+$string['tool_categories_by_context_move_questions_to_triage_summary_title'] = 'Move summary';
+$string['tool_categories_by_context_move_questions_to_triage_summary'] = 'Source: <strong>{$a->sourcecategory}</strong><br>Target: <strong>{$a->targetcategory}</strong><br>Questions to move: <strong>{$a->count}</strong>';
+$string['tool_categories_by_context_move_questions_to_triage_warning'] = '⚠️ This action MODIFIES the database (changes the question category). Make sure the target context is allowed for this course.';
+$string['tool_categories_by_context_move_questions_to_triage_not_accessible'] = 'Target Olution/commun category is not accessible from the course (courseid={$a->courseid}). Target context={$a->targetcontextid}. Method={$a->method}.';
 

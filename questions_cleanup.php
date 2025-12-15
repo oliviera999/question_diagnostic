@@ -1486,16 +1486,21 @@ echo html_writer::start_tag('tbody');
 
 // Afficher chaque groupe de doublons
 foreach ($duplicate_groups as $group) {
-    // Identifier de manière unique ce groupe (nom + type encodé en base64 pour l'URL)
-    $group_id = base64_encode($group->question_name . '|' . $group->qtype);
+    // Identifier de manière unique ce groupe : utiliser l'ID représentatif (stable et compatible).
+    $group_id = (int)$group->representative_id;
     
-    echo html_writer::start_tag('tr', ['data-group-id' => $group_id]);
+    echo html_writer::start_tag('tr', [
+        'data-group-id' => $group_id,
+        'data-name' => $group->question_name,
+        'data-type' => $group->qtype,
+    ]);
     
     // 🆕 v1.9.53 : Colonne 0 : Checkbox (seulement si des versions SUPPRIMABLES existent)
     echo html_writer::start_tag('td', ['style' => 'text-align: center;']);
     $deletable_count = isset($group->deletable_count) ? $group->deletable_count : 0;
     if ($deletable_count > 0) {
         echo '<input type="checkbox" class="group-select-checkbox" value="' . $group_id . '" 
+                data-repid="' . (int)$group->representative_id . '"
                 data-name="' . htmlspecialchars($group->question_name) . '" 
                 data-qtype="' . $group->qtype . '"
                 data-deletable="' . $deletable_count . '">';
@@ -1541,9 +1546,7 @@ foreach ($duplicate_groups as $group) {
     // Colonne 7 : Détails (bouton œil)
     echo html_writer::start_tag('td', ['style' => 'text-align: center;']);
     $detail_url = new moodle_url('/local/question_diagnostic/question_group_detail.php', [
-        'id' => $group->representative_id,
-        'name' => $group->question_name,
-        'qtype' => $group->qtype
+        'id' => (int)$group->representative_id
     ]);
     echo html_writer::link($detail_url, '👁️', [
         'class' => 'btn btn-primary btn-sm',
@@ -1557,8 +1560,7 @@ foreach ($duplicate_groups as $group) {
     if ($deletable_count > 0) {
         // Bouton de nettoyage automatique
         $cleanup_url = new moodle_url('/local/question_diagnostic/actions/cleanup_duplicate_groups.php', [
-            'name' => $group->question_name,
-            'qtype' => $group->qtype,
+            'id' => (int)$group->representative_id,
             'sesskey' => sesskey()
         ]);
         echo html_writer::link($cleanup_url, '🧹 Nettoyer', [
@@ -1644,6 +1646,7 @@ function bulkCleanupGroups() {
     var totalDeletable = 0;
     checked.forEach(function(cb) {
         groups.push({
+            repid: parseInt(cb.getAttribute('data-repid'), 10),
             name: cb.getAttribute('data-name'),
             qtype: cb.getAttribute('data-qtype'),
             deletable: parseInt(cb.getAttribute('data-deletable'))
@@ -1659,7 +1662,7 @@ function bulkCleanupGroups() {
     
     if (confirm(message)) {
         // POST (évite les URLs trop longues en mode bulk).
-        var groupsData = JSON.stringify(groups.map(function(g) { return g.name + '|' + g.qtype; }));
+        var groupsData = JSON.stringify(groups.map(function(g) { return String(g.repid); }));
         var action = '" . (new \moodle_url('/local/question_diagnostic/actions/cleanup_duplicate_groups.php'))->out(false) . "';
         
         var form = document.createElement('form');

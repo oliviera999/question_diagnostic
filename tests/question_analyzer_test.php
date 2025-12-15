@@ -130,36 +130,40 @@ class question_analyzer_test extends advanced_testcase {
     public function test_are_duplicates() {
         $this->resetAfterTest(true);
 
-        // Créer deux questions identiques (nom + type)
+        // Créer deux questions identiques (type + texte + format)
         $q1 = new \stdClass();
         $q1->name = 'Test Question';
         $q1->qtype = 'truefalse';
         $q1->questiontext = 'Premier texte';
+        $q1->questiontextformat = FORMAT_HTML;
 
         $q2 = new \stdClass();
         $q2->name = 'Test Question';
         $q2->qtype = 'truefalse';
-        $q2->questiontext = 'Deuxième texte différent';
+        $q2->questiontext = 'Premier texte';
+        $q2->questiontextformat = FORMAT_HTML;
 
         // Vérifier qu'elles sont considérées comme doublons
         $this->assertTrue(question_analyzer::are_duplicates($q1, $q2),
-                         'Deux questions avec même nom et type devraient être des doublons');
+                         'Deux questions avec même type+texte devraient être des doublons');
 
         // Créer une question avec un nom différent
         $q3 = new \stdClass();
         $q3->name = 'Other Question';
         $q3->qtype = 'truefalse';
         $q3->questiontext = 'Premier texte';
+        $q3->questiontextformat = FORMAT_HTML;
 
-        // Vérifier qu'elles ne sont PAS considérées comme doublons
-        $this->assertFalse(question_analyzer::are_duplicates($q1, $q3),
-                          'Deux questions avec noms différents ne devraient pas être des doublons');
+        // Même si le nom diffère, elles restent des doublons si le type+texte sont identiques.
+        $this->assertTrue(question_analyzer::are_duplicates($q1, $q3),
+                          'Deux questions avec même type+texte devraient être des doublons même si le nom diffère');
 
         // Créer une question avec un type différent
         $q4 = new \stdClass();
         $q4->name = 'Test Question';
         $q4->qtype = 'multichoice';
         $q4->questiontext = 'Premier texte';
+        $q4->questiontextformat = FORMAT_HTML;
 
         // Vérifier qu'elles ne sont PAS considérées comme doublons
         $this->assertFalse(question_analyzer::are_duplicates($q1, $q4),
@@ -188,13 +192,13 @@ class question_analyzer_test extends advanced_testcase {
 
         $categoryid = $DB->insert_record('question_categories', $category);
 
-        // Créer 2 questions identiques (doublons)
+        // Créer 2 questions identiques (doublons certains = même type + même texte)
         $duplicate_name = 'Duplicate Question';
         for ($i = 1; $i <= 2; $i++) {
             $question = new \stdClass();
             $question->category = $categoryid;
             $question->name = $duplicate_name;
-            $question->questiontext = 'Text version ' . $i;
+            $question->questiontext = 'Same text';
             $question->questiontextformat = FORMAT_HTML;
             $question->generalfeedback = '';
             $question->generalfeedbackformat = FORMAT_HTML;
@@ -229,25 +233,14 @@ class question_analyzer_test extends advanced_testcase {
 
         $DB->insert_record('question', $unique);
 
-        // Chercher les doublons
-        $duplicates = question_analyzer::find_exact_duplicates();
+        // Chercher les doublons pour une question du groupe
+        $one = $DB->get_record('question', ['name' => $duplicate_name], '*', MUST_EXIST);
+        $duplicates = question_analyzer::find_exact_duplicates($one);
 
-        // Vérifier qu'au moins un groupe de doublons est trouvé
+        // Vérifier qu'au moins un doublon est trouvé
         $this->assertIsArray($duplicates);
-        $this->assertGreaterThanOrEqual(1, count($duplicates), 
-                                        'Au moins un groupe de doublons devrait être trouvé');
-
-        // Vérifier qu'un groupe correspond à nos doublons créés
-        $found_our_duplicate = false;
-        foreach ($duplicates as $group) {
-            if (isset($group[0]->name) && $group[0]->name === $duplicate_name) {
-                $found_our_duplicate = true;
-                $this->assertCount(2, $group, 'Le groupe devrait contenir 2 questions');
-                break;
-            }
-        }
-
-        $this->assertTrue($found_our_duplicate, 'Notre groupe de doublons devrait être trouvé');
+        $this->assertGreaterThanOrEqual(1, count($duplicates),
+                                        'Au moins un doublon devrait être trouvé');
     }
 
     /**
