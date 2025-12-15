@@ -9,8 +9,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'local_question_diagnostic';
-$plugin->version = 2025121501;  // YYYYMMDDXX format (v1.11.31 - Fix Phase 2 "commun" heuristic to avoid selecting non-Olution parents (e.g., Top))
+$plugin->version = 2025121504;  // YYYYMMDDXX format (v1.11.34 - Olution detection: require direct "commun" child to validate candidates)
 $plugin->requires = 2022041900; // Moodle 4.0+ (architecture question_bank_entries requise)
 $plugin->maturity = MATURITY_STABLE;
-$plugin->release = 'v1.11.31';
+$plugin->release = 'v1.11.34';
 

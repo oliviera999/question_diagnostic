@@ -30,6 +30,47 @@ Fichiers :
 - `lib.php`
 - `version.php`
 
+## [1.11.32] - 2025-12-15
+
+### ✨ Amélioration : Catégories par cours / activité — filtre cmid effectif
+
+- Le filtre **Activité (cmid)** s’applique maintenant aussi aux périmètres :
+  - **Cours + activités**
+  - **Activités uniquement**
+  - **Tests (quiz) uniquement**
+
+## [1.11.33] - 2025-12-15
+
+### ✨ Amélioration : Purge des caches — retour à la page précédente + accès accueil
+
+- Après une purge via `purge_cache.php`, le bouton **Retour** ramène désormais à la **page précédemment affichée** (via `returnurl`).
+- Un lien **Retour au menu principal** (accueil du plugin) reste disponible.
+
+Fichiers :
+- `purge_cache.php`
+- `lib.php`
+- `lang/fr/local_question_diagnostic.php`
+- `lang/en/local_question_diagnostic.php`
+- `version.php`
+
+## [1.11.34] - 2025-12-15
+
+### 🐛 Fix : Olution — validation stricte de la racine via `commun`
+
+- Renforce la détection de la catégorie de questions **Olution** en évitant les faux positifs (ex: “Top”, “Default for …”).
+- **Règle** : un candidat Olution n’est accepté que si **`commun` est une sous-catégorie DIRECTE** de cette racine.
+
+Fichiers :
+- `lib.php`
+- `version.php`
+- UX : changement de périmètre / activité = recharge automatique (si un cours est sélectionné).
+
+Fichiers :
+- `categories_by_context.php`
+- `lang/fr/local_question_diagnostic.php`
+- `lang/en/local_question_diagnostic.php`
+- `version.php`
+
 ## [1.10.9] - 2025-10-14
 
 ### 🎯 CORRECTION FINALE : Olution = Catégorie de QUESTIONS système

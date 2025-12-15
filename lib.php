@@ -905,7 +905,8 @@ function local_question_diagnostic_find_olution_category() {
                 $score += count($children);
                 foreach ($children as $ch) {
                     if ($normalize((string)$ch->name) === 'commun') {
-                        $score += 100; // signal fort : structure attendue.
+                        // Signal très fort : sur ce site, la racine Olution a une sous-catégorie directe "commun".
+                        $score += 5000;
                         break;
                     }
                 }
@@ -932,6 +933,45 @@ function local_question_diagnostic_find_olution_category() {
             }
 
             return $score;
+        };
+
+        // ------------------------------------------------------------------------------
+        // Validateur strict (Phase 2) : un candidat "Olution" doit avoir une sous-catégorie
+        // directe nommée exactement "commun" (normalisée).
+        //
+        // Objectif: éviter les faux positifs (ex: sélectionner "Top" / "Default for ..." en contexte cours),
+        // qui peuvent contenir un "commun" ailleurs dans l'arborescence mais pas comme enfant direct d'Olution.
+        // ------------------------------------------------------------------------------
+        $has_direct_commun_child = function(int $categoryid, int $contextid) use ($DB, $normalize): bool {
+            $categoryid = (int)$categoryid;
+            $contextid = (int)$contextid;
+            if ($categoryid <= 0 || $contextid <= 0) {
+                return false;
+            }
+
+            try {
+                // Filtre LIKE pour limiter le volume, puis comparaison normalisée stricte.
+                $sql = "SELECT id, name
+                          FROM {question_categories}
+                         WHERE contextid = :ctxid
+                           AND parent = :parentid
+                           AND " . $DB->sql_like('name', ':pattern', false, false);
+                $children = $DB->get_records_sql($sql, [
+                    'ctxid' => $contextid,
+                    'parentid' => $categoryid,
+                    'pattern' => '%commun%',
+                ]);
+
+                foreach ($children as $child) {
+                    if ($normalize((string)$child->name) === 'commun') {
+                        return true;
+                    }
+                }
+            } catch (\Exception $e) {
+                return false;
+            }
+
+            return false;
         };
 
         $systemcandidate = false;
@@ -1292,6 +1332,10 @@ function local_question_diagnostic_find_olution_category() {
                         if (strpos($parentnorm, 'olution') === false) {
                             continue;
                         }
+                        // Vérification stricte : "commun" doit être une sous-catégorie DIRECTE d'Olution.
+                        if (!$has_direct_commun_child((int)$parent->id, (int)$course_context->id)) {
+                            continue;
+                        }
 
                         // Enrichir + scorer.
                         $parent->course_name = $course->fullname;
@@ -1325,6 +1369,11 @@ function local_question_diagnostic_find_olution_category() {
                     local_question_diagnostic_debug_log('📂 Found ' . count($coursecats) . ' question categories matching "%Olution%" in course context', DEBUG_DEVELOPER);
 
                     foreach ($coursecats as $cat) {
+                        // Vérification stricte : la racine Olution doit avoir "commun" comme enfant direct.
+                        if (!$has_direct_commun_child((int)$cat->id, (int)$course_context->id)) {
+                            continue;
+                        }
+
                         // Ajouter des informations sur le cours et la catégorie de cours parent.
                         $cat->course_name = $course->fullname;
                         $cat->course_id = (int)$course->id;
@@ -1351,6 +1400,15 @@ function local_question_diagnostic_find_olution_category() {
                         ], 'sortorder ASC, id ASC', '*', 0, 1);
                         $firstroot = $roots ? reset($roots) : false;
                         if ($firstroot) {
+                            // Ne pas prendre un fallback générique ("Top"/"Default for ...") : on valide strictement.
+                            $rootnorm = $normalize((string)$firstroot->name);
+                            if (strpos($rootnorm, 'olution') === false) {
+                                continue;
+                            }
+                            if (!$has_direct_commun_child((int)$firstroot->id, (int)$course_context->id)) {
+                                continue;
+                            }
+
                             local_question_diagnostic_debug_log('✅ Using first root question category from course in Olution (fallback): ' . $firstroot->name . ' (Course: ' . $course->fullname . ')', DEBUG_DEVELOPER);
 
                             $firstroot->course_name = $course->fullname;
@@ -1379,6 +1437,21 @@ function local_question_diagnostic_find_olution_category() {
         // ==================================================================================
         $systemscore = $systemcandidate ? $scorecategory($systemcandidate) : 0;
         $coursescore = $coursecandidate ? $scorecategory($coursecandidate) : 0;
+
+        // Priorité absolue à un candidat qui respecte la structure attendue (enfant direct "commun").
+        $systemhascommun = false;
+        $coursehascommun = false;
+        if ($systemcandidate && !empty($systemcandidate->contextid)) {
+            $systemhascommun = $has_direct_commun_child((int)$systemcandidate->id, (int)$systemcandidate->contextid);
+        }
+        if ($coursecandidate && !empty($coursecandidate->contextid)) {
+            $coursehascommun = $has_direct_commun_child((int)$coursecandidate->id, (int)$coursecandidate->contextid);
+        }
+
+        if ($coursecandidate && $coursehascommun && !$systemhascommun) {
+            local_question_diagnostic_debug_log('✅ Selected Olution candidate from course category (valid commun child; system candidate invalid)', DEBUG_DEVELOPER);
+            return $coursecandidate;
+        }
 
         if ($coursecandidate && $coursescore > $systemscore) {
             local_question_diagnostic_debug_log('✅ Selected Olution candidate from course category (score ' . $coursescore . ' > ' . $systemscore . ')', DEBUG_DEVELOPER);
@@ -1490,15 +1563,16 @@ function local_question_diagnostic_render_cache_purge_button() {
     
     $purge_url = new moodle_url('/local/question_diagnostic/purge_cache.php', [
         'sesskey' => sesskey(),
-        'return_url' => qualified_me()
+        // Standard Moodle param name used across the plugin.
+        'returnurl' => qualified_me()
     ]);
     
     return html_writer::link(
         $purge_url,
-        '🗑️ Purger les caches',
+        '🗑️ ' . get_string('purge_caches', 'local_question_diagnostic'),
         [
             'class' => 'btn btn-warning btn-sm',
-            'title' => 'Purger tous les caches du plugin (recommandé après modifications)',
+            'title' => get_string('purge_caches_tooltip', 'local_question_diagnostic'),
             'style' => 'margin-left: 10px;'
         ]
     );

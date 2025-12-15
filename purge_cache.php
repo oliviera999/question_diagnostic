@@ -13,43 +13,55 @@ require_once(__DIR__ . '/../../config.php');
 require_login();
 
 if (!is_siteadmin()) {
-    die('Accès réservé aux administrateurs du site');
+    print_error('accessdenied', 'admin');
 }
+
+// URL de retour (page précédemment affichée).
+// Compat : le paramètre historique `return_url` est encore accepté.
+$returnurlraw = optional_param('returnurl', '', PARAM_LOCALURL);
+if (empty($returnurlraw)) {
+    $returnurlraw = optional_param('return_url', '', PARAM_LOCALURL);
+}
+$returnurl = !empty($returnurlraw)
+    ? new moodle_url($returnurlraw)
+    : new moodle_url('/local/question_diagnostic/index.php');
 
 // Vérifier si confirmation
 $confirm = optional_param('confirm', 0, PARAM_INT);
 
 $PAGE->set_context(context_system::instance());
-$PAGE->set_url(new moodle_url('/local/question_diagnostic/purge_cache.php'));
-$PAGE->set_title('Purge des caches');
+$PAGE->set_url(new moodle_url('/local/question_diagnostic/purge_cache.php', [
+    'returnurl' => $returnurl->out(false),
+]));
+$PAGE->set_title(get_string('purge_cache_title', 'local_question_diagnostic'));
 
 echo $OUTPUT->header();
 
-echo html_writer::tag('h1', '🔧 Purge des Caches Moodle');
+echo html_writer::tag('h1', '🔧 ' . get_string('purge_cache_heading', 'local_question_diagnostic'));
 
 if (!$confirm) {
     // Afficher la page de confirmation
     echo html_writer::start_div('alert alert-info', ['style' => 'margin: 20px 0;']);
-    echo html_writer::tag('h3', 'Pourquoi purger les caches ?');
-    echo html_writer::tag('p', 'La purge des caches est nécessaire après :');
+    echo html_writer::tag('h3', get_string('purge_cache_why_title', 'local_question_diagnostic'));
+    echo html_writer::tag('p', get_string('purge_cache_why_desc', 'local_question_diagnostic'));
     echo html_writer::start_tag('ul');
-    echo html_writer::tag('li', 'Modification du fichier <code>lib.php</code>');
-    echo html_writer::tag('li', 'Mise à jour du plugin');
-    echo html_writer::tag('li', 'Ajout de nouvelles fonctions');
-    echo html_writer::tag('li', 'Correction de bugs');
+    echo html_writer::tag('li', get_string('purge_cache_reason_lib', 'local_question_diagnostic'));
+    echo html_writer::tag('li', get_string('purge_cache_reason_update', 'local_question_diagnostic'));
+    echo html_writer::tag('li', get_string('purge_cache_reason_functions', 'local_question_diagnostic'));
+    echo html_writer::tag('li', get_string('purge_cache_reason_bugs', 'local_question_diagnostic'));
     echo html_writer::end_tag('ul');
     echo html_writer::end_div();
     
     echo html_writer::start_div('alert alert-warning', ['style' => 'margin: 20px 0;']);
-    echo html_writer::tag('h3', '⚠️ Avertissement');
-    echo html_writer::tag('p', 'La purge des caches va :');
+    echo html_writer::tag('h3', get_string('purge_cache_warning_title', 'local_question_diagnostic'));
+    echo html_writer::tag('p', get_string('purge_cache_warning_desc', 'local_question_diagnostic'));
     echo html_writer::start_tag('ul');
-    echo html_writer::tag('li', '✅ Forcer le rechargement de tous les fichiers PHP');
-    echo html_writer::tag('li', '✅ Corriger l\'erreur "Call to undefined function"');
-    echo html_writer::tag('li', '⚠️ Ralentir temporairement le site (le temps de reconstruire les caches)');
-    echo html_writer::tag('li', '⚠️ Déconnecter éventuellement certains utilisateurs');
+    echo html_writer::tag('li', get_string('purge_cache_effect_reload', 'local_question_diagnostic'));
+    echo html_writer::tag('li', get_string('purge_cache_effect_fix', 'local_question_diagnostic'));
+    echo html_writer::tag('li', get_string('purge_cache_effect_slow', 'local_question_diagnostic'));
+    echo html_writer::tag('li', get_string('purge_cache_effect_logout', 'local_question_diagnostic'));
     echo html_writer::end_tag('ul');
-    echo html_writer::tag('p', '<strong>Recommandation :</strong> Effectuez cette opération en dehors des heures de pointe si possible.');
+    echo html_writer::tag('p', get_string('purge_cache_recommendation', 'local_question_diagnostic'));
     echo html_writer::end_div();
     
     // Boutons
@@ -57,15 +69,22 @@ if (!$confirm) {
     
     $confirm_url = new moodle_url('/local/question_diagnostic/purge_cache.php', [
         'confirm' => 1,
-        'sesskey' => sesskey()
+        'sesskey' => sesskey(),
+        'returnurl' => $returnurl->out(false),
     ]);
-    echo html_writer::link($confirm_url, '🔧 Purger les Caches Maintenant', [
+    echo html_writer::link($confirm_url, '🔧 ' . get_string('purge_cache_confirm', 'local_question_diagnostic'), [
         'class' => 'btn btn-primary btn-lg'
     ]);
     
     echo html_writer::link(
+        $returnurl,
+        '← ' . get_string('purge_cache_back_previous', 'local_question_diagnostic'),
+        ['class' => 'btn btn-secondary btn-lg']
+    );
+
+    echo html_writer::link(
         new moodle_url('/local/question_diagnostic/index.php'),
-        '← Annuler',
+        get_string('backtomenu', 'local_question_diagnostic'),
         ['class' => 'btn btn-secondary btn-lg']
     );
     
@@ -77,8 +96,8 @@ if (!$confirm) {
     
     // Purger les caches
     echo html_writer::start_div('alert alert-info', ['style' => 'margin: 20px 0;']);
-    echo html_writer::tag('h3', '🔄 Purge en cours...');
-    echo html_writer::tag('p', 'Veuillez patienter, cette opération peut prendre quelques secondes.');
+    echo html_writer::tag('h3', get_string('purge_cache_running_title', 'local_question_diagnostic'));
+    echo html_writer::tag('p', get_string('purge_cache_running_desc', 'local_question_diagnostic'));
     echo html_writer::end_div();
     
     // Forcer l'affichage immédiat
@@ -90,40 +109,46 @@ if (!$confirm) {
         
         // Succès
         echo html_writer::start_div('alert alert-success', ['style' => 'margin: 20px 0;']);
-        echo html_writer::tag('h3', '✅ Caches purgés avec succès !');
-        echo html_writer::tag('p', 'Tous les caches de Moodle ont été purgés.');
+        echo html_writer::tag('h3', get_string('purge_cache_success_title', 'local_question_diagnostic'));
+        echo html_writer::tag('p', get_string('purge_cache_success_desc', 'local_question_diagnostic'));
         echo html_writer::end_div();
         
         // Instructions post-purge
         echo html_writer::start_div('alert alert-info', ['style' => 'margin: 20px 0;']);
-        echo html_writer::tag('h3', '📋 Prochaines étapes');
+        echo html_writer::tag('h3', get_string('purge_cache_next_steps_title', 'local_question_diagnostic'));
         echo html_writer::start_tag('ol');
-        echo html_writer::tag('li', '<strong>Videz le cache de votre navigateur</strong> (Ctrl+Shift+Delete ou Cmd+Shift+Delete)');
-        echo html_writer::tag('li', '<strong>Fermez et rouvrez votre navigateur</strong> (optionnel mais recommandé)');
-        echo html_writer::tag('li', '<strong>Testez la fonctionnalité</strong> : Essayez de supprimer une question');
+        echo html_writer::tag('li', get_string('purge_cache_step_browser_cache', 'local_question_diagnostic'));
+        echo html_writer::tag('li', get_string('purge_cache_step_restart_browser', 'local_question_diagnostic'));
+        echo html_writer::tag('li', get_string('purge_cache_step_test', 'local_question_diagnostic'));
         echo html_writer::end_tag('ol');
         echo html_writer::end_div();
         
         // Liens de test
         echo html_writer::start_div('', ['style' => 'margin: 30px 0;']);
-        echo html_writer::tag('h4', '🧪 Tester maintenant');
+        echo html_writer::tag('h4', get_string('purge_cache_test_now', 'local_question_diagnostic'));
         echo html_writer::start_div('', ['style' => 'display: flex; gap: 15px; flex-wrap: wrap;']);
         
         echo html_writer::link(
             new moodle_url('/local/question_diagnostic/test_function.php'),
-            '🔍 Tester les Fonctions',
+            get_string('purge_cache_test_functions', 'local_question_diagnostic'),
             ['class' => 'btn btn-info', 'target' => '_blank']
         );
         
         echo html_writer::link(
             new moodle_url('/local/question_diagnostic/questions_cleanup.php'),
-            '📊 Gestion des Questions',
+            get_string('purge_cache_questions_tool', 'local_question_diagnostic'),
             ['class' => 'btn btn-primary']
         );
         
         echo html_writer::link(
+            $returnurl,
+            '← ' . get_string('purge_cache_back_previous', 'local_question_diagnostic'),
+            ['class' => 'btn btn-secondary']
+        );
+
+        echo html_writer::link(
             new moodle_url('/local/question_diagnostic/index.php'),
-            '← Menu Principal',
+            get_string('backtomenu', 'local_question_diagnostic'),
             ['class' => 'btn btn-secondary']
         );
         
@@ -133,9 +158,14 @@ if (!$confirm) {
     } catch (Exception $e) {
         // Erreur
         echo html_writer::start_div('alert alert-danger', ['style' => 'margin: 20px 0;']);
-        echo html_writer::tag('h3', '❌ Erreur lors de la purge');
-        echo html_writer::tag('p', 'Une erreur s\'est produite : ' . htmlspecialchars($e->getMessage()));
-        echo html_writer::tag('p', '<strong>Solution alternative :</strong> Allez dans Administration du site → Développement → Purger les caches');
+        echo html_writer::tag('h3', get_string('purge_cache_error_title', 'local_question_diagnostic'));
+        echo html_writer::tag('p', get_string('purge_cache_error_desc', 'local_question_diagnostic', s($e->getMessage())));
+        echo html_writer::tag('p', get_string('purge_cache_error_alternative', 'local_question_diagnostic'));
+        echo html_writer::end_div();
+
+        echo html_writer::start_div('', ['style' => 'margin: 30px 0; display: flex; gap: 15px; flex-wrap: wrap;']);
+        echo html_writer::link($returnurl, '← ' . get_string('purge_cache_back_previous', 'local_question_diagnostic'), ['class' => 'btn btn-secondary']);
+        echo html_writer::link(new moodle_url('/local/question_diagnostic/index.php'), get_string('backtomenu', 'local_question_diagnostic'), ['class' => 'btn btn-secondary']);
         echo html_writer::end_div();
     }
 }

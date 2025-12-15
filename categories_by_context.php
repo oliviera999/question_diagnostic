@@ -246,6 +246,10 @@ if ($courseid > 0) {
                 if (!$cm->uservisible) {
                     continue;
                 }
+                // Si l'utilisateur a choisi le scope "quiz", on ne propose que les quiz.
+                if ($scope === 'quiz' && $cm->modname !== 'quiz') {
+                    continue;
+                }
                 $label = $cm->modname . ': ' . format_string($cm->name) . ' (cmid: ' . (int)$cm->id . ')';
                 echo html_writer::tag('option', $label, [
                     'value' => (int)$cm->id,
@@ -295,6 +299,8 @@ echo html_writer::start_tag('script');
   var courseCategory = document.getElementById('qd-course-category');
   var courseId = document.getElementById('qd-courseid');
   var courseSearch = document.getElementById('qd-course-search');
+  var scope = document.getElementById('qd-scope');
+  var cmid = document.getElementById('qd-cmid');
 
   if (courseCategory) {
     courseCategory.addEventListener('change', function() {
@@ -306,6 +312,27 @@ echo html_writer::start_tag('script');
   if (courseId) {
     courseId.addEventListener('change', function() {
       if (parseInt(courseId.value || '0', 10) > 0 && form) {
+        form.submit();
+      }
+    });
+  }
+
+  // Quand on change de périmètre / activité, on recharge la page si un cours est sélectionné.
+  function hasCourseSelected() {
+    return courseId && parseInt(courseId.value || '0', 10) > 0;
+  }
+
+  if (scope) {
+    scope.addEventListener('change', function() {
+      if (hasCourseSelected() && form) {
+        form.submit();
+      }
+    });
+  }
+
+  if (cmid) {
+    cmid.addEventListener('change', function() {
+      if (hasCourseSelected() && form) {
         form.submit();
       }
     });
@@ -359,24 +386,62 @@ if ($scope === 'all' || $scope === 'course') {
     $contextids[] = (int)$coursecontext->id;
 }
 
+// Contextes d'activités (modules) :
+// - Par défaut (cmid=0) : toutes les activités du cours (ou seulement les quiz si scope=quiz)
+// - Si cmid > 0 : uniquement l'activité sélectionnée (et éventuellement le cours selon scope).
 if ($scope === 'all' || $scope === 'activities' || $scope === 'quiz') {
-    $params = [
-        'contextlevel' => CONTEXT_MODULE,
-        'courseid' => $courseid,
-    ];
-    $sql = "SELECT ctx.id
-              FROM {context} ctx
-              INNER JOIN {course_modules} cm ON cm.id = ctx.instanceid
-              INNER JOIN {modules} m ON m.id = cm.module
-             WHERE ctx.contextlevel = :contextlevel
-               AND cm.course = :courseid";
-    if ($scope === 'quiz') {
-        $sql .= " AND m.name = :modname";
-        $params['modname'] = 'quiz';
-    }
-    $modulecontextids = $DB->get_fieldset_sql($sql, $params);
-    foreach ($modulecontextids as $mid) {
-        $contextids[] = (int)$mid;
+    if ($cmid > 0) {
+        // Sécurité : vérifier que le cmid appartient bien au cours sélectionné.
+        $cmsql = "SELECT cm.id, cm.course, m.name AS modname
+                    FROM {course_modules} cm
+                    INNER JOIN {modules} m ON m.id = cm.module
+                   WHERE cm.id = :cmid";
+        $cmrec = $DB->get_record_sql($cmsql, ['cmid' => $cmid], IGNORE_MISSING);
+        if (!$cmrec || (int)$cmrec->course !== (int)$courseid) {
+            echo html_writer::start_div('alert alert-danger', ['style' => 'margin-top: 15px;']);
+            echo get_string('invalid_parameters', 'local_question_diagnostic') . ' (cmid=' . (int)$cmid . ')';
+            echo html_writer::end_div();
+            echo $OUTPUT->footer();
+            exit;
+        }
+        if ($scope === 'quiz' && $cmrec->modname !== 'quiz') {
+            echo html_writer::start_div('alert alert-warning', ['style' => 'margin-top: 15px; border-left: 4px solid #f0ad4e;']);
+            echo get_string('tool_categories_by_context_activity_not_quiz', 'local_question_diagnostic', (object)[
+                'modname' => (string)$cmrec->modname,
+            ]);
+            echo html_writer::end_div();
+            echo $OUTPUT->footer();
+            exit;
+        }
+        $modulecontext = context_module::instance($cmid, IGNORE_MISSING);
+        if ($modulecontext) {
+            $contextids[] = (int)$modulecontext->id;
+        } else {
+            echo html_writer::start_div('alert alert-danger');
+            echo 'Contexte de module introuvable pour cmid=' . (int)$cmid;
+            echo html_writer::end_div();
+            echo $OUTPUT->footer();
+            exit;
+        }
+    } else {
+        $params = [
+            'contextlevel' => CONTEXT_MODULE,
+            'courseid' => $courseid,
+        ];
+        $sql = "SELECT ctx.id
+                  FROM {context} ctx
+                  INNER JOIN {course_modules} cm ON cm.id = ctx.instanceid
+                  INNER JOIN {modules} m ON m.id = cm.module
+                 WHERE ctx.contextlevel = :contextlevel
+                   AND cm.course = :courseid";
+        if ($scope === 'quiz') {
+            $sql .= " AND m.name = :modname";
+            $params['modname'] = 'quiz';
+        }
+        $modulecontextids = $DB->get_fieldset_sql($sql, $params);
+        foreach ($modulecontextids as $mid) {
+            $contextids[] = (int)$mid;
+        }
     }
 }
 
@@ -617,3 +682,4 @@ echo html_writer::end_tag('table');
 echo html_writer::end_div();
 
 echo $OUTPUT->footer();
+
