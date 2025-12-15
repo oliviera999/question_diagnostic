@@ -194,6 +194,7 @@ $string['brokenlinks_table'] = 'Questions avec liens cassés';
 $string['no_broken_links'] = 'Aucune question avec lien cassé détectée !';
 $string['question_id'] = 'ID Question';
 $string['question_name'] = 'Nom de la question';
+$string['question_content_excerpt'] = 'Extrait (contenu)';
 $string['question_type'] = 'Type';
 $string['question_hidden_status'] = 'Visibilité';
 $string['question_hidden'] = '🔒 Cachée';

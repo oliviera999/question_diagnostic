@@ -31,6 +31,20 @@ Fichiers :
 - `classes/olution_manager.php`
 - `version.php`
 
+## [1.11.41] - 2025-12-15
+
+### ✨ Amélioration : doublons Olution — extrait de contenu + liens “Olution” cliquables
+
+- Ajout d’une colonne **Extrait (contenu)** dans la liste des doublons.
+- Les emplacements/catégories appartenant au contexte **catégorie de cours** (ex: Olution) deviennent **cliquables** dans la banque de questions (fallback `courseid=SITEID`).
+
+Fichiers :
+- `olution_duplicates.php`
+- `lib.php`
+- `lang/fr/local_question_diagnostic.php`
+- `lang/en/local_question_diagnostic.php`
+- `version.php`
+
 ## [1.11.38] - 2025-12-15
 
 ### ✨ Nouvelle page : tri automatisé (texte) — “commun > Question à trier”

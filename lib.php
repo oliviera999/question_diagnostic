@@ -375,6 +375,10 @@ function local_question_diagnostic_get_question_bank_url($category, $questionid 
             // 🔧 FIX: Pour contexte système, utiliser SITEID au lieu de 0
             // courseid=0 cause l'erreur "course not found"
             $courseid = SITEID;
+        } else {
+            // Autres contextes (ex: CONTEXT_COURSECAT) :
+            // utiliser SITEID pour permettre l'ouverture de la banque de questions avec le paramètre cat=...
+            $courseid = SITEID;
         }
         
         // Vérifier que le cours existe avant de générer l'URL
@@ -406,6 +410,22 @@ function local_question_diagnostic_get_question_bank_url($category, $questionid 
     } catch (Exception $e) {
         return null;
     }
+}
+
+/**
+ * Extrait un texte court depuis un HTML (pour affichage en table).
+ *
+ * @param string $html
+ * @param int $length
+ * @return string
+ */
+function local_question_diagnostic_get_text_excerpt(string $html, int $length = 120): string {
+    $text = strip_tags($html);
+    $text = trim((string)preg_replace('/\s+/', ' ', $text));
+    if ($length > 0 && strlen($text) > $length) {
+        $text = substr($text, 0, $length) . '...';
+    }
+    return $text;
 }
 
 /**

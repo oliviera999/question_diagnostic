@@ -194,6 +194,7 @@ $string['brokenlinks_table'] = 'Questions with broken links';
 $string['no_broken_links'] = 'No questions with broken links detected!';
 $string['question_id'] = 'Question ID';
 $string['question_name'] = 'Question name';
+$string['question_content_excerpt'] = 'Excerpt (content)';
 $string['question_type'] = 'Type';
 $string['question_hidden_status'] = 'Visibility';
 $string['question_hidden'] = '🔒 Hidden';

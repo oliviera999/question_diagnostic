@@ -287,6 +287,7 @@ if (!empty($duplicate_groups)) {
         echo html_writer::tag('th', get_string('select', 'local_question_diagnostic'));
         echo html_writer::tag('th', get_string('question_id', 'local_question_diagnostic'));
         echo html_writer::tag('th', get_string('question_name', 'local_question_diagnostic'));
+        echo html_writer::tag('th', get_string('question_content_excerpt', 'local_question_diagnostic'));
         echo html_writer::tag('th', get_string('context', 'local_question_diagnostic'));
         echo html_writer::tag('th', get_string('current_category_path', 'local_question_diagnostic'));
         echo html_writer::tag('th', get_string('olution_target_category', 'local_question_diagnostic'));
@@ -337,6 +338,10 @@ if (!empty($duplicate_groups)) {
             } else {
                 echo html_writer::tag('td', $qname);
             }
+
+            // Extrait court du contenu.
+            $excerpt = local_question_diagnostic_get_text_excerpt((string)($q->questiontext ?? ''), 120);
+            echo html_writer::tag('td', s($excerpt), ['class' => 'small text-muted']);
 
             // Contexte.
             $ctx = local_question_diagnostic_get_context_details((int)$cat->contextid);
