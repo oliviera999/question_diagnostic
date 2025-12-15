@@ -9,8 +9,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'local_question_diagnostic';
-$plugin->version = 2025121507;  // YYYYMMDDXX format (v1.11.37 - Olution duplicates UI: rich details + multi-select move)
+$plugin->version = 2025121510;  // YYYYMMDDXX format (v1.11.40 - Olution duplicates: strict (qtype + questiontext) duplicates only)
 $plugin->requires = 2022041900; // Moodle 4.0+ (architecture question_bank_entries requise)
 $plugin->maturity = MATURITY_STABLE;
-$plugin->release = 'v1.11.37';
+$plugin->release = 'v1.11.40';
 

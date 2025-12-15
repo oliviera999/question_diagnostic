@@ -37,10 +37,16 @@ $action = optional_param('action', 'move_one', PARAM_ALPHANUMEXT);
 $questionid = optional_param('questionid', 0, PARAM_INT);
 $targetcatid = optional_param('targetcatid', 0, PARAM_INT);
 $confirm = optional_param('confirm', 0, PARAM_INT);
+$returnurlparam = optional_param('returnurl', '', PARAM_LOCALURL);
 
-$return_url = new moodle_url('/local/question_diagnostic/olution_duplicates.php');
-if ($action === 'move_triage_all') {
-    $return_url = new moodle_url('/local/question_diagnostic/olution_triage.php');
+$return_url = null;
+if (!empty($returnurlparam)) {
+    $return_url = new moodle_url($returnurlparam);
+} else {
+    $return_url = new moodle_url('/local/question_diagnostic/olution_duplicates.php');
+    if ($action === 'move_triage_all') {
+        $return_url = new moodle_url('/local/question_diagnostic/olution_triage.php');
+    }
 }
 
 // Valider explicitement l'action (sécurité + éviter les valeurs inattendues).
@@ -180,6 +186,9 @@ if ($action === 'move_selected') {
         echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'action', 'value' => 'move_selected']);
         echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'confirm', 'value' => 1]);
         echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]);
+        if (!empty($returnurlparam)) {
+            echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'returnurl', 'value' => $returnurlparam]);
+        }
         foreach ($ops as $opraw) {
             $opraw = (string)$opraw;
             echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'ops[]', 'value' => $opraw]);
@@ -294,7 +303,8 @@ if ($action === 'move_one') {
             'questionid' => $questionid,
             'targetcatid' => $targetcatid,
             'confirm' => 1,
-            'sesskey' => sesskey()
+            'sesskey' => sesskey(),
+            'returnurl' => !empty($returnurlparam) ? $returnurlparam : null,
         ]);
         
         echo html_writer::link($confirm_url, get_string('confirm', 'core'), 
@@ -363,7 +373,8 @@ else if ($action === 'move_all') {
         $confirm_url = new moodle_url('/local/question_diagnostic/actions/move_to_olution.php', [
             'action' => 'move_all',
             'confirm' => 1,
-            'sesskey' => sesskey()
+            'sesskey' => sesskey(),
+            'returnurl' => !empty($returnurlparam) ? $returnurlparam : null,
         ]);
         
         echo html_writer::link($confirm_url, get_string('confirm', 'core'), 
@@ -470,7 +481,8 @@ else if ($action === 'move_triage_all') {
         $confirm_url = new moodle_url('/local/question_diagnostic/actions/move_to_olution.php', [
             'action' => 'move_triage_all',
             'confirm' => 1,
-            'sesskey' => sesskey()
+            'sesskey' => sesskey(),
+            'returnurl' => !empty($returnurlparam) ? $returnurlparam : null,
         ]);
 
         echo html_writer::link(

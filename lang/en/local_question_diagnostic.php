@@ -578,6 +578,7 @@ $string['olution_target'] = 'Target Olution course / Category';
 $string['olution_no_duplicates_found'] = 'No duplicates detected between course categories and Olution';
 $string['olution_move_all_button'] = 'Move all questions ({$a})';
 $string['olution_duplicates_list'] = 'List of detected duplicates';
+$string['olution_duplicates_strict_info'] = '“Certain duplicates” mode: same type (qtype) + strictly identical text (questiontext).';
 $string['course_category'] = 'Course category';
 $string['olution_target_category'] = 'Target Olution category';
 $string['similarity'] = 'Similarity';
@@ -618,6 +619,19 @@ $string['confirm_move_all_triage_to_olution'] = 'Confirm triage (move questions)
 $string['triage_move_all_warning'] = 'This action will move questions located in \"Question à trier\" into the matching \"commun\" subcategories when duplicates (name + type) exist. Review the list before confirming.';
 $string['invalid_parameters'] = 'Invalid parameters';
 $string['invalid_action'] = 'Invalid action';
+
+// Olution auto sort (commun > "Question à trier" → text suggestion).
+$string['olution_auto_sort_title'] = 'Auto sort (text) — "Question à trier"';
+$string['olution_auto_sort_heading'] = 'Auto sort questions (title + content)';
+$string['olution_auto_sort_button'] = 'Auto sort (text) ({$a})';
+$string['olution_auto_sort_explain'] = 'Lists questions placed in "Question à trier" and suggests an EXISTING target subcategory under "commun" whose label (and path) best matches the question title + content. If no target stands out, a proposed new category title is shown (no creation).';
+$string['olution_auto_sort_threshold'] = 'Threshold (0–1)';
+$string['olution_auto_sort_no_results'] = 'No questions to display.';
+$string['olution_auto_sort_suggestion'] = 'Suggestion';
+$string['olution_auto_sort_score'] = 'Score: {$a->score}';
+$string['olution_auto_sort_no_match'] = 'No existing category matches sufficiently.';
+$string['olution_auto_sort_proposed_new_category'] = 'Proposed new category: {$a}';
+$string['question_content'] = 'Content';
 
 // 🆕 v1.11.5 : Course category filter
 $string['course_category_filter'] = 'Course category';
@@ -671,4 +685,7 @@ $string['tool_categories_by_context_visible_total'] = 'Visible (tree)';
 $string['tool_categories_by_context_move_root'] = '— Root (parent = 0) —';
 $string['tool_categories_by_context_move_to'] = 'Move category to a new parent (same context)';
 $string['tool_categories_by_context_move_button_help'] = 'Moves the category (changes its parent). A confirmation will be required.';
+$string['tool_categories_by_context_move_to_olution_commun'] = 'Move to Olution / commun (same context)';
+$string['tool_categories_by_context_move_button'] = 'Move';
+$string['tool_categories_by_context_move_olution_commun_context_mismatch'] = 'Olution/commun was detected but in a different context (category move is not possible).';
 

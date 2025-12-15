@@ -567,11 +567,12 @@ foreach ($categories as $cat) {
     $compute((int)$cat->id);
 }
 
-// Garder uniquement les catégories qui contiennent des questions (direct ou dans l'arbre).
+// Garder uniquement les catégories qui contiennent des questions DIRECTEMENT
+// (ne pas inclure celles qui n'ont des questions que via des sous-catégories).
 $filtered = [];
 foreach ($categories as $cat) {
     $cid = (int)$cat->id;
-    if (($totaltree[$cid] ?? 0) > 0) {
+    if (($directtotal[$cid] ?? 0) > 0) {
         $filtered[$cid] = $cat;
     }
 }
@@ -640,6 +641,109 @@ $contextlabels = [];
 foreach ($contextids as $ctxid) {
     $details = local_question_diagnostic_get_context_details((int)$ctxid);
     $contextlabels[(int)$ctxid] = $details->context_name;
+}
+
+// ----------------------------------------------------------------------
+// Détection Olution / commun (pour proposer un déplacement "vers commun/*")
+// ----------------------------------------------------------------------
+$olution = false;
+$olutioncommun = null;
+$olutioncommunoptions = [];
+$olutioncommuncontextid = 0;
+try {
+    $olution = local_question_diagnostic_find_olution_category();
+    if ($olution && !empty($olution->id) && !empty($olution->contextid)) {
+        $normalize = function(string $label): string {
+            $label = trim($label);
+            if (class_exists('\\core_text')) {
+                if (method_exists('\\core_text', 'remove_accents')) {
+                    $label = \core_text::remove_accents($label);
+                } else if (method_exists('\\core_text', 'specialtoascii')) {
+                    $label = \core_text::specialtoascii($label);
+                }
+                if (method_exists('\\core_text', 'strtolower')) {
+                    $label = \core_text::strtolower($label);
+                } else {
+                    $label = strtolower($label);
+                }
+            } else {
+                $label = strtolower($label);
+            }
+            $label = preg_replace('/\s+/', ' ', $label);
+            return $label;
+        };
+
+        // Chercher la sous-catégorie DIRECTE "commun" sous la racine Olution (validation stricte).
+        $children = $DB->get_records('question_categories', [
+            'contextid' => (int)$olution->contextid,
+            'parent' => (int)$olution->id,
+        ], 'sortorder ASC, id ASC', 'id,name,parent,contextid');
+        foreach ($children as $child) {
+            if ($normalize((string)$child->name) === 'commun') {
+                $olutioncommun = $child;
+                $olutioncommuncontextid = (int)$child->contextid;
+                break;
+            }
+        }
+
+        if ($olutioncommun) {
+            $subcats = local_question_diagnostic_get_olution_subcategories((int)$olutioncommun->id);
+            $targetids = [(int)$olutioncommun->id => true];
+            foreach ($subcats as $sc) {
+                if (!empty($sc->id)) {
+                    $targetids[(int)$sc->id] = true;
+                }
+            }
+
+            // Construire des libellés "commun → ..." (avec cache de lookup par id).
+            $catcache = [];
+            $getcat = function(int $id) use (&$catcache, $DB) {
+                if (isset($catcache[$id])) {
+                    return $catcache[$id];
+                }
+                $rec = $DB->get_record('question_categories', ['id' => (int)$id], 'id,name,parent,contextid', IGNORE_MISSING);
+                $catcache[$id] = $rec ?: null;
+                return $catcache[$id];
+            };
+            $buildlabel = function(int $id) use ($getcat, $olutioncommun): ?string {
+                $parts = [];
+                $current = $getcat($id);
+                if (!$current) {
+                    return null;
+                }
+                // Remonter jusqu'à commun (inclus).
+                $guard = 0;
+                while ($current && $guard < 200) {
+                    $parts[] = format_string($current->name);
+                    if ((int)$current->id === (int)$olutioncommun->id) {
+                        break;
+                    }
+                    $pid = (int)($current->parent ?? 0);
+                    if ($pid <= 0) {
+                        return null;
+                    }
+                    $current = $getcat($pid);
+                    $guard++;
+                }
+                if (!$current || (int)$current->id !== (int)$olutioncommun->id) {
+                    return null;
+                }
+                $parts = array_reverse($parts);
+                return implode(' → ', $parts);
+            };
+
+            foreach (array_keys($targetids) as $tid) {
+                $label = $buildlabel((int)$tid);
+                if ($label === null) {
+                    continue;
+                }
+                $olutioncommunoptions[(int)$tid] = $label . ' (ID: ' . (int)$tid . ')';
+            }
+            asort($olutioncommunoptions);
+        }
+    }
+} catch (Exception $e) {
+    // Ignore : pas de bouton Olution/commun si non détecté.
 }
 
 // ----------------------------------------------------------------------
@@ -749,6 +853,60 @@ foreach ($filtered as $cat) {
         ]);
     } else {
         echo html_writer::tag('span', '-', ['class' => 'text-muted']);
+    }
+
+    // Déplacer vers Olution/commun/* (si Olution est détectée ET même contexte).
+    if (!empty($olutioncommun) && !empty($olutioncommunoptions)) {
+        if ((int)$cat->contextid === (int)$olutioncommuncontextid) {
+            $actionurl = new moodle_url('/local/question_diagnostic/actions/move.php');
+            echo html_writer::start_tag('form', [
+                'method' => 'get',
+                'action' => $actionurl->out(false),
+                'style' => 'display:inline-flex; gap:6px; align-items:center; margin-left: 8px;',
+            ]);
+            echo html_writer::empty_tag('input', [
+                'type' => 'hidden',
+                'name' => 'id',
+                'value' => $cid,
+            ]);
+            echo html_writer::empty_tag('input', [
+                'type' => 'hidden',
+                'name' => 'returnurl',
+                'value' => $returnurl->out(false),
+            ]);
+            echo html_writer::empty_tag('input', [
+                'type' => 'hidden',
+                'name' => 'sesskey',
+                'value' => sesskey(),
+            ]);
+
+            echo html_writer::start_tag('select', [
+                'name' => 'parent',
+                'class' => 'form-control form-control-sm',
+                'title' => get_string('tool_categories_by_context_move_to_olution_commun', 'local_question_diagnostic'),
+                'style' => 'max-width: 260px;',
+            ]);
+            foreach ($olutioncommunoptions as $pid => $label) {
+                echo html_writer::tag('option', $label, [
+                    'value' => (int)$pid,
+                    'selected' => ((int)$cat->parent === (int)$pid),
+                ]);
+            }
+            echo html_writer::end_tag('select');
+
+            echo html_writer::tag('button', get_string('tool_categories_by_context_move_button', 'local_question_diagnostic'), [
+                'type' => 'submit',
+                'class' => 'btn btn-sm btn-primary',
+                'title' => get_string('tool_categories_by_context_move_button_help', 'local_question_diagnostic'),
+            ]);
+            echo html_writer::end_tag('form');
+        } else {
+            // Contexte différent : Moodle n'autorise pas le re-parenting entre contextes.
+            echo html_writer::tag('span',
+                get_string('tool_categories_by_context_move_olution_commun_context_mismatch', 'local_question_diagnostic'),
+                ['class' => 'text-muted', 'style' => 'margin-left: 8px; font-size: 12px;']
+            );
+        }
     }
 
     // Déplacer la catégorie (changer de parent) : sélecteur + confirmation via actions/move.php.

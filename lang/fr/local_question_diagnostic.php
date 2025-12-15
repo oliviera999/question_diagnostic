@@ -578,6 +578,7 @@ $string['olution_target'] = 'Cours Olution cible / Catégorie';
 $string['olution_no_duplicates_found'] = 'Aucun doublon détecté entre les catégories de cours et Olution';
 $string['olution_move_all_button'] = 'Déplacer toutes les questions ({$a})';
 $string['olution_duplicates_list'] = 'Liste des doublons détectés';
+$string['olution_duplicates_strict_info'] = 'Mode “doublons certains” : mêmes type (qtype) + texte (questiontext) strictement identiques.';
 $string['course_category'] = 'Catégorie du cours';
 $string['olution_target_category'] = 'Catégorie Olution cible';
 $string['similarity'] = 'Similarité';
@@ -618,6 +619,19 @@ $string['confirm_move_all_triage_to_olution'] = 'Confirmer le triage (déplaceme
 $string['triage_move_all_warning'] = 'Cette action va déplacer les questions situées dans \"Question à trier\" vers les sous-catégories correspondantes de \"commun\" lorsque des doublons (nom + type) existent. Vérifiez la liste avant de confirmer.';
 $string['invalid_parameters'] = 'Paramètres invalides';
 $string['invalid_action'] = 'Action invalide';
+
+// Olution auto sort (commun > "Question à trier" → suggestion texte).
+$string['olution_auto_sort_title'] = 'Tri automatisé (texte) — \"Question à trier\"';
+$string['olution_auto_sort_heading'] = 'Tri automatisé des questions (titre + contenu)';
+$string['olution_auto_sort_button'] = 'Tri automatisé (texte) ({$a})';
+$string['olution_auto_sort_explain'] = 'Liste les questions placées dans \"Question à trier\" et propose une sous-catégorie cible EXISTANTE de \"commun\" dont l’intitulé (et le chemin) se rapproche le plus du titre + contenu. Si aucune cible ne ressort, une proposition de nouvelle catégorie est affichée (sans création).';
+$string['olution_auto_sort_threshold'] = 'Seuil (0–1)';
+$string['olution_auto_sort_no_results'] = 'Aucune question à afficher.';
+$string['olution_auto_sort_suggestion'] = 'Suggestion';
+$string['olution_auto_sort_score'] = 'Score: {$a->score}';
+$string['olution_auto_sort_no_match'] = 'Aucune catégorie existante ne correspond suffisamment.';
+$string['olution_auto_sort_proposed_new_category'] = 'Proposition de nouvelle catégorie : {$a}';
+$string['question_content'] = 'Contenu';
 
 // 🆕 v1.11.5 : Filtre par catégorie de cours
 $string['course_category_filter'] = 'Catégorie de cours';
@@ -671,4 +685,7 @@ $string['tool_categories_by_context_visible_total'] = 'Visibles (arbre)';
 $string['tool_categories_by_context_move_root'] = '— Racine (parent = 0) —';
 $string['tool_categories_by_context_move_to'] = 'Déplacer la catégorie vers un nouveau parent (même contexte)';
 $string['tool_categories_by_context_move_button_help'] = 'Déplace la catégorie (change son parent). Une confirmation sera demandée.';
+$string['tool_categories_by_context_move_to_olution_commun'] = 'Déplacer vers Olution / commun (même contexte)';
+$string['tool_categories_by_context_move_button'] = 'Déplacer';
+$string['tool_categories_by_context_move_olution_commun_context_mismatch'] = 'Olution/commun détectée mais dans un autre contexte (déplacement de catégorie impossible).';
 

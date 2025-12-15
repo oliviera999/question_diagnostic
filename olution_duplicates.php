@@ -185,6 +185,16 @@ if (!empty($triagestats->triage_exists)) {
         $classes = 'btn btn-warning btn-lg';
     }
     echo html_writer::link($triage_url, $label, ['class' => $classes]);
+
+    // 🆕 Triage auto (texte) : liste toutes les questions dans "Question à trier" et propose une cible.
+    $triagetotal = olution_manager::get_triage_total_entries_count();
+    $autosort_url = new moodle_url('/local/question_diagnostic/olution_auto_sort.php');
+    echo ' ';
+    echo html_writer::link(
+        $autosort_url,
+        get_string('olution_auto_sort_button', 'local_question_diagnostic', (int)$triagetotal),
+        ['class' => 'btn btn-info btn-lg']
+    );
     echo html_writer::end_div();
 }
 
@@ -195,6 +205,10 @@ $duplicate_groups = olution_manager::find_all_duplicates_for_olution_paginated($
 
 // Afficher la liste des groupes de doublons
 echo html_writer::tag('h3', get_string('olution_duplicates_list', 'local_question_diagnostic'));
+echo $OUTPUT->notification(
+    get_string('olution_duplicates_strict_info', 'local_question_diagnostic'),
+    \core\output\notification::NOTIFY_INFO
+);
 
 if (!empty($duplicate_groups)) {
     // Formulaire global pour déplacer une sélection de questions (multi-sélection).

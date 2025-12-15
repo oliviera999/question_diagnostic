@@ -5,6 +5,50 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.11.39] - 2025-12-15
+
+### ✨ Amélioration : Catégories par cours / activité — direct uniquement + option Olution/commun
+
+- La liste finale n’affiche plus que les catégories qui contiennent des questions **directement** (pas uniquement via des sous-catégories).
+- Ajout d’un raccourci “Déplacer vers **Olution / commun**” lorsque la catégorie est dans le **même contexte** que l’arborescence Olution/commun (détection via `local_question_diagnostic_find_olution_category()`).
+
+Fichiers :
+- `categories_by_context.php`
+- `lang/fr/local_question_diagnostic.php`
+- `lang/en/local_question_diagnostic.php`
+- `version.php`
+
+## [1.11.40] - 2025-12-15
+
+### 🐛 Fix : Doublons Olution — “certains” (mode A) uniquement
+
+- La détection des doublons pour **Olution** utilise désormais un critère **strict** :
+  - **même type** (`qtype`)
+  - **même texte** (`questiontext`) **à l’identique** (et même `questiontextformat` par sécurité)
+- Cela évite les faux positifs “même titre / contenu proche”.
+
+Fichiers :
+- `classes/olution_manager.php`
+- `version.php`
+
+## [1.11.38] - 2025-12-15
+
+### ✨ Nouvelle page : tri automatisé (texte) — “commun > Question à trier”
+
+- Ajout d’une page **Tri automatisé (texte)** qui liste toutes les questions de **“Question à trier”** et propose une **catégorie cible existante** dans **commun/*** (hors triage) en se basant sur la similarité **titre + contenu**.
+- Si aucune cible n’est suffisamment proche, la page affiche une **proposition de nouvelle catégorie** (sans création automatique).
+- L’action de déplacement réutilise `actions/move_to_olution.php` avec **confirmation** et supporte désormais un paramètre `returnurl` pour revenir à la page d’origine.
+
+Fichiers :
+- `olution_auto_sort.php`
+- `classes/olution_manager.php`
+- `actions/move_to_olution.php`
+- `olution_duplicates.php`
+- `lib.php`
+- `lang/fr/local_question_diagnostic.php`
+- `lang/en/local_question_diagnostic.php`
+- `version.php`
+
 ## [1.11.30] - 2025-12-15
 
 ### 🐛 Fix : Détection Olution dans les contextes de cours (catégorie sous "Top")

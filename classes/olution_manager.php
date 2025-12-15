@@ -40,6 +40,9 @@ class olution_manager {
     /** @var array<string,array>|null Cache map signature => target (triage) */
     private static $triagetargetmap = null;
 
+    /** @var array<int,array>|null Cache catégories candidates pour auto-tri (dans commun/* hors triage) */
+    private static $autosortcandidatecatscache = null;
+
     /** @var array<int,bool> Cache catégorie_id => is_in_olution */
     private static $inolutioncache = [];
 
@@ -162,6 +165,142 @@ class olution_manager {
         }
         $label = preg_replace('/\s+/', ' ', $label);
         return $label;
+    }
+
+    /**
+     * Normalise un texte "libre" (titre, contenu) pour de la tokenisation :
+     * - minuscules + suppression accents
+     * - remplace la ponctuation par des espaces
+     * - compacte les espaces
+     *
+     * @param string $text
+     * @return string
+     */
+    private static function normalize_free_text(string $text): string {
+        $text = self::normalize_label($text);
+        // Remplacer tout sauf lettres/chiffres par des espaces.
+        $text = preg_replace('/[^a-z0-9]+/i', ' ', $text);
+        $text = preg_replace('/\s+/', ' ', (string)$text);
+        return trim((string)$text);
+    }
+
+    /**
+     * Tokenise un texte en mots uniques (avec stopwords FR/EN simples).
+     *
+     * @param string $text
+     * @return string[] tokens uniques
+     */
+    private static function tokenize(string $text): array {
+        $text = self::normalize_free_text($text);
+        if ($text === '') {
+            return [];
+        }
+
+        static $stop = null;
+        if ($stop === null) {
+            // Stopwords minimalistes (FR + EN) pour éviter de proposer "de", "the", etc.
+            $stop = array_fill_keys([
+                // FR
+                'a','au','aux','avec','ce','ces','dans','de','des','du','elle','en','et','eux','il','je','la','le','les','leur','lui','ma','mais','me','meme','mes','moi',
+                'mon','ne','nos','notre','nous','on','ou','par','pas','pour','qu','que','qui','sa','se','ses','son','sur','ta','te','tes','toi','ton','tu','un','une','vos','votre','vous',
+                'c','d','l','m','n','s','t','y',
+                // EN
+                'a','an','and','are','as','at','be','by','for','from','has','have','i','in','is','it','its','of','on','or','that','the','their','them','there','this','to','was','were','with','you','your',
+            ], true);
+        }
+
+        $parts = explode(' ', $text);
+        $out = [];
+        foreach ($parts as $p) {
+            $p = trim($p);
+            if ($p === '' || strlen($p) < 3) {
+                continue;
+            }
+            if (isset($stop[$p])) {
+                continue;
+            }
+            $out[$p] = true;
+        }
+        return array_keys($out);
+    }
+
+    /**
+     * Propose un titre de nouvelle catégorie à partir des tokens d'une question.
+     *
+     * @param string[] $tokens
+     * @return string
+     */
+    private static function propose_category_title_from_tokens(array $tokens): string {
+        if (empty($tokens)) {
+            return '';
+        }
+        // Trier par longueur puis alpha (favorise les mots "porteurs").
+        usort($tokens, function(string $a, string $b): int {
+            $la = strlen($a);
+            $lb = strlen($b);
+            if ($la !== $lb) {
+                return $lb <=> $la;
+            }
+            return strcmp($a, $b);
+        });
+
+        $picked = array_slice($tokens, 0, 3);
+        $picked = array_map(function(string $w): string {
+            // Re-capitaliser légèrement (sans accents, mais OK pour une proposition).
+            return ucfirst($w);
+        }, $picked);
+        return implode(' - ', $picked);
+    }
+
+    /**
+     * Calcule un score de similarité "question → catégorie" (0..1).
+     *
+     * @param string $qname
+     * @param string $qtext
+     * @param array $catinfo {id:int,name:string,label:string,tokens:string[]}
+     * @return float
+     */
+    private static function compute_text_similarity_score(string $qname, string $qtext, array $catinfo): float {
+        $qname = self::normalize_free_text($qname);
+        $qtext = self::normalize_free_text($qtext);
+
+        $qtokens = self::tokenize($qname . ' ' . $qtext);
+        $ctokens = (array)($catinfo['tokens'] ?? []);
+        $ctokens = array_values(array_unique(array_filter($ctokens)));
+
+        $overlap = 0.0;
+        if (!empty($qtokens) && !empty($ctokens)) {
+            $qset = array_fill_keys($qtokens, true);
+            $inter = 0;
+            foreach ($ctokens as $t) {
+                if (isset($qset[$t])) {
+                    $inter++;
+                }
+            }
+            // Rappel côté catégorie : "tous les mots de la catégorie sont trouvés dans la question ?"
+            $overlap = $inter / max(1, count($ctokens));
+        }
+
+        $sim = 0.0;
+        $catlabel = self::normalize_free_text((string)($catinfo['label'] ?? $catinfo['name'] ?? ''));
+        if ($qname !== '' && $catlabel !== '') {
+            $pct = 0.0;
+            similar_text($qname, $catlabel, $pct);
+            $sim = max(0.0, min(1.0, (float)$pct / 100.0));
+        }
+
+        $bonus = 0.0;
+        if ($catlabel !== '' && $qtext !== '' && strpos($qtext, $catlabel) !== false) {
+            $bonus = 0.15;
+        }
+
+        $score = (0.65 * $overlap) + (0.35 * $sim) + $bonus;
+        if ($score < 0.0) {
+            $score = 0.0;
+        } else if ($score > 1.0) {
+            $score = 1.0;
+        }
+        return $score;
     }
 
     /**
@@ -331,6 +470,292 @@ class olution_manager {
         }
 
         return $DB->get_record('question_categories', ['id' => $triageid], '*', IGNORE_MISSING) ?: false;
+    }
+
+    /**
+     * Retourne la catégorie de référence (commun sous Olution si présent, sinon Olution).
+     *
+     * @return object|false
+     */
+    public static function get_reference_category() {
+        global $DB;
+        $refid = self::get_reference_category_id();
+        if ($refid <= 0) {
+            return false;
+        }
+        return $DB->get_record('question_categories', ['id' => $refid], '*', IGNORE_MISSING) ?: false;
+    }
+
+    /**
+     * Compte le nombre d'entrées de banque de questions (qbe) dans "Question à trier" (sous-arbre).
+     * (Moodle 4.x : on compte les entries, pas directement `question.category`.)
+     *
+     * @return int
+     */
+    public static function get_triage_total_entries_count(): int {
+        global $DB;
+
+        $triage = self::get_triage_category();
+        if (!$triage) {
+            return 0;
+        }
+        $params = [];
+        $triagecond = self::build_in_category_tree_condition('qc', $params, (int)$triage->id, 'tri', $triage);
+
+        $sql = "SELECT COUNT(DISTINCT qbe.id)
+                  FROM {question_bank_entries} qbe
+                  INNER JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
+                 WHERE {$triagecond}";
+
+        try {
+            return (int)$DB->count_records_sql($sql, $params);
+        } catch (\Exception $e) {
+            return 0;
+        }
+    }
+
+    /**
+     * Récupère (et met en cache) la liste des catégories candidates pour l'auto-tri :
+     * - dans le scope de référence (commun sous Olution si présent)
+     * - excluant le sous-arbre "Question à trier"
+     * - excluant la racine de référence elle-même
+     *
+     * @return array<int,array{cat:object,label:string,tokens:string[]}>
+     */
+    private static function get_autosort_candidate_categories(): array {
+        global $DB;
+
+        if (self::$autosortcandidatecatscache !== null) {
+            return (array)self::$autosortcandidatecatscache;
+        }
+        self::$autosortcandidatecatscache = [];
+
+        $olution = local_question_diagnostic_find_olution_category();
+        $triage = self::get_triage_category();
+        $ref = self::get_reference_category();
+        if (!$olution || !$triage || !$ref) {
+            return (array)self::$autosortcandidatecatscache;
+        }
+
+        // Le triage n'a de sens que si la référence est "commun" (et non Olution).
+        if ((int)$ref->id === (int)$olution->id) {
+            return (array)self::$autosortcandidatecatscache;
+        }
+
+        $params = [];
+        $refcond = self::build_in_reference_condition('qc', $params, $olution);
+        $triagecond = self::build_in_category_tree_condition('qc', $params, (int)$triage->id, 'tri', $triage);
+
+        $sql = "SELECT qc.id, qc.name, qc.parent, qc.contextid
+                  FROM {question_categories} qc
+                 WHERE {$refcond}
+                   AND qc.id <> :refid
+                   AND NOT ({$triagecond})
+              ORDER BY qc.name ASC, qc.id ASC";
+
+        try {
+            $records = $DB->get_records_sql($sql, $params + ['refid' => (int)$ref->id]);
+        } catch (\Exception $e) {
+            $records = [];
+        }
+
+        if (empty($records)) {
+            return (array)self::$autosortcandidatecatscache;
+        }
+
+        // Filtrer vers des feuilles (réduit le bruit + améliore performance).
+        $idset = [];
+        foreach ($records as $r) {
+            $idset[(int)$r->id] = true;
+        }
+        $haschild = [];
+        foreach ($records as $r) {
+            $pid = (int)$r->parent;
+            if ($pid > 0 && isset($idset[$pid])) {
+                $haschild[$pid] = true;
+            }
+        }
+
+        $out = [];
+        foreach ($records as $r) {
+            $cid = (int)$r->id;
+            // Conserver feuilles et aussi quelques catégories intermédiaires "porteuses" (si pas feuille, ignorer).
+            if (isset($haschild[$cid])) {
+                continue;
+            }
+
+            $crumb = local_question_diagnostic_get_question_category_breadcrumb($cid);
+            $label = trim($crumb) !== '' ? $crumb : (string)$r->name;
+            $tokens = self::tokenize($label);
+            $out[$cid] = [
+                'cat' => $r,
+                'label' => $label,
+                'tokens' => $tokens,
+            ];
+        }
+
+        self::$autosortcandidatecatscache = $out;
+        return (array)self::$autosortcandidatecatscache;
+    }
+
+    /**
+     * Retourne une page d'entrées/questions de "Question à trier" avec suggestion de cible
+     * basée sur la similarité (titre + contenu) vers une catégorie existante dans commun/*.
+     *
+     * @param int $limit
+     * @param int $offset
+     * @param int|null $total (OUT) total d'entrées dans triage
+     * @param float $minscore Seuil d'acceptation "match trouvé"
+     * @return array<int,array{
+     *   bankentryid:int,
+     *   question:object,
+     *   source_category:object,
+     *   best_target:?object,
+     *   best_score:float,
+     *   alternatives:array<int,array{cat:object,score:float}>,
+     *   proposed_new_category:string
+     * }>
+     */
+    public static function get_triage_auto_sort_candidates_paginated(
+        int $limit,
+        int $offset,
+        &$total = null,
+        float $minscore = 0.30
+    ): array {
+        global $DB;
+
+        $triage = self::get_triage_category();
+        if (!$triage) {
+            $total = 0;
+            return [];
+        }
+
+        $candidates = self::get_autosort_candidate_categories();
+        if (empty($candidates)) {
+            $total = 0;
+            return [];
+        }
+
+        $limit = max(10, min(200, (int)$limit));
+        $offset = max(0, (int)$offset);
+        $minscore = max(0.0, min(1.0, (float)$minscore));
+
+        $params = [];
+        $triagecond = self::build_in_category_tree_condition('qc', $params, (int)$triage->id, 'tri', $triage);
+
+        // Total distinct qbe dans triage.
+        $sqlcount = "SELECT COUNT(DISTINCT qbe.id)
+                       FROM {question_bank_entries} qbe
+                       INNER JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
+                      WHERE {$triagecond}";
+        try {
+            $total = (int)$DB->count_records_sql($sqlcount, $params);
+        } catch (\Exception $e) {
+            $total = 0;
+        }
+        if ((int)$total === 0) {
+            return [];
+        }
+
+        // Récupérer une "version courante" par entry (max(version)).
+        $sql = "SELECT qbe.id AS bankentryid,
+                       q.id AS questionid,
+                       q.name,
+                       q.qtype,
+                       q.questiontext,
+                       q.questiontextformat,
+                       qc.id AS categoryid,
+                       qc.name AS categoryname,
+                       qc.contextid AS categorycontextid
+                  FROM {question_bank_entries} qbe
+                  INNER JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
+                  INNER JOIN (
+                      SELECT qv.questionbankentryid, MAX(qv.version) AS maxversion
+                        FROM {question_versions} qv
+                    GROUP BY qv.questionbankentryid
+                  ) qvm ON qvm.questionbankentryid = qbe.id
+                  INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id AND qv.version = qvm.maxversion
+                  INNER JOIN {question} q ON q.id = qv.questionid
+                 WHERE {$triagecond}
+              ORDER BY qbe.id DESC";
+
+        $rows = $DB->get_records_sql($sql, $params, $offset, $limit);
+        if (empty($rows)) {
+            return [];
+        }
+
+        $out = [];
+        foreach ($rows as $r) {
+            $qid = (int)$r->questionid;
+            $qname = (string)($r->name ?? '');
+
+            // Convertir questiontext HTML → texte brut, et limiter (perf).
+            $qtext = (string)($r->questiontext ?? '');
+            $qtext = html_entity_decode($qtext, ENT_QUOTES | ENT_HTML5);
+            $qtext = trim(strip_tags($qtext));
+            if (strlen($qtext) > 4000) {
+                $qtext = substr($qtext, 0, 4000);
+            }
+
+            // Scores sur toutes les catégories candidates.
+            $scores = [];
+            foreach ($candidates as $cid => $catinfo) {
+                $cat = $catinfo['cat'];
+                $score = self::compute_text_similarity_score($qname, $qtext, [
+                    'id' => (int)$cat->id,
+                    'name' => (string)$cat->name,
+                    'label' => (string)$catinfo['label'],
+                    'tokens' => (array)$catinfo['tokens'],
+                ]);
+                if ($score <= 0.0) {
+                    continue;
+                }
+                $scores[] = [
+                    'cat' => $cat,
+                    'score' => $score,
+                ];
+            }
+
+            usort($scores, function(array $a, array $b): int {
+                $sa = (float)$a['score'];
+                $sb = (float)$b['score'];
+                if ($sa === $sb) {
+                    return ((int)$a['cat']->id) <=> ((int)$b['cat']->id);
+                }
+                return ($sb <=> $sa);
+            });
+
+            $best = $scores[0] ?? null;
+            $bestcat = $best ? ($best['cat'] ?? null) : null;
+            $bestscore = $best ? (float)$best['score'] : 0.0;
+
+            $qtokens = self::tokenize($qname . ' ' . $qtext);
+            $proposed = '';
+            if (!$bestcat || $bestscore < $minscore) {
+                $proposed = self::propose_category_title_from_tokens($qtokens);
+            }
+
+            $out[] = [
+                'bankentryid' => (int)$r->bankentryid,
+                'question' => (object)[
+                    'id' => $qid,
+                    'name' => $r->name,
+                    'qtype' => $r->qtype,
+                    'questiontext' => $qtext,
+                ],
+                'source_category' => (object)[
+                    'id' => (int)$r->categoryid,
+                    'name' => $r->categoryname,
+                    'contextid' => (int)$r->categorycontextid,
+                ],
+                'best_target' => ($bestcat && $bestscore >= $minscore) ? $bestcat : null,
+                'best_score' => $bestscore,
+                'alternatives' => array_slice($scores, 0, 3),
+                'proposed_new_category' => $proposed,
+            ];
+        }
+
+        return $out;
     }
 
     /**
@@ -728,12 +1153,16 @@ class olution_manager {
     }
 
     /**
-     * Récupère les groupes de doublons (name+qtype) qui ont une présence dans Olution, paginés.
+     * Récupère les groupes de doublons CERTAINS (qtype + questiontext identique) qui ont une présence dans Olution,
+     * paginés.
+     *
+     * Doublon certain (mode A) = même qtype + même questiontext (et même questiontextformat par sécurité),
+     * sans heuristique/similarité.
      *
      * @param int $limit Nombre de groupes à retourner
      * @param int $offset Offset de groupes
      * @param int|null $totalgroups (OUT) Nombre total de groupes matchés
-     * @return array Tableau d'objets (name,qtype,dup_count)
+     * @return array Tableau d'objets (representative_id,qtype,dup_count)
      */
     private static function get_olution_duplicate_group_rows_paginated(int $limit, int $offset, &$totalgroups = null): array {
         global $DB;
@@ -748,27 +1177,29 @@ class olution_manager {
         // ⚠️ Le scope "référence" peut être Olution/commun/* (si présent).
         $inrefcond = self::build_in_reference_condition('qc', $params, $olution);
 
-        $sqlgroups = "SELECT q.name,
+        $qtext = $DB->sql_compare_text('q.questiontext');
+
+        $sqlgroups = "SELECT MIN(q.id) AS representative_id,
                              q.qtype,
                              COUNT(DISTINCT q.id) AS dup_count
                         FROM {question} q
                         INNER JOIN {question_versions} qv ON qv.questionid = q.id
                         INNER JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
                         INNER JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
-                    GROUP BY q.name, q.qtype
+                    GROUP BY q.qtype, q.questiontextformat, {$qtext}
                       HAVING COUNT(DISTINCT q.id) > 1
                          AND COUNT(DISTINCT CASE WHEN {$inrefcond} THEN q.id ELSE NULL END) > 0
-                    ORDER BY dup_count DESC, q.name ASC, q.qtype ASC";
+                    ORDER BY dup_count DESC, representative_id ASC, q.qtype ASC";
 
         // Total groups.
         $sqlcount = "SELECT COUNT(1)
                        FROM (
-                             SELECT q.name, q.qtype
+                             SELECT q.qtype, q.questiontextformat, {$qtext}
                                FROM {question} q
                                INNER JOIN {question_versions} qv ON qv.questionid = q.id
                                INNER JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
                                INNER JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
-                           GROUP BY q.name, q.qtype
+                           GROUP BY q.qtype, q.questiontextformat, {$qtext}
                              HAVING COUNT(DISTINCT q.id) > 1
                                 AND COUNT(DISTINCT CASE WHEN {$inrefcond} THEN q.id ELSE NULL END) > 0
                             ) t";
@@ -1165,10 +1596,27 @@ class olution_manager {
         // Construire les mêmes structures que find_all_duplicates_for_olution(), mais seulement pour la page demandée.
         $results = [];
         foreach ($rows as $row) {
-            $question_ids = $DB->get_fieldset_select('question', 'id',
-                'name = :name AND qtype = :qtype',
-                ['name' => $row->name, 'qtype' => $row->qtype]
-            );
+            $repid = (int)($row->representative_id ?? 0);
+            if ($repid <= 0) {
+                continue;
+            }
+
+            $rep = $DB->get_record('question', ['id' => $repid], 'id,name,qtype,questiontext,questiontextformat', IGNORE_MISSING);
+            if (!$rep) {
+                continue;
+            }
+
+            // Doublon certain (mode A) : qtype + questiontext identiques (+ format).
+            $sqlids = "SELECT q.id
+                         FROM {question} q
+                        WHERE q.qtype = :qtype
+                          AND q.questiontextformat = :fmt
+                          AND " . $DB->sql_compare_text('q.questiontext') . ' = ' . $DB->sql_compare_text(':qtext');
+            $question_ids = $DB->get_fieldset_sql($sqlids, [
+                'qtype' => $rep->qtype,
+                'fmt' => (int)$rep->questiontextformat,
+                'qtext' => $rep->questiontext,
+            ]);
 
             if (empty($question_ids)) {
                 continue;
@@ -1252,8 +1700,8 @@ class olution_manager {
             }
 
             $results[] = [
-                'group_name' => $row->name,
-                'group_type' => $row->qtype,
+                'group_name' => $rep->name,
+                'group_type' => $rep->qtype,
                 'total_count' => count($questions_with_categories),
                 // NB: "olution_count" = nombre dans le scope de référence (commun/* si présent).
                 'olution_count' => count($reference_questions),
@@ -1304,15 +1752,16 @@ class olution_manager {
         // "Référence" (commun/* si présent) pour les groupes pertinents.
         $inrefcond = self::build_in_reference_condition('qc', $params, $olution);
 
-        // Total de questions dans les groupes avec présence "référence" (commun/* si présent).
+        // Total de questions dans les groupes CERTAINS (qtype + questiontext identique) avec présence "référence".
+        $qtext = $DB->sql_compare_text('q.questiontext');
         $sqlsum = "SELECT COALESCE(SUM(g.dup_count), 0) AS total_questions
                      FROM (
-                           SELECT q.name, q.qtype, COUNT(DISTINCT q.id) AS dup_count
+                           SELECT q.qtype, q.questiontextformat, {$qtext}, COUNT(DISTINCT q.id) AS dup_count
                              FROM {question} q
                              INNER JOIN {question_versions} qv ON qv.questionid = q.id
                              INNER JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
                              INNER JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
-                         GROUP BY q.name, q.qtype
+                         GROUP BY q.qtype, q.questiontextformat, {$qtext}
                            HAVING COUNT(DISTINCT q.id) > 1
                               AND COUNT(DISTINCT CASE WHEN {$inrefcond} THEN q.id ELSE NULL END) > 0
                           ) g";
@@ -1335,9 +1784,10 @@ class olution_manager {
                                 INNER JOIN {question_versions} qv2 ON qv2.questionid = q2.id
                                 INNER JOIN {question_bank_entries} qbe2 ON qbe2.id = qv2.questionbankentryid
                                 INNER JOIN {question_categories} qc2 ON qc2.id = qbe2.questioncategoryid
-                               WHERE q2.name = q.name
-                                 AND q2.qtype = q.qtype
-                               GROUP BY q2.name, q2.qtype
+                               WHERE q2.qtype = q.qtype
+                                 AND q2.questiontextformat = q.questiontextformat
+                                 AND " . $DB->sql_compare_text('q2.questiontext') . " = " . $DB->sql_compare_text('q.questiontext') . "
+                               GROUP BY q2.qtype, q2.questiontextformat, " . $DB->sql_compare_text('q2.questiontext') . "
                                  HAVING COUNT(DISTINCT q2.id) > 1
                                     AND COUNT(DISTINCT CASE WHEN {$inrefcond2} THEN q2.id ELSE NULL END) > 0
                           )";

@@ -871,6 +871,7 @@ function local_question_diagnostic_get_parent_url($current_page) {
 
         // Olution triage → olution_duplicates.php
         'olution_triage.php' => 'olution_duplicates.php',
+        'olution_auto_sort.php' => 'olution_duplicates.php',
         
         // index.php n'a pas de parent (racine)
         'index.php' => null,
