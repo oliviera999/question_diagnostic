@@ -1285,6 +1285,14 @@ function local_question_diagnostic_find_olution_category() {
                             continue;
                         }
 
+                        // IMPORTANT: En contexte cours, "commun" peut exister sous d'autres catégories.
+                        // Pour éviter de sélectionner une mauvaise racine (ex: "Top"), on exige que le parent
+                        // ait un nom contenant "Olution" (normalisé).
+                        $parentnorm = $normalize((string)$parent->name);
+                        if (strpos($parentnorm, 'olution') === false) {
+                            continue;
+                        }
+
                         // Enrichir + scorer.
                         $parent->course_name = $course->fullname;
                         $parent->course_id = (int)$course->id;

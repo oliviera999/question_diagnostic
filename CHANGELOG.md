@@ -19,6 +19,17 @@ Fichiers :
 - `lang/fr/local_question_diagnostic.php`
 - `lang/en/local_question_diagnostic.php`
 
+## [1.11.31] - 2025-12-15
+
+### 🐛 Fix : Phase 2 (cours) — éviter les faux positifs “commun”
+
+- En contexte cours, **`commun` peut exister sous d’autres arbres** que l’arborescence Olution.
+- La sélection “parent de `commun`” est maintenant **filtrée** : le parent doit avoir un nom contenant **“Olution”** (normalisé), ce qui évite de sélectionner des parents génériques (ex: “Top”).
+
+Fichiers :
+- `lib.php`
+- `version.php`
+
 ## [1.10.9] - 2025-10-14
 
 ### 🎯 CORRECTION FINALE : Olution = Catégorie de QUESTIONS système
