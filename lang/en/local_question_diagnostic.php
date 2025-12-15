@@ -518,10 +518,11 @@ $string['backtocategories'] = 'Back to categories';
 $string['olution_duplicates_title'] = 'Automatic Move to Olution';
 $string['olution_duplicates_heading'] = 'Course → Olution Duplicates Management';
 $string['olution_not_found'] = 'No system-level shared questions category was found';
-$string['olution_not_found_help'] = 'To use this feature, create a question category at the system level (context: System) with:<br>
-• A name containing "Olution" (e.g., "Olution", "Olution Questions", "Olution Bank")<br>
-• OR a description containing "olution", "central bank", or "shared questions"<br>
-<br>The system will automatically detect this category as the main shared questions category.';
+$string['olution_not_found_help'] = 'To use this feature, you must already have an existing "Olution" question category (the plugin will not create it).<br>
+Detection options:<br>
+• System context: a question category with a name containing "Olution"<br>
+• OR Course context (within the "Olution" course category): a question category with a "commun" subcategory<br>
+<br>Then, duplicates outside Olution can be moved into the existing Olution subcategory where the duplicate already exists.';
 $string['olution_total_duplicates'] = 'Duplicates detected';
 $string['olution_movable_questions'] = 'Movable questions';
 $string['olution_unmovable_questions'] = 'No match';

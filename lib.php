@@ -1253,53 +1253,109 @@ function local_question_diagnostic_find_olution_category() {
                 if (!$course_context) {
                     continue;
                 }
-            
-                // 4. Chercher les catégories de questions dans ce contexte de cours
-                $course_categories_sql = "SELECT *
-                                         FROM {question_categories}
-                                         WHERE contextid = :contextid
-                                         AND parent = 0
-                                         ORDER BY name ASC";
-            
-                $course_categories = $DB->get_records_sql($course_categories_sql, [
-                    'contextid' => $course_context->id
-                ]);
-            
-                local_question_diagnostic_debug_log('📂 Found ' . count($course_categories) . ' question categories in course context', DEBUG_DEVELOPER);
-            
-                // 5. Vérifier si une de ces catégories contient "Olution"
-                foreach ($course_categories as $cat) {
-                    if (stripos($cat->name, 'olution') !== false) {
-                        local_question_diagnostic_debug_log('✅ Olution question category found in course: ' . $cat->name . ' (Course: ' . $course->fullname . ')', DEBUG_DEVELOPER);
-                    
-                        // Ajouter des informations sur le cours et la catégorie de cours parent
+
+                // 4. Détection robuste dans le contexte de cours :
+                // - Chercher une catégorie nommée exactement "commun" (case/accents-insensitive) et prendre son parent
+                //   comme candidat "Olution" (signal fort, comme en Phase 1).
+                // - Chercher toute catégorie dont le nom contient "olution" (sans supposer parent=0).
+                // - Fallback: première catégorie racine du cours (souvent "Top").
+
+                // 4.a) Heuristique "commun" → parent.
+                try {
+                    $communpattern = '%commun%';
+                    $sqlcommun = "SELECT id, name, parent, contextid
+                                    FROM {question_categories}
+                                   WHERE contextid = :ctxid
+                                     AND " . $DB->sql_like('name', ':pattern', false, false);
+                    $communrecs = $DB->get_records_sql($sqlcommun, [
+                        'ctxid' => (int)$course_context->id,
+                        'pattern' => $communpattern,
+                    ]);
+
+                    foreach ($communrecs as $rec) {
+                        if (empty($rec->parent) || (int)$rec->parent <= 0) {
+                            continue;
+                        }
+                        if ($normalize((string)$rec->name) !== 'commun') {
+                            continue;
+                        }
+
+                        $parent = $DB->get_record('question_categories', ['id' => (int)$rec->parent], '*', IGNORE_MISSING);
+                        if (!$parent || (int)$parent->contextid !== (int)$course_context->id) {
+                            continue;
+                        }
+
+                        // Enrichir + scorer.
+                        $parent->course_name = $course->fullname;
+                        $parent->course_id = (int)$course->id;
+                        $parent->course_category_name = $olution_course_category->name;
+                        $parent->course_category_id = (int)$olution_course_category->id;
+                        $parent->context_type = 'course_category';
+
+                        $score = $scorecategory($parent) + 1000; // bonus massif pour "parent de commun"
+                        if ($score > $bestcoursescore) {
+                            $bestcoursescore = $score;
+                            $coursecandidate = $parent;
+                        }
+                    }
+                } catch (\Exception $e) {
+                    // Continuer avec les heuristiques suivantes.
+                }
+
+                // 4.b) Recherche de catégories dont le nom contient "olution" (dans TOUT le contexte du cours).
+                try {
+                    $sql = "SELECT *
+                              FROM {question_categories}
+                             WHERE contextid = :contextid
+                               AND " . $DB->sql_like('name', ':pattern', false, false) . "
+                          ORDER BY LENGTH(name) ASC, id ASC";
+                    $coursecats = $DB->get_records_sql($sql, [
+                        'contextid' => (int)$course_context->id,
+                        'pattern' => '%Olution%',
+                    ], 0, 50);
+
+                    local_question_diagnostic_debug_log('📂 Found ' . count($coursecats) . ' question categories matching "%Olution%" in course context', DEBUG_DEVELOPER);
+
+                    foreach ($coursecats as $cat) {
+                        // Ajouter des informations sur le cours et la catégorie de cours parent.
                         $cat->course_name = $course->fullname;
-                        $cat->course_id = $course->id;
+                        $cat->course_id = (int)$course->id;
                         $cat->course_category_name = $olution_course_category->name;
-                        $cat->course_category_id = $olution_course_category->id;
+                        $cat->course_category_id = (int)$olution_course_category->id;
                         $cat->context_type = 'course_category';
-                    
+
                         $score = $scorecategory($cat);
                         if ($score > $bestcoursescore) {
                             $bestcoursescore = $score;
                             $coursecandidate = $cat;
                         }
                     }
+                } catch (\Exception $e) {
+                    // Continuer.
                 }
-            
-                // 6. Si pas de catégorie nommée Olution, prendre la première catégorie du cours comme fallback.
-                if (!$fallbackfirst && !empty($course_categories)) {
-                    $first_category = reset($course_categories);
-                    local_question_diagnostic_debug_log('✅ Using first question category from course in Olution (fallback): ' . $first_category->name . ' (Course: ' . $course->fullname . ')', DEBUG_DEVELOPER);
-                
-                    // Ajouter des informations sur le cours et la catégorie de cours parent
-                    $first_category->course_name = $course->fullname;
-                    $first_category->course_id = $course->id;
-                    $first_category->course_category_name = $olution_course_category->name;
-                    $first_category->course_category_id = $olution_course_category->id;
-                    $first_category->context_type = 'course_category';
-                
-                    $fallbackfirst = $first_category;
+
+                // 4.c) Fallback: première catégorie racine du cours (souvent "Top"), si aucune n'a été retenue.
+                if (!$fallbackfirst) {
+                    try {
+                        $roots = $DB->get_records('question_categories', [
+                            'contextid' => (int)$course_context->id,
+                            'parent' => 0,
+                        ], 'sortorder ASC, id ASC', '*', 0, 1);
+                        $firstroot = $roots ? reset($roots) : false;
+                        if ($firstroot) {
+                            local_question_diagnostic_debug_log('✅ Using first root question category from course in Olution (fallback): ' . $firstroot->name . ' (Course: ' . $course->fullname . ')', DEBUG_DEVELOPER);
+
+                            $firstroot->course_name = $course->fullname;
+                            $firstroot->course_id = (int)$course->id;
+                            $firstroot->course_category_name = $olution_course_category->name;
+                            $firstroot->course_category_id = (int)$olution_course_category->id;
+                            $firstroot->context_type = 'course_category';
+
+                            $fallbackfirst = $firstroot;
+                        }
+                    } catch (\Exception $e) {
+                        // Ignorer.
+                    }
                 }
             }
 

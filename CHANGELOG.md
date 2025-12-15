@@ -5,6 +5,20 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.11.30] - 2025-12-15
+
+### 🐛 Fix : Détection Olution dans les contextes de cours (catégorie sous "Top")
+
+- **Détection plus fiable** quand la banque “Olution” est une catégorie de questions créée dans un **contexte de cours** (dans une catégorie de cours “Olution”), avec une sous-catégorie **`commun`** et une arborescence profonde.
+- **Correction** : en Phase 2, la recherche ne se limite plus à `parent = 0` (la catégorie “Olution” est souvent sous “Top” donc `parent != 0`).
+- **Heuristique ajoutée** : si une catégorie nommée exactement `commun` est détectée dans le contexte du cours, son **parent** est traité comme candidat “Olution” (signal fort).
+
+Fichiers :
+- `lib.php`
+- `version.php`
+- `lang/fr/local_question_diagnostic.php`
+- `lang/en/local_question_diagnostic.php`
+
 ## [1.10.9] - 2025-10-14
 
 ### 🎯 CORRECTION FINALE : Olution = Catégorie de QUESTIONS système

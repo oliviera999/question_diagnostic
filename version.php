@@ -9,8 +9,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'local_question_diagnostic';
-$plugin->version = 2025121406;  // YYYYMMDDXX format (v1.11.29 - Add categories by course/activity page)
+$plugin->version = 2025121500;  // YYYYMMDDXX format (v1.11.30 - Fix Olution detection in course contexts (parent != 0, commun heuristic))
 $plugin->requires = 2022041900; // Moodle 4.0+ (architecture question_bank_entries requise)
 $plugin->maturity = MATURITY_STABLE;
-$plugin->release = 'v1.11.29';
+$plugin->release = 'v1.11.30';
 

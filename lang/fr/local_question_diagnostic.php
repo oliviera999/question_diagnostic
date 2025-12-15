@@ -518,10 +518,11 @@ $string['backtocategories'] = 'Retour aux catégories';
 $string['olution_duplicates_title'] = 'Déplacement automatique vers Olution';
 $string['olution_duplicates_heading'] = 'Gestion des doublons Cours → Olution';
 $string['olution_not_found'] = 'Aucune catégorie système de questions partagées n\'a été trouvée';
-$string['olution_not_found_help'] = 'Pour utiliser cette fonctionnalité, créez une catégorie de questions au niveau système (contexte : Système) avec :<br>
-• Un nom contenant "Olution" (ex: "Olution", "Questions Olution", "Banque Olution")<br>
-• OU une description contenant "olution", "banque centrale" ou "questions partagées"<br>
-<br>Le système détectera automatiquement cette catégorie comme catégorie principale de questions partagées.';
+$string['olution_not_found_help'] = 'Pour utiliser cette fonctionnalité, vous devez disposer d\'une catégorie de questions "Olution" déjà existante (le plugin ne la crée pas).<br>
+Détection possible :<br>
+• Contexte Système : catégorie de questions avec un nom contenant "Olution"<br>
+• OU Contexte Cours (dans la catégorie de cours "Olution") : catégorie de questions avec une sous-catégorie "commun"<br>
+<br>Ensuite, les doublons hors Olution pourront être déplacés vers la sous-catégorie Olution où le doublon existe déjà.';
 $string['olution_total_duplicates'] = 'Doublons détectés';
 $string['olution_movable_questions'] = 'Questions déplaçables';
 $string['olution_unmovable_questions'] = 'Sans correspondance';
