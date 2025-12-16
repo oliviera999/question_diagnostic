@@ -81,6 +81,79 @@ foreach ($classes as $c) {
 echo html_writer::end_tag('tbody');
 echo html_writer::end_tag('table');
 
+// Détails méthodes (filtrées) pour core_ai\manager, utile pour adapter l'appel.
+if (class_exists('\\core_ai\\manager')) {
+    $all = get_class_methods('\\core_ai\\manager');
+    $all = is_array($all) ? $all : [];
+    sort($all);
+
+    // Filtrer les méthodes "probablement utiles" pour l'appel IA.
+    $interesting = [];
+    foreach ($all as $m) {
+        $ml = strtolower((string)$m);
+        if (strpos($ml, 'ai') !== false
+            || strpos($ml, 'provider') !== false
+            || strpos($ml, 'action') !== false
+            || strpos($ml, 'generate') !== false
+            || strpos($ml, 'chat') !== false
+            || strpos($ml, 'prompt') !== false
+            || strpos($ml, 'request') !== false
+            || strpos($ml, 'text') !== false
+            || strpos($ml, 'complete') !== false
+            || strpos($ml, 'execute') !== false) {
+            $interesting[] = $m;
+        }
+    }
+    if (empty($interesting)) {
+        // Si aucun match, on montre quand même la liste complète (compacte).
+        $interesting = $all;
+    }
+
+    echo html_writer::tag('h3', get_string('ai_debug_methods', 'local_question_diagnostic'));
+    echo html_writer::start_tag('pre', ['style' => 'white-space: pre-wrap;']);
+    echo s("core_ai\\manager methods (filtered):\n" . implode("\n", $interesting));
+    echo html_writer::end_tag('pre');
+
+    // Signatures (best-effort) pour les 30 premières méthodes filtrées.
+    $maxsig = 30;
+    $siglines = [];
+    $count = 0;
+    foreach ($interesting as $m) {
+        if ($count >= $maxsig) {
+            break;
+        }
+        try {
+            $rm = new ReflectionMethod('\\core_ai\\manager', $m);
+            $params = [];
+            foreach ($rm->getParameters() as $p) {
+                $t = $p->hasType() ? (string)$p->getType() . ' ' : '';
+                $def = '';
+                if ($p->isOptional()) {
+                    try {
+                        if ($p->isDefaultValueAvailable()) {
+                            $dv = $p->getDefaultValue();
+                            $def = ' = ' . (is_scalar($dv) ? var_export($dv, true) : (is_null($dv) ? 'null' : gettype($dv)));
+                        }
+                    } catch (Throwable $t) {
+                        // ignore
+                    }
+                }
+                $params[] = $t . '$' . $p->getName() . $def;
+            }
+            $siglines[] = ($rm->isStatic() ? 'static ' : '') . $rm->getName() . '(' . implode(', ', $params) . ')';
+            $count++;
+        } catch (Throwable $t) {
+            // ignore reflection errors
+        }
+    }
+    if (!empty($siglines)) {
+        echo html_writer::tag('h3', get_string('ai_debug_signatures', 'local_question_diagnostic'));
+        echo html_writer::start_tag('pre', ['style' => 'white-space: pre-wrap;']);
+        echo s(implode("\n", $siglines));
+        echo html_writer::end_tag('pre');
+    }
+}
+
 echo html_writer::tag('h3', get_string('ai_debug_test', 'local_question_diagnostic'));
 $test = ai_suggester::suggest(
     'Test question: fractions addition',
