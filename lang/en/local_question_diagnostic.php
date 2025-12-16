@@ -652,6 +652,7 @@ $string['ai_debug_classes'] = 'Detected AI classes';
 $string['ai_debug_test'] = 'AI call test (best-effort)';
 $string['ai_debug_methods'] = 'Available methods (core_ai\\manager)';
 $string['ai_debug_signatures'] = 'Signatures (core_ai\\manager)';
+$string['ai_debug_actions'] = 'Supported AI actions + providers';
 
 // 🆕 v1.11.5 : Course category filter
 $string['course_category_filter'] = 'Course category';

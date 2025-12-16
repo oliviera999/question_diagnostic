@@ -154,6 +154,76 @@ if (class_exists('\\core_ai\\manager')) {
     }
 }
 
+// Actions supportées + providers (si dispo).
+if (class_exists('\\core_ai\\manager')) {
+    echo html_writer::tag('h3', get_string('ai_debug_actions', 'local_question_diagnostic'));
+
+    $pluginnames = [
+        'core',
+        'local_question_diagnostic',
+    ];
+
+    foreach ($pluginnames as $pname) {
+        echo html_writer::tag('h4', 'get_supported_actions("' . s($pname) . '")');
+        $actions = [];
+        $err = '';
+        try {
+            $actions = \core_ai\manager::get_supported_actions($pname);
+        } catch (Throwable $t) {
+            $err = $t->getMessage();
+        }
+        if (!empty($err)) {
+            echo $OUTPUT->notification('Error: ' . s($err), \core\output\notification::NOTIFY_WARNING);
+            continue;
+        }
+        if (empty($actions) || !is_array($actions)) {
+            echo html_writer::tag('p', 'No actions.');
+            continue;
+        }
+
+        echo html_writer::start_tag('pre', ['style' => 'white-space: pre-wrap;']);
+        echo s(json_encode(array_values($actions), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+        echo html_writer::end_tag('pre');
+
+        // Availability check for each action class (best-effort).
+        echo html_writer::start_tag('table', ['class' => 'table table-sm table-striped']);
+        echo html_writer::start_tag('thead');
+        echo html_writer::start_tag('tr');
+        echo html_writer::tag('th', 'Action');
+        echo html_writer::tag('th', 'Available?');
+        echo html_writer::end_tag('tr');
+        echo html_writer::end_tag('thead');
+        echo html_writer::start_tag('tbody');
+        foreach ($actions as $a) {
+            $a = (string)$a;
+            $avail = false;
+            $msg = '';
+            try {
+                $avail = \core_ai\manager::is_action_available($a);
+            } catch (Throwable $t) {
+                $msg = $t->getMessage();
+            }
+            echo html_writer::start_tag('tr');
+            echo html_writer::tag('td', s($a));
+            echo html_writer::tag('td', $msg !== '' ? ('⚠️ ' . s($msg)) : ($avail ? '✅' : '❌'));
+            echo html_writer::end_tag('tr');
+        }
+        echo html_writer::end_tag('tbody');
+        echo html_writer::end_tag('table');
+
+        // Providers for actions.
+        echo html_writer::tag('h5', 'get_providers_for_actions(actions, enabledonly=false)');
+        try {
+            $providers = \core_ai\manager::get_providers_for_actions(array_values($actions), false);
+            echo html_writer::start_tag('pre', ['style' => 'white-space: pre-wrap;']);
+            echo s(json_encode($providers, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+            echo html_writer::end_tag('pre');
+        } catch (Throwable $t) {
+            echo $OUTPUT->notification('Error: ' . s($t->getMessage()), \core\output\notification::NOTIFY_WARNING);
+        }
+    }
+}
+
 echo html_writer::tag('h3', get_string('ai_debug_test', 'local_question_diagnostic'));
 $test = ai_suggester::suggest(
     'Test question: fractions addition',
