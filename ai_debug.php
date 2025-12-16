@@ -48,6 +48,29 @@ echo html_writer::tag('p', 'CFG->version: ' . (int)($CFG->version ?? 0));
 echo html_writer::tag('p', 'ai_suggester::is_available(): ' . (ai_suggester::is_available() ? 'true' : 'false'));
 echo html_writer::end_div();
 
+$pluginlists = [];
+try {
+    if (class_exists('\\core_component')) {
+        $pluginlists['aiprovider'] = \core_component::get_plugin_list('aiprovider');
+        $pluginlists['aiplacement'] = \core_component::get_plugin_list('aiplacement');
+    }
+} catch (Throwable $t) {
+    $pluginlists = [];
+}
+
+echo html_writer::tag('h3', get_string('ai_debug_plugins', 'local_question_diagnostic'));
+if (empty($pluginlists)) {
+    echo $OUTPUT->notification('core_component not available or plugin list failed.', \core\output\notification::NOTIFY_WARNING);
+} else {
+    echo html_writer::start_tag('pre', ['style' => 'white-space: pre-wrap;']);
+    $names = [
+        'aiprovider' => !empty($pluginlists['aiprovider']) ? array_keys($pluginlists['aiprovider']) : [],
+        'aiplacement' => !empty($pluginlists['aiplacement']) ? array_keys($pluginlists['aiplacement']) : [],
+    ];
+    echo s(json_encode($names, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+    echo html_writer::end_tag('pre');
+}
+
 $classes = [
     '\\core_ai\\manager',
     '\\tool_ai\\manager',
@@ -158,10 +181,23 @@ if (class_exists('\\core_ai\\manager')) {
 if (class_exists('\\core_ai\\manager')) {
     echo html_writer::tag('h3', get_string('ai_debug_actions', 'local_question_diagnostic'));
 
-    $pluginnames = [
-        'core',
-        'local_question_diagnostic',
-    ];
+    $pluginnames = [];
+    if (!empty($pluginlists['aiplacement'])) {
+        foreach (array_keys($pluginlists['aiplacement']) as $p) {
+            $pluginnames[] = 'aiplacement_' . $p;
+        }
+    }
+    if (!empty($pluginlists['aiprovider'])) {
+        foreach (array_keys($pluginlists['aiprovider']) as $p) {
+            $pluginnames[] = 'aiprovider_' . $p;
+        }
+    }
+    $pluginnames = array_values(array_unique($pluginnames));
+    sort($pluginnames);
+
+    if (empty($pluginnames)) {
+        echo $OUTPUT->notification('No aiplacement_*/aiprovider_* plugins detected.', \core\output\notification::NOTIFY_WARNING);
+    }
 
     foreach ($pluginnames as $pname) {
         echo html_writer::tag('h4', 'get_supported_actions("' . s($pname) . '")');
