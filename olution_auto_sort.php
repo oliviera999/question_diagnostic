@@ -42,9 +42,11 @@ $PAGE->set_pagelayout('admin');
 $page = optional_param('page', 0, PARAM_INT);
 $perpage = optional_param('perpage', 50, PARAM_INT);
 $minscore = optional_param('minscore', '0.30', PARAM_RAW_TRIMMED);
+$mode = optional_param('mode', 'heuristic', PARAM_ALPHANUMEXT);
 $perpage = max(10, min(200, (int)$perpage));
 $page = max(0, (int)$page);
 $minscore = max(0.0, min(1.0, (float)$minscore));
+$mode = ($mode === 'ai') ? 'ai' : 'heuristic';
 
 echo $OUTPUT->header();
 
@@ -85,6 +87,37 @@ echo html_writer::end_div();
 
 // Contrôles.
 echo html_writer::start_div('mb-3');
+// Mode IA si disponible.
+$aienabled = false;
+try {
+    $aienabled = \local_question_diagnostic\ai_suggester::is_available();
+} catch (\Throwable $t) {
+    $aienabled = false;
+}
+
+echo html_writer::start_div('mb-2');
+echo html_writer::tag('strong', get_string('olution_auto_sort_mode', 'local_question_diagnostic') . ': ');
+$baseparams = [
+    'page' => $page,
+    'perpage' => $perpage,
+    'minscore' => $minscore,
+];
+$heururl = new moodle_url('/local/question_diagnostic/olution_auto_sort.php', $baseparams + ['mode' => 'heuristic']);
+echo html_writer::link($heururl, get_string('olution_auto_sort_mode_heuristic', 'local_question_diagnostic'), [
+    'class' => 'btn btn-sm ' . ($mode === 'heuristic' ? 'btn-primary' : 'btn-secondary'),
+]);
+if ($aienabled) {
+    $aiurl = new moodle_url('/local/question_diagnostic/olution_auto_sort.php', $baseparams + ['mode' => 'ai']);
+    echo ' ';
+    echo html_writer::link($aiurl, get_string('olution_auto_sort_mode_ai', 'local_question_diagnostic'), [
+        'class' => 'btn btn-sm ' . ($mode === 'ai' ? 'btn-primary' : 'btn-secondary'),
+    ]);
+} else {
+    echo ' ';
+    echo html_writer::tag('small', get_string('olution_auto_sort_ai_unavailable', 'local_question_diagnostic'), ['class' => 'text-muted ml-2']);
+}
+echo html_writer::end_div();
+
 echo html_writer::start_tag('form', ['method' => 'get', 'action' => $PAGE->url->out(false), 'class' => 'form-inline']);
 echo html_writer::tag('label', get_string('olution_auto_sort_threshold', 'local_question_diagnostic') . ' ', ['class' => 'mr-2']);
 echo html_writer::empty_tag('input', [
@@ -103,6 +136,11 @@ echo html_writer::empty_tag('input', [
     'value' => (string)$perpage,
 ]);
 echo html_writer::empty_tag('input', [
+    'type' => 'hidden',
+    'name' => 'mode',
+    'value' => $mode,
+]);
+echo html_writer::empty_tag('input', [
     'type' => 'submit',
     'class' => 'btn btn-secondary',
     'value' => get_string('apply', 'core'),
@@ -113,13 +151,43 @@ echo html_writer::end_div();
 // Liste.
 $offset = $page * $perpage;
 $total = 0;
-$rows = olution_manager::get_triage_auto_sort_candidates_paginated($perpage, $offset, $total, $minscore);
+$rows = olution_manager::get_triage_auto_sort_candidates_paginated($perpage, $offset, $total, $minscore, $mode);
+
+// Indiquer explicitement si l'IA est réellement utilisée ou si on est en fallback.
+$used = ['ai' => 0, 'heuristic' => 0];
+foreach ((array)$rows as $r) {
+    $m = (string)($r['mode'] ?? 'heuristic');
+    if ($m === 'ai') {
+        $used['ai']++;
+    } else {
+        $used['heuristic']++;
+    }
+}
+if ($mode === 'ai') {
+    if (!$aienabled) {
+        echo $OUTPUT->notification(
+            get_string('olution_auto_sort_ai_unavailable', 'local_question_diagnostic'),
+            \core\output\notification::NOTIFY_WARNING
+        );
+    } else if (!empty($rows) && $used['ai'] === 0) {
+        echo $OUTPUT->notification(
+            get_string('olution_auto_sort_fallback_active', 'local_question_diagnostic'),
+            \core\output\notification::NOTIFY_WARNING
+        );
+    } else if (!empty($rows) && $used['heuristic'] > 0) {
+        echo $OUTPUT->notification(
+            get_string('olution_auto_sort_partial_fallback', 'local_question_diagnostic', (int)$used['heuristic']),
+            \core\output\notification::NOTIFY_WARNING
+        );
+    }
+}
 
 // Formulaire global pour déplacer une sélection (réutilise move_selected).
 $returnurl = new moodle_url('/local/question_diagnostic/olution_auto_sort.php', [
     'page' => $page,
     'perpage' => $perpage,
     'minscore' => $minscore,
+    'mode' => $mode,
 ]);
 $move_selected_url = new moodle_url('/local/question_diagnostic/actions/move_to_olution.php', [
     'action' => 'move_selected',
@@ -163,6 +231,7 @@ if (empty($rows)) {
     echo html_writer::tag('th', get_string('question_type', 'local_question_diagnostic'));
     echo html_writer::tag('th', get_string('question_content', 'local_question_diagnostic'));
     echo html_writer::tag('th', get_string('olution_auto_sort_suggestion', 'local_question_diagnostic'));
+    echo html_writer::tag('th', get_string('olution_auto_sort_used_mode', 'local_question_diagnostic'));
     echo html_writer::tag('th', get_string('actions', 'local_question_diagnostic'));
     echo html_writer::end_tag('tr');
     echo html_writer::end_tag('thead');
@@ -227,6 +296,10 @@ if (empty($rows)) {
             echo html_writer::tag('small', get_string('olution_auto_sort_score', 'local_question_diagnostic', (object)['score' => sprintf('%.2f', $score)]), [
                 'class' => 'text-muted',
             ]);
+            if (!empty($row['ai_reason']) && !empty($row['mode']) && $row['mode'] === 'ai') {
+                echo html_writer::empty_tag('br');
+                echo html_writer::tag('small', s((string)$row['ai_reason']), ['class' => 'text-muted']);
+            }
         } else {
             echo html_writer::tag('span', get_string('olution_auto_sort_no_match', 'local_question_diagnostic'), ['class' => 'text-muted']);
             if (!empty($row['proposed_new_category'])) {
@@ -236,6 +309,18 @@ if (empty($rows)) {
                     ['class' => 'text-muted']
                 );
             }
+        }
+        echo html_writer::end_tag('td');
+
+        // Mode réellement utilisé (IA vs fallback).
+        $usedmode = (string)($row['mode'] ?? 'heuristic');
+        echo html_writer::start_tag('td');
+        if ($usedmode === 'ai') {
+            echo html_writer::tag('span', get_string('olution_auto_sort_used_mode_ai', 'local_question_diagnostic'), ['class' => 'badge badge-success']);
+        } else if ($mode === 'ai') {
+            echo html_writer::tag('span', get_string('olution_auto_sort_used_mode_fallback', 'local_question_diagnostic'), ['class' => 'badge badge-warning']);
+        } else {
+            echo html_writer::tag('span', get_string('olution_auto_sort_used_mode_heuristic', 'local_question_diagnostic'), ['class' => 'badge badge-secondary']);
         }
         echo html_writer::end_tag('td');
 
@@ -264,6 +349,7 @@ if (empty($rows)) {
         $baseurl = new moodle_url('/local/question_diagnostic/olution_auto_sort.php', [
             'perpage' => $perpage,
             'minscore' => $minscore,
+            'mode' => $mode,
         ]);
         echo $OUTPUT->paging_bar($total, $page, $perpage, $baseurl);
     }

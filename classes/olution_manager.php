@@ -13,6 +13,7 @@ defined('MOODLE_INTERNAL') || die();
 require_once($CFG->dirroot . '/question/editlib.php');
 require_once(__DIR__ . '/../lib.php');
 require_once(__DIR__ . '/question_analyzer.php');
+require_once(__DIR__ . '/ai_suggester.php');
 
 /**
  * Gestionnaire des doublons Olution
@@ -606,6 +607,7 @@ class olution_manager {
      * @param int $offset
      * @param int|null $total (OUT) total d'entrées dans triage
      * @param float $minscore Seuil d'acceptation "match trouvé"
+     * @param string $mode 'heuristic' (défaut) ou 'ai' (si sous-système IA Moodle dispo)
      * @return array<int,array{
      *   bankentryid:int,
      *   question:object,
@@ -613,14 +615,17 @@ class olution_manager {
      *   best_target:?object,
      *   best_score:float,
      *   alternatives:array<int,array{cat:object,score:float}>,
-     *   proposed_new_category:string
+     *   proposed_new_category:string,
+     *   mode:string,
+     *   ai_reason:string
      * }>
      */
     public static function get_triage_auto_sort_candidates_paginated(
         int $limit,
         int $offset,
         &$total = null,
-        float $minscore = 0.30
+        float $minscore = 0.30,
+        string $mode = 'heuristic'
     ): array {
         global $DB;
 
@@ -639,6 +644,7 @@ class olution_manager {
         $limit = max(10, min(200, (int)$limit));
         $offset = max(0, (int)$offset);
         $minscore = max(0.0, min(1.0, (float)$minscore));
+        $mode = ($mode === 'ai') ? 'ai' : 'heuristic';
 
         $params = [];
         $triagecond = self::build_in_category_tree_condition('qc', $params, (int)$triage->id, 'tri', $triage);
@@ -664,6 +670,7 @@ class olution_manager {
                        q.qtype,
                        q.questiontext,
                        q.questiontextformat,
+                       q.timemodified,
                        qc.id AS categoryid,
                        qc.name AS categoryname,
                        qc.contextid AS categorycontextid
@@ -684,6 +691,31 @@ class olution_manager {
             return [];
         }
 
+        // Préparer labels candidats et mapping index => catégorie.
+        $candidateLabels = [];
+        $candidateByIndex = [];
+        foreach (array_values($candidates) as $i => $catinfo) {
+            $idx = $i + 1;
+            $candidateLabels[] = (string)$catinfo['label'];
+            $candidateByIndex[$idx] = $catinfo['cat'];
+        }
+
+        // Cache MUC pour suggestions IA (réduit coût + latence).
+        $aicache = null;
+        if ($mode === 'ai') {
+            try {
+                if (class_exists('\\cache')) {
+                    $aicache = \cache::make('local_question_diagnostic', 'ai_suggestions');
+                }
+            } catch (\Throwable $t) {
+                $aicache = null;
+            }
+        }
+        $cathash = '';
+        if ($mode === 'ai') {
+            $cathash = substr(sha1(implode("\n", $candidateLabels)), 0, 10);
+        }
+
         $out = [];
         foreach ($rows as $r) {
             $qid = (int)$r->questionid;
@@ -697,42 +729,83 @@ class olution_manager {
                 $qtext = substr($qtext, 0, 4000);
             }
 
-            // Scores sur toutes les catégories candidates.
             $scores = [];
-            foreach ($candidates as $cid => $catinfo) {
-                $cat = $catinfo['cat'];
-                $score = self::compute_text_similarity_score($qname, $qtext, [
-                    'id' => (int)$cat->id,
-                    'name' => (string)$cat->name,
-                    'label' => (string)$catinfo['label'],
-                    'tokens' => (array)$catinfo['tokens'],
-                ]);
-                if ($score <= 0.0) {
-                    continue;
+            $bestcat = null;
+            $bestscore = 0.0;
+            $proposed = '';
+            $aireason = '';
+            $usedmode = $mode;
+
+            // Mode IA (si disponible) : demander à Moodle IA de choisir parmi les labels.
+            if ($usedmode === 'ai' && ai_suggester::is_available()) {
+                $cachekey = 'autosort_q' . $qid
+                    . '_t' . (int)($r->timemodified ?? 0)
+                    . '_tri' . (int)$triage->id
+                    . '_c' . $cathash;
+                $ai = false;
+                if ($aicache !== null) {
+                    $ai = $aicache->get($cachekey);
                 }
-                $scores[] = [
-                    'cat' => $cat,
-                    'score' => $score,
-                ];
+                if (!is_array($ai) || (($ai['status'] ?? '') !== 'ok' && ($ai['status'] ?? '') !== 'unavailable')) {
+                    $ai = ai_suggester::suggest($qname, $qtext, $candidateLabels);
+                    if ($aicache !== null && is_array($ai) && !empty($ai['status'])) {
+                        $aicache->set($cachekey, $ai);
+                    }
+                }
+
+                if (is_array($ai) && ($ai['status'] ?? '') === 'ok') {
+                    $choice = (int)($ai['choice_index'] ?? 0);
+                    $conf = (float)($ai['confidence'] ?? 0.0);
+                    $aireason = (string)($ai['reason'] ?? '');
+
+                    if ($choice > 0 && isset($candidateByIndex[$choice])) {
+                        $bestcat = $candidateByIndex[$choice];
+                        $bestscore = max(0.0, min(1.0, $conf));
+                    } else {
+                        $proposed = trim((string)($ai['new_category'] ?? ''));
+                    }
+                } else {
+                    // IA indisponible → fallback heuristique (sans bloquer la page).
+                    $usedmode = 'heuristic';
+                }
             }
 
-            usort($scores, function(array $a, array $b): int {
-                $sa = (float)$a['score'];
-                $sb = (float)$b['score'];
-                if ($sa === $sb) {
-                    return ((int)$a['cat']->id) <=> ((int)$b['cat']->id);
+            // Mode heuristique (fallback).
+            if ($usedmode === 'heuristic') {
+                foreach ($candidates as $cid => $catinfo) {
+                    $cat = $catinfo['cat'];
+                    $score = self::compute_text_similarity_score($qname, $qtext, [
+                        'id' => (int)$cat->id,
+                        'name' => (string)$cat->name,
+                        'label' => (string)$catinfo['label'],
+                        'tokens' => (array)$catinfo['tokens'],
+                    ]);
+                    if ($score <= 0.0) {
+                        continue;
+                    }
+                    $scores[] = [
+                        'cat' => $cat,
+                        'score' => $score,
+                    ];
                 }
-                return ($sb <=> $sa);
-            });
 
-            $best = $scores[0] ?? null;
-            $bestcat = $best ? ($best['cat'] ?? null) : null;
-            $bestscore = $best ? (float)$best['score'] : 0.0;
+                usort($scores, function(array $a, array $b): int {
+                    $sa = (float)$a['score'];
+                    $sb = (float)$b['score'];
+                    if ($sa === $sb) {
+                        return ((int)$a['cat']->id) <=> ((int)$b['cat']->id);
+                    }
+                    return ($sb <=> $sa);
+                });
 
-            $qtokens = self::tokenize($qname . ' ' . $qtext);
-            $proposed = '';
-            if (!$bestcat || $bestscore < $minscore) {
-                $proposed = self::propose_category_title_from_tokens($qtokens);
+                $best = $scores[0] ?? null;
+                $bestcat = $best ? ($best['cat'] ?? null) : null;
+                $bestscore = $best ? (float)$best['score'] : 0.0;
+
+                $qtokens = self::tokenize($qname . ' ' . $qtext);
+                if (!$bestcat || $bestscore < $minscore) {
+                    $proposed = self::propose_category_title_from_tokens($qtokens);
+                }
             }
 
             $out[] = [
@@ -752,6 +825,8 @@ class olution_manager {
                 'best_score' => $bestscore,
                 'alternatives' => array_slice($scores, 0, 3),
                 'proposed_new_category' => $proposed,
+                'mode' => $usedmode,
+                'ai_reason' => $aireason,
             ];
         }
 

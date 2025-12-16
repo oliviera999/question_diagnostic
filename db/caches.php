@@ -66,6 +66,16 @@ $definitions = [
         'staticacceleration' => true,
         'staticaccelerationsize' => 10,
     ],
+
+    // Cache pour les suggestions IA (tri automatisé).
+    'ai_suggestions' => [
+        'mode' => cache_store::MODE_APPLICATION,
+        'simplekeys' => true,
+        'simpledata' => true,
+        'ttl' => 86400 * 7, // 7 jours
+        'staticacceleration' => true,
+        'staticaccelerationsize' => 50,
+    ],
 ];
 
 

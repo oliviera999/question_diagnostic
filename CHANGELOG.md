@@ -5,6 +5,24 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.11.46] - 2025-12-15
+
+### ✨ Amélioration : tri automatisé — option IA Moodle 4.5 (OpenAI)
+
+- La page **Tri automatisé (texte)** propose maintenant un mode **IA (Moodle/OpenAI)**.
+- Le plugin **n’utilise pas de clé API** : il s’appuie sur la **configuration IA de Moodle 4.5** (fournisseur OpenAI activé côté plateforme).
+- Mise en cache des suggestions IA (MUC) pour limiter les appels.
+- Fallback automatique vers le mode **Heuristique** si l’IA n’est pas disponible/configurée.
+
+Fichiers :
+- `classes/ai_suggester.php`
+- `classes/olution_manager.php`
+- `olution_auto_sort.php`
+- `db/caches.php`
+- `lang/fr/local_question_diagnostic.php`
+- `lang/en/local_question_diagnostic.php`
+- `version.php`
+
 ## [1.11.39] - 2025-12-15
 
 ### ✨ Amélioration : Catégories par cours / activité — direct uniquement + option Olution/commun
@@ -43,6 +61,27 @@ Fichiers :
 - `lib.php`
 - `lang/fr/local_question_diagnostic.php`
 - `lang/en/local_question_diagnostic.php`
+- `version.php`
+
+## [1.11.44] - 2025-12-15
+
+### ✨ Amélioration : Catégories par cours — contexte cours uniquement
+
+- La page **Catégories par cours** liste désormais toutes les catégories du **contexte du cours**.
+- Les catégories liées à des **activités** (quiz, modules) ne sont plus incluses à ce stade.
+
+Fichiers :
+- `categories_by_context.php`
+- `version.php`
+
+## [1.11.45] - 2025-12-15
+
+### ✨ Amélioration : Catégories par cours — inclure les contextes enfants directs
+
+- La page **Catégories par cours** inclut maintenant le **contexte du cours** + **tous les contextes directement liés** (enfants directs dans la hiérarchie des contextes : ex. modules).
+
+Fichiers :
+- `categories_by_context.php`
 - `version.php`
 
 ## [1.11.43] - 2025-12-15

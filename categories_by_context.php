@@ -55,18 +55,17 @@ $stringmanager = get_string_manager();
 $coursecategoryid = optional_param('course_category', 0, PARAM_INT);
 $courseid = optional_param('courseid', 0, PARAM_INT);
 $coursesearch = optional_param('course_search', '', PARAM_TEXT);
+// NOTE: scope/cmid conservés pour compatibilité (anciens liens), mais ignorés :
+// cette page liste désormais uniquement les catégories du CONTEXTE COURS.
 $cmid = optional_param('cmid', 0, PARAM_INT);
 $scope = optional_param('scope', 'all', PARAM_ALPHA);
 $includesystem = optional_param('include_system', 0, PARAM_BOOL);
 
-$allowedscopes = ['all', 'course', 'activities', 'quiz', 'activity'];
-if (!in_array($scope, $allowedscopes, true)) {
-    $scope = 'all';
-}
 $coursecategoryid = max(0, (int)$coursecategoryid);
 $courseid = max(0, (int)$courseid);
 $coursesearch = trim((string)$coursesearch);
-$cmid = max(0, (int)$cmid);
+$cmid = 0;
+$scope = 'course';
 
 // ----------------------------------------------------------------------
 // Header
@@ -119,8 +118,6 @@ $returnurl = new moodle_url('/local/question_diagnostic/categories_by_context.ph
     'course_category' => $coursecategoryid,
     'courseid' => $courseid,
     'course_search' => $coursesearch,
-    'cmid' => $cmid,
-    'scope' => $scope,
     'include_system' => $includesystem ? 1 : 0,
 ]);
 
@@ -208,71 +205,8 @@ echo html_writer::tag('div', $coursehelp, [
 ]);
 echo html_writer::end_div();
 
-// Scope.
-echo html_writer::start_div('qd-filter-group');
-echo html_writer::tag('label', get_string('tool_categories_by_context_scope', 'local_question_diagnostic'), ['for' => 'qd-scope']);
-echo html_writer::start_tag('select', [
-    'id' => 'qd-scope',
-    'name' => 'scope',
-    'class' => 'form-control',
-]);
-$scopeoptions = [
-    'all' => get_string('tool_categories_by_context_scope_all', 'local_question_diagnostic'),
-    'course' => get_string('tool_categories_by_context_scope_course', 'local_question_diagnostic'),
-    'activities' => get_string('tool_categories_by_context_scope_activities', 'local_question_diagnostic'),
-    'quiz' => get_string('tool_categories_by_context_scope_quiz', 'local_question_diagnostic'),
-    'activity' => get_string('tool_categories_by_context_scope_activity', 'local_question_diagnostic'),
-];
-foreach ($scopeoptions as $value => $label) {
-    echo html_writer::tag('option', $label, [
-        'value' => $value,
-        'selected' => ($scope === $value),
-    ]);
-}
-echo html_writer::end_tag('select');
-echo html_writer::end_div();
-
-// Activité (cmid).
-echo html_writer::start_div('qd-filter-group');
-echo html_writer::tag('label', get_string('tool_categories_by_context_activity', 'local_question_diagnostic'), ['for' => 'qd-cmid']);
-echo html_writer::start_tag('select', [
-    'id' => 'qd-cmid',
-    'name' => 'cmid',
-    'class' => 'form-control',
-]);
-echo html_writer::tag('option', get_string('tool_categories_by_context_activity_all', 'local_question_diagnostic'), [
-    'value' => 0,
-    'selected' => ($cmid === 0),
-]);
-
-if ($courseid > 0) {
-    try {
-        $course = $DB->get_record('course', ['id' => $courseid], 'id, fullname, shortname', IGNORE_MISSING);
-        if ($course) {
-            require_once($CFG->dirroot . '/course/lib.php');
-            $modinfo = get_fast_modinfo($course);
-            foreach ($modinfo->get_cms() as $cm) {
-                if (!$cm->uservisible) {
-                    continue;
-                }
-                // Si l'utilisateur a choisi le scope "quiz", on ne propose que les quiz.
-                if ($scope === 'quiz' && $cm->modname !== 'quiz') {
-                    continue;
-                }
-                $label = $cm->modname . ': ' . format_string($cm->name) . ' (cmid: ' . (int)$cm->id . ')';
-                echo html_writer::tag('option', $label, [
-                    'value' => (int)$cm->id,
-                    'selected' => ($cmid === (int)$cm->id),
-                ]);
-            }
-        }
-    } catch (Exception $e) {
-        // Ignorer : dropdown vide.
-    }
-}
-
-echo html_writer::end_tag('select');
-echo html_writer::end_div();
+// NOTE: périmètre activité / cmid volontairement masqués pour l’instant :
+// l’objectif de cette page est de lister toutes les catégories liées au contexte du cours.
 
 // Inclure le système.
 echo html_writer::start_div('qd-filter-group');
@@ -308,8 +242,7 @@ echo html_writer::start_tag('script');
   var courseCategory = document.getElementById('qd-course-category');
   var courseId = document.getElementById('qd-courseid');
   var courseSearch = document.getElementById('qd-course-search');
-  var scope = document.getElementById('qd-scope');
-  var cmid = document.getElementById('qd-cmid');
+  // scope/cmid supprimés : page "cours uniquement"
 
   if (courseCategory) {
     courseCategory.addEventListener('change', function() {
@@ -321,27 +254,6 @@ echo html_writer::start_tag('script');
   if (courseId) {
     courseId.addEventListener('change', function() {
       if (parseInt(courseId.value || '0', 10) > 0 && form) {
-        form.submit();
-      }
-    });
-  }
-
-  // Quand on change de périmètre / activité, on recharge la page si un cours est sélectionné.
-  function hasCourseSelected() {
-    return courseId && parseInt(courseId.value || '0', 10) > 0;
-  }
-
-  if (scope) {
-    scope.addEventListener('change', function() {
-      if (hasCourseSelected() && form) {
-        form.submit();
-      }
-    });
-  }
-
-  if (cmid) {
-    cmid.addEventListener('change', function() {
-      if (hasCourseSelected() && form) {
         form.submit();
       }
     });
@@ -391,87 +303,44 @@ if (!$coursecontext) {
     exit;
 }
 
-if ($scope === 'all' || $scope === 'course') {
-    $contextids[] = (int)$coursecontext->id;
-}
+// Contexte du cours + tous les contextes directement liés (enfants directs dans la hiérarchie).
+$contextids[] = (int)$coursecontext->id;
 
-// Contextes d'activités (modules) :
-// - Par défaut (cmid=0) : toutes les activités du cours (ou seulement les quiz si scope=quiz)
-// - Si cmid > 0 : uniquement l'activité sélectionnée (et éventuellement le cours selon scope).
-if ($scope === 'all' || $scope === 'activities' || $scope === 'quiz') {
-    if ($cmid > 0) {
-        // Sécurité : vérifier que le cmid appartient bien au cours sélectionné.
-        $cmsql = "SELECT cm.id, cm.course, m.name AS modname
-                    FROM {course_modules} cm
-                    INNER JOIN {modules} m ON m.id = cm.module
-                   WHERE cm.id = :cmid";
-        $cmrec = $DB->get_record_sql($cmsql, ['cmid' => $cmid], IGNORE_MISSING);
-        if (!$cmrec || (int)$cmrec->course !== (int)$courseid) {
-            echo html_writer::start_div('alert alert-danger', ['style' => 'margin-top: 15px;']);
-            echo get_string('invalid_parameters', 'local_question_diagnostic') . ' (cmid=' . (int)$cmid . ')';
-            echo html_writer::end_div();
-            echo $OUTPUT->footer();
-            exit;
-        }
-        if ($scope === 'quiz' && $cmrec->modname !== 'quiz') {
-            echo html_writer::start_div('alert alert-warning', ['style' => 'margin-top: 15px; border-left: 4px solid #f0ad4e;']);
-            echo get_string('tool_categories_by_context_activity_not_quiz', 'local_question_diagnostic', (object)[
-                'modname' => (string)$cmrec->modname,
-            ]);
-            echo html_writer::end_div();
-            echo $OUTPUT->footer();
-            exit;
-        }
-        $modulecontext = context_module::instance($cmid, IGNORE_MISSING);
-        if ($modulecontext) {
-            $contextids[] = (int)$modulecontext->id;
-        } else {
-            echo html_writer::start_div('alert alert-danger');
-            echo 'Contexte de module introuvable pour cmid=' . (int)$cmid;
-            echo html_writer::end_div();
-            echo $OUTPUT->footer();
-            exit;
+// Enfants directs : ex. modules (quiz/activités), blocs attachés au cours, etc.
+// On utilise path/depth (robuste) pour ne récupérer que le niveau directement sous le cours.
+try {
+    $ctxcols = $DB->get_columns('context');
+    if (isset($ctxcols['path']) && isset($ctxcols['depth'])) {
+        $path = rtrim((string)$coursecontext->path, '/') . '/%';
+        $depth = (int)$coursecontext->depth + 1;
+        $sql = "SELECT id
+                  FROM {context}
+                 WHERE " . $DB->sql_like('path', ':path', false, false) . "
+                   AND depth = :depth";
+        $childids = $DB->get_fieldset_sql($sql, [
+            'path' => $path,
+            'depth' => $depth,
+        ]);
+        foreach ($childids as $cid) {
+            $contextids[] = (int)$cid;
         }
     } else {
-        $params = [
-            'contextlevel' => CONTEXT_MODULE,
-            'courseid' => $courseid,
-        ];
+        // Fallback Moodle ancien : récupérer au minimum les contextes modules du cours.
         $sql = "SELECT ctx.id
                   FROM {context} ctx
                   INNER JOIN {course_modules} cm ON cm.id = ctx.instanceid
-                  INNER JOIN {modules} m ON m.id = cm.module
                  WHERE ctx.contextlevel = :contextlevel
                    AND cm.course = :courseid";
-        if ($scope === 'quiz') {
-            $sql .= " AND m.name = :modname";
-            $params['modname'] = 'quiz';
+        $childids = $DB->get_fieldset_sql($sql, [
+            'contextlevel' => CONTEXT_MODULE,
+            'courseid' => (int)$courseid,
+        ]);
+        foreach ($childids as $cid) {
+            $contextids[] = (int)$cid;
         }
-        $modulecontextids = $DB->get_fieldset_sql($sql, $params);
-        foreach ($modulecontextids as $mid) {
-            $contextids[] = (int)$mid;
-        }
     }
-}
-
-if ($scope === 'activity') {
-    if ($cmid <= 0) {
-        echo html_writer::start_div('alert alert-warning', ['style' => 'margin-top: 15px; border-left: 4px solid #f0ad4e;']);
-        echo html_writer::tag('strong', get_string('tool_categories_by_context_activity_required', 'local_question_diagnostic'));
-        echo html_writer::end_div();
-        echo $OUTPUT->footer();
-        exit;
-    }
-    $modulecontext = context_module::instance($cmid, IGNORE_MISSING);
-    if ($modulecontext) {
-        $contextids[] = (int)$modulecontext->id;
-    } else {
-        echo html_writer::start_div('alert alert-danger');
-        echo 'Contexte de module introuvable pour cmid=' . (int)$cmid;
-        echo html_writer::end_div();
-        echo $OUTPUT->footer();
-        exit;
-    }
+} catch (Exception $e) {
+    // En cas d'erreur, on garde au moins le contexte du cours.
 }
 
 $contextids = array_values(array_unique(array_filter($contextids)));
@@ -568,15 +437,8 @@ foreach ($categories as $cat) {
     $compute((int)$cat->id);
 }
 
-// Garder uniquement les catégories qui contiennent des questions DIRECTEMENT
-// (ne pas inclure celles qui n'ont des questions que via des sous-catégories).
-$filtered = [];
-foreach ($categories as $cat) {
-    $cid = (int)$cat->id;
-    if (($directtotal[$cid] ?? 0) > 0) {
-        $filtered[$cid] = $cat;
-    }
-}
+// Afficher TOUTES les catégories du contexte cours.
+$filtered = $categories;
 
 // ----------------------------------------------------------------------
 // Résumé

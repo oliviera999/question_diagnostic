@@ -9,8 +9,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'local_question_diagnostic';
-$plugin->version = 2025121513;  // YYYYMMDDXX format (v1.11.43 - Duplicate detection unified: not title-only)
+$plugin->version = 2025121516;  // YYYYMMDDXX format (v1.11.46 - Olution auto sort: Moodle AI/OpenAI suggestions)
 $plugin->requires = 2022041900; // Moodle 4.0+ (architecture question_bank_entries requise)
 $plugin->maturity = MATURITY_STABLE;
-$plugin->release = 'v1.11.43';
+$plugin->release = 'v1.11.46';
 
