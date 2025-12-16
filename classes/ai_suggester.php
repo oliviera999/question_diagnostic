@@ -94,6 +94,8 @@ class ai_suggester {
         // Best-effort: tenter plusieurs points d'entrée connus, sans fatals.
         $raw = null;
         $error = null;
+        $usedapi = '';
+        $usedmethod = '';
 
         // 1) core_ai\manager.
         if (class_exists('\\core_ai\\manager')) {
@@ -102,13 +104,19 @@ class ai_suggester {
                 // Plusieurs APIs possibles selon versions: on teste au runtime.
                 if (method_exists($mgr, 'generate_text')) {
                     $raw = $mgr::generate_text($system, $user);
+                    $usedapi = $mgr;
+                    $usedmethod = 'generate_text';
                 } else if (method_exists($mgr, 'chat')) {
                     $raw = $mgr::chat([
                         ['role' => 'system', 'content' => $system],
                         ['role' => 'user', 'content' => $user],
                     ]);
+                    $usedapi = $mgr;
+                    $usedmethod = 'chat';
                 } else if (method_exists($mgr, 'complete')) {
                     $raw = $mgr::complete($system . "\n\n" . $user);
+                    $usedapi = $mgr;
+                    $usedmethod = 'complete';
                 }
             } catch (\Throwable $t) {
                 $error = $t->getMessage();
@@ -121,13 +129,19 @@ class ai_suggester {
             try {
                 if (method_exists($mgr, 'generate_text')) {
                     $raw = $mgr::generate_text($system, $user);
+                    $usedapi = $mgr;
+                    $usedmethod = 'generate_text';
                 } else if (method_exists($mgr, 'chat')) {
                     $raw = $mgr::chat([
                         ['role' => 'system', 'content' => $system],
                         ['role' => 'user', 'content' => $user],
                     ]);
+                    $usedapi = $mgr;
+                    $usedmethod = 'chat';
                 } else if (method_exists($mgr, 'complete')) {
                     $raw = $mgr::complete($system . "\n\n" . $user);
+                    $usedapi = $mgr;
+                    $usedmethod = 'complete';
                 }
             } catch (\Throwable $t) {
                 $error = $t->getMessage();
@@ -138,6 +152,11 @@ class ai_suggester {
             return [
                 'status' => 'unavailable',
                 'message' => 'AI API entry point not found' . (!empty($error) ? (': ' . $error) : ''),
+                'debug' => [
+                    'core_ai_manager' => class_exists('\\core_ai\\manager'),
+                    'tool_ai_manager' => class_exists('\\tool_ai\\manager'),
+                    'tool_ai_ai_manager' => class_exists('\\tool_ai\\ai_manager'),
+                ],
             ];
         }
 
@@ -158,7 +177,15 @@ class ai_suggester {
 
         $decoded = json_decode($raw, true);
         if (!is_array($decoded)) {
-            return ['status' => 'error', 'message' => 'AI returned non-JSON response', 'raw' => $raw];
+            return [
+                'status' => 'error',
+                'message' => 'AI returned non-JSON response',
+                'raw' => $raw,
+                'debug' => [
+                    'api' => $usedapi,
+                    'method' => $usedmethod,
+                ],
+            ];
         }
 
         $choice = isset($decoded['choice']) ? (int)$decoded['choice'] : -1;
@@ -177,6 +204,10 @@ class ai_suggester {
             'confidence' => $confidence,
             'reason' => $reason,
             'new_category' => $choice === 0 ? trim($newcat) : '',
+            'debug' => [
+                'api' => $usedapi,
+                'method' => $usedmethod,
+            ],
         ];
     }
 }

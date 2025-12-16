@@ -38,6 +38,9 @@ class olution_manager {
     /** @var int|null Cache de l'ID de la catégorie "Question à trier" (sous commun) */
     private static $triagecategoryid = null;
 
+    /** @var int|null Cache de l'ID de la catégorie "Catégories à trier" (sous commun) */
+    private static $categoriestriagecategoryid = null;
+
     /** @var array<string,array>|null Cache map signature => target (triage) */
     private static $triagetargetmap = null;
 
@@ -458,6 +461,63 @@ class olution_manager {
     }
 
     /**
+     * Retourne l'ID de la sous-catégorie "Catégories à trier" sous "commun" (si présente).
+     *
+     * Objectif : servir de "bac" pour ranger des catégories / contenus à traiter.
+     *
+     * @return int ID catégorie de questions "Catégories à trier", ou 0 si indisponible
+     */
+    private static function get_categories_triage_category_id(): int {
+        global $DB;
+
+        if (self::$categoriestriagecategoryid !== null) {
+            return (int)self::$categoriestriagecategoryid;
+        }
+
+        $olutionid = self::get_olution_category_id();
+        $refid = self::get_reference_category_id();
+        if ($refid <= 0 || $olutionid <= 0 || (int)$refid === (int)$olutionid) {
+            self::$categoriestriagecategoryid = 0;
+            return 0;
+        }
+
+        $needle = self::normalize_label('Catégories à trier');
+        $needle2 = self::normalize_label('Categories a trier');
+        $needle3 = self::normalize_label('Catégorie à trier');
+        $needle4 = self::normalize_label('Categories à trier');
+
+        try {
+            $children = $DB->get_records('question_categories', ['parent' => $refid], 'id ASC', 'id,name,parent');
+            foreach ($children as $child) {
+                $name = self::normalize_label((string)$child->name);
+                if ($name === $needle || $name === $needle2 || $name === $needle3 || $name === $needle4) {
+                    self::$categoriestriagecategoryid = (int)$child->id;
+                    return (int)self::$categoriestriagecategoryid;
+                }
+            }
+        } catch (\Exception $e) {
+            // Fallback ci-dessous.
+        }
+
+        self::$categoriestriagecategoryid = 0;
+        return 0;
+    }
+
+    /**
+     * Récupère l'objet catégorie "Catégories à trier" (sous commun), si présent.
+     *
+     * @return object|false
+     */
+    public static function get_categories_triage_category() {
+        global $DB;
+        $id = self::get_categories_triage_category_id();
+        if ($id <= 0) {
+            return false;
+        }
+        return $DB->get_record('question_categories', ['id' => $id], '*', IGNORE_MISSING) ?: false;
+    }
+
+    /**
      * Récupère l'objet catégorie "Question à trier" (sous commun), si présent.
      *
      * @return object|false
@@ -746,9 +806,11 @@ class olution_manager {
                 if ($aicache !== null) {
                     $ai = $aicache->get($cachekey);
                 }
-                if (!is_array($ai) || (($ai['status'] ?? '') !== 'ok' && ($ai['status'] ?? '') !== 'unavailable')) {
+                if (!is_array($ai) || (($ai['status'] ?? '') !== 'ok')) {
                     $ai = ai_suggester::suggest($qname, $qtext, $candidateLabels);
-                    if ($aicache !== null && is_array($ai) && !empty($ai['status'])) {
+                    // Ne mettre en cache que les réponses OK, pour ne pas figer un état "unavailable/error"
+                    // après une correction de configuration côté Moodle/OpenAI.
+                    if ($aicache !== null && is_array($ai) && ($ai['status'] ?? '') === 'ok') {
                         $aicache->set($cachekey, $ai);
                     }
                 }
@@ -767,6 +829,14 @@ class olution_manager {
                 } else {
                     // IA indisponible → fallback heuristique (sans bloquer la page).
                     $usedmode = 'heuristic';
+                    if (is_array($ai)) {
+                        $aireason = 'AI unavailable: ' . (string)($ai['message'] ?? ($ai['status'] ?? 'unknown'));
+                        if (!empty($ai['debug']) && is_array($ai['debug'])) {
+                            $aireason .= ' [' . json_encode($ai['debug']) . ']';
+                        }
+                    } else {
+                        $aireason = 'AI unavailable';
+                    }
                 }
             }
 

@@ -9,8 +9,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'local_question_diagnostic';
-$plugin->version = 2025121516;  // YYYYMMDDXX format (v1.11.46 - Olution auto sort: Moodle AI/OpenAI suggestions)
+$plugin->version = 2025121517;  // YYYYMMDDXX format (v1.11.47 - Categories by context: target Catégories à trier under Olution/commun for moves)
 $plugin->requires = 2022041900; // Moodle 4.0+ (architecture question_bank_entries requise)
 $plugin->maturity = MATURITY_STABLE;
-$plugin->release = 'v1.11.46';
+$plugin->release = 'v1.11.47';
 

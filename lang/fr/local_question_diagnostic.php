@@ -644,6 +644,13 @@ $string['olution_auto_sort_no_match'] = 'Aucune catégorie existante ne correspo
 $string['olution_auto_sort_proposed_new_category'] = 'Proposition de nouvelle catégorie : {$a}';
 $string['question_content'] = 'Contenu';
 
+// IA debug.
+$string['ai_debug_title'] = 'Diagnostic IA Moodle (OpenAI)';
+$string['ai_debug_heading'] = 'Diagnostic IA';
+$string['ai_debug_link'] = '🔎 Diagnostic IA (pour comprendre le fallback)';
+$string['ai_debug_classes'] = 'Classes IA détectées';
+$string['ai_debug_test'] = 'Test d’appel IA (best-effort)';
+
 // 🆕 v1.11.5 : Filtre par catégorie de cours
 $string['course_category_filter'] = 'Catégorie de cours';
 $string['course_category_filter_desc'] = 'Filtrer les catégories de questions par catégorie de cours';
@@ -699,12 +706,13 @@ $string['tool_categories_by_context_move_button_help'] = 'Déplace la catégorie
 $string['tool_categories_by_context_move_to_olution_commun'] = 'Déplacer vers Olution / commun (même contexte)';
 $string['tool_categories_by_context_move_button'] = 'Déplacer';
 $string['tool_categories_by_context_move_olution_commun_context_mismatch'] = 'Olution/commun détectée mais dans un autre contexte (déplacement de catégorie impossible).';
-$string['tool_categories_by_context_move_questions_to_triage_title'] = 'Déplacer les questions vers Olution / commun / Question à trier';
-$string['tool_categories_by_context_move_questions_to_triage_button'] = '📥 Envoyer vers “Question à trier”';
-$string['tool_categories_by_context_move_questions_to_triage_button_help'] = 'Déplace toutes les questions (de cette catégorie) vers Olution/commun/Question à trier. Une confirmation sera demandée.';
+$string['tool_categories_by_context_move_questions_to_triage_title'] = 'Déplacer les questions vers Olution / commun / Catégories à trier';
+$string['tool_categories_by_context_move_questions_to_triage_button'] = '📥 Envoyer vers “Catégories à trier”';
+$string['tool_categories_by_context_move_questions_to_triage_button_help'] = 'Déplace toutes les questions (de cette catégorie) vers Olution/commun/Catégories à trier. Une confirmation sera demandée.';
 $string['tool_categories_by_context_move_questions_to_triage_nothing'] = 'Aucune question à déplacer depuis cette catégorie.';
 $string['tool_categories_by_context_move_questions_to_triage_summary_title'] = 'Résumé du déplacement';
 $string['tool_categories_by_context_move_questions_to_triage_summary'] = 'Source : <strong>{$a->sourcecategory}</strong><br>Cible : <strong>{$a->targetcategory}</strong><br>Questions à déplacer : <strong>{$a->count}</strong>';
 $string['tool_categories_by_context_move_questions_to_triage_warning'] = '⚠️ Cette action MODIFIE la base de données (changement de catégorie des questions). Assurez-vous que le contexte cible est bien autorisé pour ce cours.';
 $string['tool_categories_by_context_move_questions_to_triage_not_accessible'] = 'La catégorie cible Olution/commun n’est pas accessible depuis le cours (courseid={$a->courseid}). Contexte cible={$a->targetcontextid}. Méthode={$a->method}.';
+$string['tool_categories_by_context_categories_to_sort_not_found'] = 'Catégorie cible introuvable : créez une sous-catégorie de questions nommée « Catégories à trier » sous Olution → commun.';
 

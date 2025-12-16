@@ -23,6 +23,21 @@ Fichiers :
 - `lang/en/local_question_diagnostic.php`
 - `version.php`
 
+## [1.11.47] - 2025-12-15
+
+### ✨ Amélioration : cible “Catégories à trier” (Olution/commun) pour les déplacements
+
+- La cible par défaut pour “envoyer vers triage” est maintenant **Olution → commun → Catégories à trier**.
+- Si la cible est dans un autre contexte, le déplacement reste un **déplacement des questions** (et non de la catégorie) avec contrôle “accessible depuis le cours”.
+
+Fichiers :
+- `classes/olution_manager.php`
+- `actions/move_category_questions_to_olution_triage.php`
+- `categories_by_context.php`
+- `lang/fr/local_question_diagnostic.php`
+- `lang/en/local_question_diagnostic.php`
+- `version.php`
+
 ## [1.11.39] - 2025-12-15
 
 ### ✨ Amélioration : Catégories par cours / activité — direct uniquement + option Olution/commun

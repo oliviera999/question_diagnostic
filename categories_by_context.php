@@ -552,8 +552,8 @@ try {
         }
 
         if ($olutioncommun) {
-            // Triage ("Question à trier") sous commun, si présent.
-            $olutiontriage = \local_question_diagnostic\olution_manager::get_triage_category();
+            // Bac "Catégories à trier" sous commun, si présent.
+            $olutiontriage = \local_question_diagnostic\olution_manager::get_categories_triage_category();
 
             $subcats = local_question_diagnostic_get_olution_subcategories((int)$olutioncommun->id);
             $targetids = [(int)$olutioncommun->id => true];
@@ -777,7 +777,7 @@ foreach ($filtered as $cat) {
         }
     }
 
-    // Déplacer les QUESTIONS de cette catégorie vers Olution/commun/Question à trier (par défaut),
+    // Déplacer les QUESTIONS de cette catégorie vers Olution/commun/Catégories à trier (par défaut),
     // même si la cible est dans un autre contexte, si Moodle la considère "accessible" depuis le cours.
     if (!empty($olutiontriage) && !empty($olutiontriage->id) && $courseid > 0) {
         $actionurl = new moodle_url('/local/question_diagnostic/actions/move_category_questions_to_olution_triage.php');

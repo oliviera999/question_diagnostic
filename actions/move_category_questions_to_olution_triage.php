@@ -65,12 +65,12 @@ $PAGE->set_heading(get_string('tool_categories_by_context_move_questions_to_tria
 
 // Charger catégories.
 $sourcecat = $DB->get_record('question_categories', ['id' => $sourcecatid], '*', MUST_EXIST);
-$triagecat = olution_manager::get_triage_category();
+$triagecat = olution_manager::get_categories_triage_category();
 
 if (!$triagecat) {
     redirect(
         $returnurl,
-        get_string('olution_triage_not_found', 'local_question_diagnostic'),
+        get_string('tool_categories_by_context_categories_to_sort_not_found', 'local_question_diagnostic'),
         null,
         \core\output\notification::NOTIFY_ERROR
     );

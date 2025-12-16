@@ -65,6 +65,10 @@ echo html_writer::div(
 
 echo html_writer::tag('h2', get_string('olution_auto_sort_title', 'local_question_diagnostic'));
 echo html_writer::tag('p', get_string('olution_auto_sort_explain', 'local_question_diagnostic'));
+echo html_writer::div(
+    html_writer::link(new moodle_url('/local/question_diagnostic/ai_debug.php'), get_string('ai_debug_link', 'local_question_diagnostic')),
+    'mb-3'
+);
 
 $triage = olution_manager::get_triage_category();
 if (!$triage) {
