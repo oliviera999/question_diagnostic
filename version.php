@@ -9,8 +9,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'local_question_diagnostic';
-$plugin->version = 2025121517;  // YYYYMMDDXX format (v1.11.47 - Categories by context: target Catégories à trier under Olution/commun for moves)
+$plugin->version = 2025121600;  // YYYYMMDDXX format (v1.11.48 - AI triage: diagnostics + explicit fallback)
 $plugin->requires = 2022041900; // Moodle 4.0+ (architecture question_bank_entries requise)
 $plugin->maturity = MATURITY_STABLE;
-$plugin->release = 'v1.11.47';
+$plugin->release = 'v1.11.48';
 

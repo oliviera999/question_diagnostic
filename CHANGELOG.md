@@ -38,6 +38,24 @@ Fichiers :
 - `lang/en/local_question_diagnostic.php`
 - `version.php`
 
+## [1.11.48] - 2025-12-16
+
+### 🛠️ Diagnostic : mode IA ne répond pas (fallback) — visibilité + page debug
+
+- La page **Tri automatisé** indique désormais clairement si chaque ligne a été traitée par **IA** ou en **fallback**.
+- Ajout d’une page **Diagnostic IA** (`ai_debug.php`) qui liste les classes/méthodes IA disponibles et exécute un test d’appel (best-effort).
+- Les erreurs/raisons de fallback IA sont rendues plus explicites (sans stocker de secrets).
+- Le cache IA ne fige plus un état “unavailable/error” (on ne cache que les réponses `ok`).
+
+Fichiers :
+- `classes/ai_suggester.php`
+- `classes/olution_manager.php`
+- `olution_auto_sort.php`
+- `ai_debug.php`
+- `lib.php`
+- `lang/fr/local_question_diagnostic.php`
+- `lang/en/local_question_diagnostic.php`
+
 ## [1.11.39] - 2025-12-15
 
 ### ✨ Amélioration : Catégories par cours / activité — direct uniquement + option Olution/commun
