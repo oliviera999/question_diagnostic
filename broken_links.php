@@ -412,7 +412,8 @@ echo html_writer::tag('h3', '🔧 ' . get_string('repair_modal_title', 'local_qu
 echo html_writer::tag('button', '&times;', ['class' => 'qd-modal-close', 'onclick' => 'closeRepairModal()']);
 echo html_writer::end_tag('div');
 
-echo html_writer::start_tag('div', ['class' => 'qd-modal-body'], ['id' => 'repair-modal-body']);
+// ⚠️ Important: l'ID est utilisé par le JS (showRepairModal). Il doit être dans le tableau d'attributs.
+echo html_writer::start_tag('div', ['class' => 'qd-modal-body', 'id' => 'repair-modal-body']);
 echo html_writer::tag('p', get_string('loading_questions', 'local_question_diagnostic'));
 echo html_writer::end_tag('div');
 
@@ -432,6 +433,13 @@ echo html_writer::start_tag('script');
 function showRepairModal(questionId, questionName, brokenLinks) {
     const modal = document.getElementById('repair-modal');
     const modalBody = document.getElementById('repair-modal-body');
+
+    // Sécurité : si le DOM attendu n'est pas présent, ne pas planter silencieusement.
+    if (!modal || !modalBody) {
+        console.error('Repair modal DOM not found', {modal, modalBody});
+        alert('Erreur: impossible d’ouvrir le panneau d’options (modal introuvable dans la page).');
+        return;
+    }
     
     // Construire le contenu du modal
     let content = '<h4>Question: ' + questionName + ' (ID: ' + questionId + ')</h4>';
