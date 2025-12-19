@@ -352,15 +352,50 @@ function local_question_diagnostic_get_question_bank_url($category, $questionid 
     global $DB;
     
     try {
+        // Si la catégorie est absente/incomplète mais qu'on a un questionid,
+        // essayer de déduire la catégorie depuis l'architecture Moodle 4.x :
+        // question_versions -> question_bank_entries -> question_categories.
+        if ((!is_object($category) || empty($category->id) || empty($category->contextid)) && $questionid !== null) {
+            $qid = (int)$questionid;
+            if ($qid > 0) {
+                $sql = "SELECT qc.id, qc.contextid
+                          FROM {question_versions} qv
+                          INNER JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
+                          INNER JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
+                         WHERE qv.questionid = :qid";
+                $derived = $DB->get_record_sql($sql, ['qid' => $qid], IGNORE_MISSING);
+                if ($derived && !empty($derived->id) && !empty($derived->contextid)) {
+                    $category = $derived;
+                }
+            }
+        }
+
         // Déterminer le courseid à partir du contexte
+        if (!is_object($category) || empty($category->contextid) || empty($category->id)) {
+            // Fallback final : si on ne peut pas construire un URL "question bank", renvoyer
+            // un lien direct vers l'édition de la question (évite les liens cassés).
+            if ($questionid !== null && (int)$questionid > 0) {
+                return new moodle_url('/question/bank/editquestion/question.php', [
+                    'id' => (int)$questionid,
+                ]);
+            }
+            return null;
+        }
+
         $context = context::instance_by_id($category->contextid, IGNORE_MISSING);
         
         if (!$context) {
             // Si le contexte n'existe pas, retourner null
+            if ($questionid !== null && (int)$questionid > 0) {
+                return new moodle_url('/question/bank/editquestion/question.php', [
+                    'id' => (int)$questionid,
+                ]);
+            }
             return null;
         }
         
         $courseid = 0; // Par défaut, système
+        $cmid = 0;
         
         // Si c'est un contexte de cours, récupérer l'ID du cours
         if ($context->contextlevel == CONTEXT_COURSE) {
@@ -371,6 +406,9 @@ function local_question_diagnostic_get_question_bank_url($category, $questionid 
             if ($coursecontext) {
                 $courseid = $coursecontext->instanceid;
             }
+            // Pour ouvrir la banque de questions dans le contexte d'activité,
+            // Moodle utilise souvent cmid.
+            $cmid = (int)$context->instanceid;
         } else if ($context->contextlevel == CONTEXT_SYSTEM) {
             // 🔧 FIX: Pour contexte système, utiliser SITEID au lieu de 0
             // courseid=0 cause l'erreur "course not found"
@@ -397,6 +435,10 @@ function local_question_diagnostic_get_question_bank_url($category, $questionid 
             'courseid' => $courseid,
             'cat' => $category->id . ',' . $category->contextid
         ];
+
+        if ($cmid > 0) {
+            $params['cmid'] = $cmid;
+        }
         
         // Si un ID de question est fourni, l'ajouter
         if ($questionid !== null) {
