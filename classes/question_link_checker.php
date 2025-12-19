@@ -560,25 +560,64 @@ class question_link_checker {
         try {
             $question = $DB->get_record('question', ['id' => $questionid], '*', MUST_EXIST);
             
+            // Cas particuliers : certains "liens cassés" ne sont pas dans du HTML, mais dans des champs qtype_*.
+            // Exemple: bgimage manquante pour ddimageortext / ddmarker.
+            if (is_string($field) && stripos($field, 'bgimage') !== false) {
+                if ($question->qtype === 'ddimageortext') {
+                    // Champ bgimage dans la table qtype_ddimageortext.
+                    if ($DB->record_exists('qtype_ddimageortext', ['questionid' => $questionid])) {
+                        $DB->set_field('qtype_ddimageortext', 'bgimage', 0, ['questionid' => $questionid]);
+                        return true;
+                    }
+                    return 'Aucun enregistrement trouvé dans qtype_ddimageortext pour cette question.';
+                } else if ($question->qtype === 'ddmarker') {
+                    // Champ bgimage dans la table qtype_ddmarker.
+                    if ($DB->record_exists('qtype_ddmarker', ['questionid' => $questionid])) {
+                        $DB->set_field('qtype_ddmarker', 'bgimage', 0, ['questionid' => $questionid]);
+                        return true;
+                    }
+                    return 'Aucun enregistrement trouvé dans qtype_ddmarker pour cette question.';
+                }
+                // Autres qtypes : pas supporté (ne pas faire semblant de réussir).
+                return 'Suppression automatique non supportée pour ce type de question (bgimage).';
+            }
+
             // Déterminer quel champ modifier
             if (strpos($field, 'answer_') === 0) {
                 // C'est une réponse
                 $answer_id = str_replace('answer_', '', $field);
                 $answer = $DB->get_record('question_answers', ['id' => $answer_id], '*', MUST_EXIST);
-                $answer->answer = str_replace($broken_url, '[Image supprimée]', $answer->answer);
+                $before = (string)$answer->answer;
+                $after = str_replace($broken_url, '[Image supprimée]', $before);
+                if ($after === $before) {
+                    return 'Aucune occurrence du lien n\'a été trouvée dans la réponse (rien modifié).';
+                }
+                $answer->answer = $after;
                 $DB->update_record('question_answers', $answer);
             } else if (strpos($field, 'feedback_') === 0) {
                 // C'est un feedback
                 $answer_id = str_replace('feedback_', '', $field);
                 $answer = $DB->get_record('question_answers', ['id' => $answer_id], '*', MUST_EXIST);
-                $answer->feedback = str_replace($broken_url, '[Image supprimée]', $answer->feedback);
+                $before = (string)$answer->feedback;
+                $after = str_replace($broken_url, '[Image supprimée]', $before);
+                if ($after === $before) {
+                    return 'Aucune occurrence du lien n\'a été trouvée dans le feedback (rien modifié).';
+                }
+                $answer->feedback = $after;
                 $DB->update_record('question_answers', $answer);
             } else {
                 // C'est un champ de la question elle-même
-                if (isset($question->$field)) {
-                    $question->$field = str_replace($broken_url, '[Image supprimée]', $question->$field);
-                    $DB->update_record('question', $question);
+                if (!is_string($field) || $field === '' || !property_exists($question, $field)) {
+                    return 'Champ non supporté pour suppression automatique : ' . s((string)$field);
                 }
+
+                $before = (string)$question->$field;
+                $after = str_replace($broken_url, '[Image supprimée]', $before);
+                if ($after === $before) {
+                    return 'Aucune occurrence du lien n\'a été trouvée dans ce champ (rien modifié).';
+                }
+                $question->$field = $after;
+                $DB->update_record('question', $question);
             }
             
             return true;

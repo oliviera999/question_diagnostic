@@ -63,8 +63,11 @@ if ($action) {
         }
     } else if ($action === 'repair') {
         $repair_result = question_link_checker::attempt_repair($questionid, $field, $url);
-        // Pour l'instant, on affiche juste les suggestions
-        // La réparation automatique nécessiterait plus de logique
+        // Actuellement, attempt_repair() est un stub : on informe clairement l'utilisateur.
+        $msg = is_array($repair_result) && !empty($repair_result['message'])
+            ? $repair_result['message']
+            : 'Fonctionnalité de réparation automatique non encore implémentée.';
+        redirect($PAGE->url, $msg, null, \core\output\notification::NOTIFY_INFO);
     }
 }
 
@@ -378,7 +381,7 @@ if (empty($broken_questions)) {
         }
         
         // Bouton tentative de réparation
-        echo html_writer::tag('button', '🔧 ' . get_string('repair', 'local_question_diagnostic'), [
+        echo html_writer::tag('button', '🔧 ' . get_string('repair_options', 'local_question_diagnostic'), [
             'class' => 'qd-btn qd-btn-merge repair-btn',
             'data-questionid' => $question->id,
             'data-name' => format_string($question->name),
@@ -444,21 +447,32 @@ function showRepairModal(questionId, questionName, brokenLinks) {
         content += '<strong>Raison:</strong> <span style="color: #d9534f;">' + link.reason + '</span>';
         content += '</div>';
         
-        // Options de réparation
+        // Options (la "réparation automatique" n'est pas implémentée, mais certaines corrections sont possibles)
         content += '<div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #ddd;">';
         content += '<strong>Options:</strong><br>';
         content += '<div style="margin-top: 8px;">';
         
-        // Bouton supprimer la référence
+        // Bouton supprimer la référence / désactiver bgimage
         const removeUrl = new URL(window.location.href);
         removeUrl.searchParams.set('action', 'remove');
         removeUrl.searchParams.set('questionid', questionId);
         removeUrl.searchParams.set('field', link.field);
         removeUrl.searchParams.set('url', link.url);
         removeUrl.searchParams.set('sesskey', M.cfg.sesskey);
-        
-        content += '<a href="' + removeUrl.toString() + '" class="btn btn-danger btn-sm" style="margin-right: 5px;" onclick="return confirm(\'Êtes-vous sûr de vouloir supprimer cette référence ?\')">🗑️ Supprimer la référence</a>';
-        content += '<span style="font-size: 12px; color: #666;">(Remplace le lien par [Image supprimée])</span>';
+
+        const isBgImage = (String(link.field || '').toLowerCase().indexOf('bgimage') !== -1);
+        const actionLabel = isBgImage
+            ? '🧹 Désactiver l’image de fond'
+            : '🗑️ <?php echo addslashes(get_string('remove_reference', 'local_question_diagnostic')); ?>';
+        const confirmText = isBgImage
+            ? 'Êtes-vous sûr de vouloir désactiver l’image de fond pour ce type de question ?'
+            : '<?php echo addslashes(get_string('remove_reference_confirm', 'local_question_diagnostic')); ?>';
+        const hint = isBgImage
+            ? '(Met le champ bgimage à 0 : la question s’affichera sans image de fond)'
+            : '(<?php echo addslashes(get_string('remove_reference_desc', 'local_question_diagnostic')); ?>)';
+
+        content += '<a href="' + removeUrl.toString() + '" class="btn btn-danger btn-sm" style="margin-right: 5px;" onclick="return confirm(\'' + confirmText + '\')">' + actionLabel + '</a>';
+        content += '<span style="font-size: 12px; color: #666;">' + hint + '</span>';
         content += '</div>';
         content += '</div>';
         
@@ -468,8 +482,7 @@ function showRepairModal(questionId, questionName, brokenLinks) {
     
     content += '<div style="margin-top: 20px; padding: 15px; background: #d9edf7; border: 1px solid #bce8f1; border-radius: 5px;">';
     content += '<strong>💡 Recommandation:</strong> ';
-    content += 'Vérifiez d\'abord la question dans la banque de questions pour voir si les fichiers peuvent être réuploadés manuellement. ';
-    content += 'La suppression de la référence est une solution de dernier recours.';
+    content += '<?php echo addslashes(get_string('repair_recommendation', 'local_question_diagnostic')); ?>';
     content += '</div>';
     
     modalBody.innerHTML = content;
