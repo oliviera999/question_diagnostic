@@ -630,6 +630,24 @@ $string['question_merge_tool_open'] = 'Open merge';
 $string['question_merge_tool_stat_groups'] = 'duplicate group(s)';
 $string['question_merge_tool_stat_duplicates'] = 'total duplicates';
 
+// Question merge — batch (v1.12.x)
+$string['question_merge_batch_title'] = 'Batch merge (strict duplicates)';
+$string['question_merge_batch_heading'] = 'Batch merge — strictly identical duplicates';
+$string['question_merge_batch_preview_button'] = 'Batch (preview)';
+$string['question_merge_batch_no_groups'] = 'No groups to analyze for this batch.';
+$string['question_merge_batch_summary_title'] = 'Batch summary';
+$string['question_merge_batch_summary'] = 'Analyzed window: {$a->windowcount} group(s) (limit={$a->limit}, offset={$a->offset}). Eligible: {$a->eligiblecount}. Skipped (0 mergeable): {$a->skipped}. Errors: {$a->errors}.';
+$string['question_merge_batch_impacts_title'] = 'Aggregated impacts (all merges)';
+$string['question_merge_batch_groups_title'] = 'Eligible groups in this batch';
+$string['question_merge_batch_reference'] = 'Reference';
+$string['question_merge_batch_mergeable'] = 'Mergeable';
+$string['question_merge_batch_warning'] = 'This operation will execute multiple merges sequentially. Make a backup first, and test on a dev environment. Non-eligible groups (no mergeable duplicates) will be skipped.';
+$string['question_merge_batch_confirm_button'] = 'Confirm batch merge';
+$string['question_merge_batch_nothing'] = 'No eligible group in this window (nothing to merge).';
+$string['question_merge_batch_done_title'] = 'Batch finished';
+$string['question_merge_batch_done_summary'] = 'Merged groups: {$a->success}, failures: {$a->failed}, deleted questions: {$a->deleted}.';
+$string['question_merge_batch_messages_title'] = 'Messages / errors';
+
 // Olution triage (commun > Question à trier).
 $string['olution_triage_title'] = 'Question triage (commun → subcategories)';
 $string['olution_triage_heading'] = 'Triage questions from \"Question à trier\"';

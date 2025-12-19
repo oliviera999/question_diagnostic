@@ -65,6 +65,20 @@ echo html_writer::start_div('alert alert-info');
 echo html_writer::tag('p', get_string('question_merge_intro', 'local_question_diagnostic'));
 echo html_writer::end_div();
 
+// Actions batch.
+echo html_writer::start_div('mb-3', ['style' => 'display:flex;gap:12px;flex-wrap:wrap;align-items:center;']);
+$batchurl = new moodle_url('/local/question_diagnostic/actions/merge_questions_batch.php', [
+    'includequiz' => $includequiz,
+    'discovery' => $discovery,
+    'limit' => 100,
+    'offset' => 0,
+    'stoponerror' => 1,
+    'returnurl' => $PAGE->url->out(false),
+    'sesskey' => sesskey(),
+]);
+echo html_writer::link($batchurl, get_string('question_merge_batch_preview_button', 'local_question_diagnostic'), ['class' => 'btn btn-warning']);
+echo html_writer::end_div();
+
 // Options.
 $optionsurl = new moodle_url('/local/question_diagnostic/question_merge.php');
 echo html_writer::start_tag('form', [

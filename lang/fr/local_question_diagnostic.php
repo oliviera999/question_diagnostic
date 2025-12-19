@@ -630,6 +630,24 @@ $string['question_merge_tool_open'] = 'Ouvrir la fusion';
 $string['question_merge_tool_stat_groups'] = 'groupe(s) de doublons';
 $string['question_merge_tool_stat_duplicates'] = 'doublon(s) totaux';
 
+// Fusion de questions — batch (v1.12.x)
+$string['question_merge_batch_title'] = 'Fusion batch (doublons stricts)';
+$string['question_merge_batch_heading'] = 'Fusion batch — doublons strictement identiques';
+$string['question_merge_batch_preview_button'] = 'Batch (prévisualisation)';
+$string['question_merge_batch_no_groups'] = 'Aucun groupe à analyser pour ce batch.';
+$string['question_merge_batch_summary_title'] = 'Résumé batch';
+$string['question_merge_batch_summary'] = 'Fenêtre analysée : {$a->windowcount} groupe(s) (limit={$a->limit}, offset={$a->offset}). Éligibles : {$a->eligiblecount}. Ignorés (0 fusionnable) : {$a->skipped}. Erreurs : {$a->errors}.';
+$string['question_merge_batch_impacts_title'] = 'Impacts agrégés (toutes fusions)';
+$string['question_merge_batch_groups_title'] = 'Groupes éligibles dans ce batch';
+$string['question_merge_batch_reference'] = 'Référence';
+$string['question_merge_batch_mergeable'] = 'Fusionnables';
+$string['question_merge_batch_warning'] = 'Cette opération va exécuter plusieurs fusions successives. Faites un backup avant, et testez sur un environnement de dev. Les groupes non éligibles (aucun doublon fusionnable) seront ignorés.';
+$string['question_merge_batch_confirm_button'] = 'Confirmer la fusion batch';
+$string['question_merge_batch_nothing'] = 'Aucun groupe éligible dans cette fenêtre (rien à fusionner).';
+$string['question_merge_batch_done_title'] = 'Batch terminé';
+$string['question_merge_batch_done_summary'] = 'Groupes fusionnés : {$a->success}, échecs : {$a->failed}, questions supprimées : {$a->deleted}.';
+$string['question_merge_batch_messages_title'] = 'Messages / erreurs';
+
 // Olution triage (commun > Question à trier).
 $string['olution_triage_title'] = 'Triage des questions (commun → sous-catégories)';
 $string['olution_triage_heading'] = 'Trier les questions de \"Question à trier\"';
