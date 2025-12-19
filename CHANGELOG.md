@@ -24,6 +24,25 @@ Fichiers :
 - `lang/en/local_question_diagnostic.php`
 - `version.php`
 
+## [1.12.2] - 2025-12-19
+
+### ✨ Feature : diagnostic général (BDD + ressources)
+
+- Ajout d’une page **Diagnostic général** qui synthétise la santé globale du site (lecture seule) :
+  - intégrité **cours / catégories de cours / contextes**
+  - état des **fichiers** (orphelins + échantillonnage “contenthash présent en BDD mais contenu manquant dans `moodledata/filedir`”)
+  - rappel des indicateurs banque de questions (liens cassés, catégories orphelines) + liens vers les outils existants.
+- Ajout d’un nouveau point d’entrée dans le menu principal.
+
+Fichiers :
+- `site_diagnostic.php`
+- `classes/site_diagnostic_checker.php`
+- `index.php`
+- `lib.php`
+- `lang/fr/local_question_diagnostic.php`
+- `lang/en/local_question_diagnostic.php`
+- `version.php`
+
 ## [1.11.46] - 2025-12-15
 
 ### ✨ Amélioration : tri automatisé — option IA Moodle 4.5 (OpenAI)

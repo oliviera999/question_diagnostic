@@ -882,6 +882,7 @@ function local_question_diagnostic_get_parent_url($current_page) {
         'help.php' => 'index.php',
         'audit_logs.php' => 'index.php',
         'monitoring.php' => 'index.php',
+        'site_diagnostic.php' => 'index.php',
         'orphan_entries.php' => 'index.php',
         'test.php' => 'index.php',
         'debug_categories.php' => 'index.php',

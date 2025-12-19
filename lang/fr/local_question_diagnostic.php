@@ -91,6 +91,57 @@ $string['backtomenu'] = 'Retour au menu principal';
 $string['purge_caches'] = 'Purger les caches';
 $string['purge_caches_tooltip'] = 'Purger les caches Moodle (recommandé après modifications)';
 
+// 🆕 v1.12.2 : Diagnostic général du site
+$string['tool_site_diagnostic_title'] = 'Diagnostic général du site';
+$string['tool_site_diagnostic_desc'] = 'Fait un point sur la santé globale (BDD + ressources moodledata) et propose des checks rapides : intégrité cours/contextes, fichiers orphelins, contenu filedir manquant, et liens cassés (banque de questions).';
+$string['tool_site_diagnostic_open'] = 'Ouvrir le diagnostic';
+
+$string['site_diagnostic_title'] = 'Diagnostic général';
+$string['site_diagnostic_heading'] = 'Diagnostic général du site';
+$string['site_diagnostic_intro'] = 'Cette page exécute des contrôles <strong>read-only</strong> (aucune modification de la base). Certains tests sont réalisés sur un <strong>échantillon</strong> pour préserver les performances.';
+$string['site_diagnostic_refresh'] = 'Rafraîchir l’analyse (purge caches locaux)';
+$string['site_diagnostic_refresh_done'] = 'Caches locaux purgés, analyse relancée.';
+$string['site_diagnostic_overview'] = 'Vue d’ensemble';
+$string['site_diagnostic_health'] = 'Santé globale';
+$string['site_diagnostic_issues_total'] = 'anomalie(s) détectée(s)';
+$string['site_diagnostic_missing_tables'] = 'table(s) manquante(s)';
+$string['site_diagnostic_courses'] = 'Cours';
+$string['site_diagnostic_course_integrity'] = 'intégrité cours/contextes';
+$string['site_diagnostic_resources'] = 'Ressources';
+$string['site_diagnostic_files_health'] = 'fichiers / moodledata';
+
+$string['site_diagnostic_db_section'] = 'Structure BDD';
+$string['site_diagnostic_courses_section'] = 'Intégrité des cours et contextes';
+$string['site_diagnostic_files_section'] = 'Ressources (moodledata / files)';
+$string['site_diagnostic_questionbank_section'] = 'Banque de questions (existant)';
+
+$string['site_diagnostic_check'] = 'Contrôle';
+$string['site_diagnostic_status'] = 'Statut';
+$string['site_diagnostic_value'] = 'Valeur';
+
+$string['site_diagnostic_courses_missing_category'] = 'Cours rattachés à une catégorie de cours inexistante';
+$string['site_diagnostic_coursecats_missing_parent'] = 'Catégories de cours avec parent manquant';
+$string['site_diagnostic_courses_missing_context'] = 'Cours sans contexte (CONTEXT_COURSE)';
+$string['site_diagnostic_coursecats_missing_context'] = 'Catégories de cours sans contexte (CONTEXT_COURSECAT)';
+$string['site_diagnostic_orphan_course_contexts'] = 'Contextes de cours orphelins (cours supprimé)';
+$string['site_diagnostic_orphan_coursecat_contexts'] = 'Contextes de catégorie de cours orphelins (catégorie supprimée)';
+
+$string['site_diagnostic_disk_free'] = 'Espace libre';
+$string['site_diagnostic_moodledata'] = 'moodledata';
+$string['site_diagnostic_missing_filedir'] = 'Filedir manquant';
+$string['site_diagnostic_missing_filedir_sub'] = 'sur {$a} fichier(s) vérifié(s)';
+$string['site_diagnostic_open_orphans'] = 'Ouvrir les fichiers orphelins';
+$string['site_diagnostic_missing_filedir_examples_title'] = 'Exemples de fichiers dont le contenu est introuvable dans filedir';
+$string['site_diagnostic_missing_filedir_examples_desc'] = 'Ces entrées existent dans la table {files}, mais le fichier physique correspondant n’est pas lisible dans <code>moodledata/filedir</code>. Cela indique souvent un problème de stockage/backup/synchronisation.';
+
+$string['site_diagnostic_recommendations'] = 'Recommandations';
+$string['site_diagnostic_no_recommendations'] = '✅ Aucun point bloquant détecté par ces contrôles rapides.';
+$string['site_diagnostic_rec_db'] = '❌ <strong>Structure BDD inattendue</strong> : {$a} table(s) attendue(s) n’existent pas. Vérifiez l’installation, le préfixe des tables et l’état de la base.';
+$string['site_diagnostic_rec_courses'] = '⚠️ <strong>Intégrité cours/contextes</strong> : {$a} anomalie(s). Cela peut impacter des accès, des permissions ou la navigation. À investiguer côté administration.';
+$string['site_diagnostic_rec_filedir'] = '❌ <strong>Filedir</strong> : {$a->missing} contenu(s) manquant(s) détecté(s) sur {$a->checked} fichier(s) échantillonnés. Vérifiez les sauvegardes/restaurations et l’intégrité de <code>moodledata/filedir</code>.';
+$string['site_diagnostic_rec_orphans'] = 'ℹ️ <strong>Fichiers orphelins</strong> : {$a->count} fichier(s) ({$a->size}). Vous pouvez archiver/supprimer avec l’outil dédié.';
+$string['site_diagnostic_rec_broken_links'] = '⚠️ <strong>Liens cassés dans les questions</strong> : {$a->qcount} question(s) affectée(s) ({$a->lcount} lien(s)). Utilisez l’outil de vérification des liens.';
+
 // Purge des caches.
 $string['purge_cache_title'] = 'Purge des caches';
 $string['purge_cache_heading'] = 'Purge des Caches Moodle';

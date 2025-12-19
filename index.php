@@ -503,6 +503,38 @@ echo html_writer::end_tag('div'); // fin qd-tool-content
 echo html_writer::end_tag('div'); // fin qd-tool-card
 
 // ======================================================================
+// 🆕 v1.12.2 : Diagnostic général du site (BDD + ressources)
+// ======================================================================
+
+echo html_writer::start_tag('div', ['class' => 'qd-tool-card']);
+
+echo html_writer::start_tag('div', ['class' => 'qd-tool-icon']);
+echo '🩺';
+echo html_writer::end_tag('div');
+
+echo html_writer::start_tag('div', ['class' => 'qd-tool-content']);
+
+echo html_writer::tag('h4', get_string('tool_site_diagnostic_title', 'local_question_diagnostic'), ['class' => 'qd-tool-title']);
+
+echo html_writer::tag('p',
+    get_string('tool_site_diagnostic_desc', 'local_question_diagnostic'),
+    ['class' => 'qd-tool-description']
+);
+
+echo html_writer::start_tag('div', ['class' => 'qd-tool-stats']);
+echo html_writer::tag('span', '🗄️ BDD + 🗂️ ressources', ['class' => 'qd-tool-stat-item qd-stat-info']);
+echo html_writer::tag('span', '🏫 cours + contextes', ['class' => 'qd-tool-stat-item qd-stat-info']);
+echo html_writer::tag('span', '🔗 liens + 🗑️ orphelins', ['class' => 'qd-tool-stat-item qd-stat-info']);
+echo html_writer::end_tag('div');
+
+$site_diag_url = new moodle_url('/local/question_diagnostic/site_diagnostic.php');
+echo html_writer::link($site_diag_url, get_string('tool_site_diagnostic_open', 'local_question_diagnostic') . ' →', ['class' => 'qd-tool-button']);
+
+echo html_writer::end_tag('div'); // fin qd-tool-content
+
+echo html_writer::end_tag('div'); // fin qd-tool-card
+
+// ======================================================================
 // 🆕 v1.10.0 : OPTION 6 : Fichiers Orphelins
 // ======================================================================
 

@@ -91,6 +91,57 @@ $string['backtomenu'] = 'Back to main menu';
 $string['purge_caches'] = 'Purge caches';
 $string['purge_caches_tooltip'] = 'Purge Moodle caches (recommended after changes)';
 
+// 🆕 v1.12.2: Site diagnostic
+$string['tool_site_diagnostic_title'] = 'Site-wide diagnostic';
+$string['tool_site_diagnostic_desc'] = 'Provides an overall health snapshot (DB + moodledata resources) with quick checks: course/context integrity, orphan files, missing filedir content, and broken links (question bank).';
+$string['tool_site_diagnostic_open'] = 'Open diagnostic';
+
+$string['site_diagnostic_title'] = 'Site diagnostic';
+$string['site_diagnostic_heading'] = 'Site-wide diagnostic';
+$string['site_diagnostic_intro'] = 'This page runs <strong>read-only</strong> checks (no database changes). Some tests run on a <strong>sample</strong> to preserve performance.';
+$string['site_diagnostic_refresh'] = 'Refresh analysis (purge local caches)';
+$string['site_diagnostic_refresh_done'] = 'Local caches purged, analysis refreshed.';
+$string['site_diagnostic_overview'] = 'Overview';
+$string['site_diagnostic_health'] = 'Overall health';
+$string['site_diagnostic_issues_total'] = 'issue(s) detected';
+$string['site_diagnostic_missing_tables'] = 'missing table(s)';
+$string['site_diagnostic_courses'] = 'Courses';
+$string['site_diagnostic_course_integrity'] = 'course/context integrity';
+$string['site_diagnostic_resources'] = 'Resources';
+$string['site_diagnostic_files_health'] = 'files / moodledata';
+
+$string['site_diagnostic_db_section'] = 'DB structure';
+$string['site_diagnostic_courses_section'] = 'Course and context integrity';
+$string['site_diagnostic_files_section'] = 'Resources (moodledata / files)';
+$string['site_diagnostic_questionbank_section'] = 'Question bank (existing)';
+
+$string['site_diagnostic_check'] = 'Check';
+$string['site_diagnostic_status'] = 'Status';
+$string['site_diagnostic_value'] = 'Value';
+
+$string['site_diagnostic_courses_missing_category'] = 'Courses linked to a missing course category';
+$string['site_diagnostic_coursecats_missing_parent'] = 'Course categories with missing parent';
+$string['site_diagnostic_courses_missing_context'] = 'Courses without a context (CONTEXT_COURSE)';
+$string['site_diagnostic_coursecats_missing_context'] = 'Course categories without a context (CONTEXT_COURSECAT)';
+$string['site_diagnostic_orphan_course_contexts'] = 'Orphan course contexts (course deleted)';
+$string['site_diagnostic_orphan_coursecat_contexts'] = 'Orphan course category contexts (category deleted)';
+
+$string['site_diagnostic_disk_free'] = 'Free space';
+$string['site_diagnostic_moodledata'] = 'moodledata';
+$string['site_diagnostic_missing_filedir'] = 'Missing filedir content';
+$string['site_diagnostic_missing_filedir_sub'] = 'out of {$a} checked file(s)';
+$string['site_diagnostic_open_orphans'] = 'Open orphan files';
+$string['site_diagnostic_missing_filedir_examples_title'] = 'Examples of files whose content is missing from filedir';
+$string['site_diagnostic_missing_filedir_examples_desc'] = 'These records exist in the {files} table, but the physical file is not readable under <code>moodledata/filedir</code>. This often indicates storage/backup/sync issues.';
+
+$string['site_diagnostic_recommendations'] = 'Recommendations';
+$string['site_diagnostic_no_recommendations'] = '✅ No blocking issues detected by these quick checks.';
+$string['site_diagnostic_rec_db'] = '❌ <strong>Unexpected DB structure</strong>: {$a} expected table(s) are missing. Check installation, table prefix, and DB state.';
+$string['site_diagnostic_rec_courses'] = '⚠️ <strong>Course/context integrity</strong>: {$a} issue(s). This can impact access, permissions, or navigation. Investigate via site administration.';
+$string['site_diagnostic_rec_filedir'] = '❌ <strong>Filedir</strong>: {$a->missing} missing content item(s) detected out of {$a->checked} sampled file(s). Check backups/restores and the integrity of <code>moodledata/filedir</code>.';
+$string['site_diagnostic_rec_orphans'] = 'ℹ️ <strong>Orphan files</strong>: {$a->count} file(s) ({$a->size}). You can archive/delete them using the dedicated tool.';
+$string['site_diagnostic_rec_broken_links'] = '⚠️ <strong>Broken links in questions</strong>: {$a->qcount} affected question(s) ({$a->lcount} link(s)). Use the broken links tool.';
+
 // Cache purge.
 $string['purge_cache_title'] = 'Cache purge';
 $string['purge_cache_heading'] = 'Moodle Cache Purge';
