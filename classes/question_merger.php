@@ -272,7 +272,12 @@ class question_merger {
                 // 2) Post-check : s'assurer qu'il ne reste aucune référence vers les anciens IDs (sur ces cibles).
                 $after = self::compute_impacts_after($targets, $plan->mappings);
                 if (!empty($after['still_referenced'])) {
-                    throw new \Exception('Post-check échoué : des références vers des doublons existent encore après remap.');
+                    $details = [];
+                    foreach ((array)$after['still_referenced'] as $impact) {
+                        $details[] = (string)($impact->table ?? '?') . '.' . (string)($impact->column ?? '?')
+                            . ' (type=' . (string)($impact->type ?? '?') . ', count=' . (int)($impact->after_count ?? 0) . ')';
+                    }
+                    throw new \Exception('Post-check échoué : des références vers des doublons existent encore après remap. ' . implode(' | ', $details));
                 }
 
                 // 3) Supprimer les doublons (API Moodle via question_analyzer).
@@ -748,15 +753,15 @@ class question_merger {
                     // - on remap questionbankentryid vers la référence
                     // - on met version/questionversionid à NULL pour pointer vers la dernière version non-brouillon.
                     if (($t->table === 'question_references' || $t->table === 'question_set_references') && $t->column === 'questionbankentryid') {
+                        // ⚠️ Important : certains drivers gèrent mal NULL en paramètre sur des colonnes int.
+                        // On met donc NULL directement dans le SQL (comportement attendu : latest non-draft).
                         $set = ["questionbankentryid = :ref"];
                         $params = ['ref' => $ref, 'old' => $old];
                         if (is_array($tablecols) && isset($tablecols['version'])) {
-                            $set[] = "version = :vnull";
-                            $params['vnull'] = null;
+                            $set[] = "version = NULL";
                         }
                         if (is_array($tablecols) && isset($tablecols['questionversionid'])) {
-                            $set[] = "questionversionid = :qvnull";
-                            $params['qvnull'] = null;
+                            $set[] = "questionversionid = NULL";
                         }
                         $sql = "UPDATE {" . $t->table . "} SET " . implode(', ', $set) . " WHERE questionbankentryid = :old";
                         $DB->execute($sql, $params);
@@ -766,7 +771,11 @@ class question_merger {
                     }
                     $sum++;
                 } catch (\Throwable $e) {
-                    // Ne pas throw ici : laisser le caller décider via post-check (plus fiable).
+                    // Sur les tables d'usages Moodle 4.5, on ne peut pas continuer si l'UPDATE échoue.
+                    if ($t->table === 'question_references' || $t->table === 'question_set_references') {
+                        throw $e;
+                    }
+                    // Sinon, laisser le caller décider via post-check (plus fiable).
                 }
             }
             $updated[$t->table . '.' . $t->column] = $sum;
