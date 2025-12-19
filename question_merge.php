@@ -73,7 +73,8 @@ $batchurl = new moodle_url('/local/question_diagnostic/actions/merge_questions_b
     'includequiz' => $includequiz,
     'discovery' => $discovery,
     'limit' => 200,
-    'processall' => 1,
+    // Par défaut, ne pas forcer "tout le site" : l'option est disponible sur la page batch.
+    'processall' => 0,
     'afterrepid' => 0,
     'stoponerror' => 1,
     'returnurl' => $PAGE->url->out(false),

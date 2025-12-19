@@ -48,7 +48,7 @@ $includequiz = optional_param('includequiz', 1, PARAM_INT);
 $discovery = optional_param('discovery', 0, PARAM_INT);
 $limit = optional_param('limit', 200, PARAM_INT); // taille du lot (nb de groupes scannés par itération)
 $offset = optional_param('offset', 0, PARAM_INT); // compat ancienne pagination
-$processall = optional_param('processall', 1, PARAM_INT); // 1 = traiter tout le site par lots
+$processall = optional_param('processall', 0, PARAM_INT); // option : 1 = traiter tout le site par lots
 $afterrepid = optional_param('afterrepid', 0, PARAM_INT); // pagination stable (seek) si processall=1
 $stoponerror = optional_param('stoponerror', 1, PARAM_INT);
 $returnurlparam = optional_param('returnurl', '', PARAM_LOCALURL);
@@ -84,6 +84,77 @@ $options = [
     'advanced_discovery' => (int)$discovery === 1,
 ];
 
+echo $OUTPUT->header();
+echo local_question_diagnostic_render_version_badge();
+echo $OUTPUT->heading(get_string('question_merge_batch_heading', 'local_question_diagnostic'));
+
+// Options UI : portée + taille de lot.
+// Objectif : permettre un "tout fusionner sur le site" en un clic, mais seulement en option.
+echo html_writer::start_tag('form', [
+    'method' => 'get',
+    'action' => (new moodle_url('/local/question_diagnostic/actions/merge_questions_batch.php'))->out(false),
+    'class' => 'mb-3',
+]);
+echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]);
+echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'includequiz', 'value' => (int)$includequiz]);
+echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'discovery', 'value' => (int)$discovery]);
+echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'returnurl', 'value' => $returnurl->out(false)]);
+
+echo html_writer::start_div('form-inline', ['style' => 'display:flex;gap:16px;flex-wrap:wrap;align-items:center;']);
+
+echo html_writer::start_div();
+echo html_writer::empty_tag('input', [
+    'type' => 'checkbox',
+    'name' => 'processall',
+    'value' => '1',
+    'id' => 'qd-merge-batch-processall',
+    'checked' => (int)$processall === 1 ? 'checked' : null,
+]);
+echo html_writer::tag('label', ' Traiter tout le site (tout ce qui est fusionnable)', [
+    'for' => 'qd-merge-batch-processall',
+    'style' => 'margin-left:6px;',
+]);
+echo html_writer::end_div();
+
+echo html_writer::start_div();
+echo html_writer::tag('label', 'Taille du lot', ['for' => 'qd-merge-batch-limit', 'style' => 'margin-right:6px;']);
+echo html_writer::empty_tag('input', [
+    'type' => 'number',
+    'name' => 'limit',
+    'id' => 'qd-merge-batch-limit',
+    'min' => 1,
+    'max' => 1000,
+    'value' => (int)$limit,
+    'style' => 'width:100px;',
+]);
+echo html_writer::end_div();
+
+// En mode fenêtre (processall=0), on garde offset pour compat/debug.
+echo html_writer::start_div();
+echo html_writer::tag('label', 'Offset', ['for' => 'qd-merge-batch-offset', 'style' => 'margin-right:6px;']);
+echo html_writer::empty_tag('input', [
+    'type' => 'number',
+    'name' => 'offset',
+    'id' => 'qd-merge-batch-offset',
+    'min' => 0,
+    'value' => (int)$offset,
+    'style' => 'width:100px;',
+]);
+echo html_writer::end_div();
+
+// Curseur seek : en preview, on reste sur 0 (on scanne depuis le début).
+echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'afterrepid', 'value' => (int)$afterrepid]);
+echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'stoponerror', 'value' => (int)$stoponerror]);
+
+echo html_writer::empty_tag('input', [
+    'type' => 'submit',
+    'value' => 'Prévisualiser',
+    'class' => 'btn btn-secondary',
+]);
+
+echo html_writer::end_div();
+echo html_writer::end_tag('form');
+
 // Récupérer une fenêtre de groupes (soit seek sur tout le site, soit compat offset).
 if ((int)$processall === 1) {
     $groups = question_analyzer::get_duplicate_groups_seek((int)$limit, (int)$afterrepid);
@@ -91,9 +162,6 @@ if ((int)$processall === 1) {
     $groups = question_analyzer::get_duplicate_groups((int)$limit, (int)$offset, false, false);
 }
 if (empty($groups)) {
-    echo $OUTPUT->header();
-    echo local_question_diagnostic_render_version_badge();
-    echo $OUTPUT->heading(get_string('question_merge_batch_heading', 'local_question_diagnostic'));
     echo $OUTPUT->notification(get_string('question_merge_batch_no_groups', 'local_question_diagnostic'), \core\output\notification::NOTIFY_INFO);
     echo html_writer::div(html_writer::link($returnurl, get_string('cancel', 'core'), ['class' => 'btn btn-secondary']), 'mt-3');
     echo $OUTPUT->footer();
@@ -143,10 +211,6 @@ foreach ($groups as $g) {
     }
 }
 
-echo $OUTPUT->header();
-echo local_question_diagnostic_render_version_badge();
-echo $OUTPUT->heading(get_string('question_merge_batch_heading', 'local_question_diagnostic'));
-
 // Résumé.
 echo html_writer::start_div('alert alert-info');
 echo html_writer::tag('h4', get_string('question_merge_batch_summary_title', 'local_question_diagnostic'));
@@ -159,7 +223,11 @@ echo html_writer::tag('p', get_string('question_merge_batch_summary', 'local_que
     'offset' => (int)$offset,
 ]));
 if ((int)$processall === 1) {
-    echo html_writer::tag('p', 'Mode : traitement de tout le site par lots (seek). Dernier representative_id traité : ' . (int)$afterrepid . '.', [
+    echo html_writer::tag('p', 'Portée : tout le site (fusion de tout ce qui est fusionnable). Dernier representative_id traité (seek) : ' . (int)$afterrepid . '.', [
+        'style' => 'margin-bottom:0;',
+    ]);
+} else {
+    echo html_writer::tag('p', 'Portée : fenêtre (limit/offset).', [
         'style' => 'margin-bottom:0;',
     ]);
 }
@@ -221,11 +289,16 @@ if (!$confirm) {
         'discovery' => $discovery,
         'limit' => $limit,
         'offset' => $offset,
+        'processall' => $processall,
+        'afterrepid' => $afterrepid,
         'stoponerror' => $stoponerror,
         'sesskey' => sesskey(),
         'returnurl' => $returnurl->out(false),
     ]);
-    echo html_writer::link($confirmurl, get_string('question_merge_batch_confirm_button', 'local_question_diagnostic'), ['class' => 'btn btn-danger']);
+    $confirmtext = (int)$processall === 1
+        ? 'Fusionner tout le site (tout ce qui est fusionnable)'
+        : get_string('question_merge_batch_confirm_button', 'local_question_diagnostic');
+    echo html_writer::link($confirmurl, $confirmtext, ['class' => 'btn btn-danger']);
     echo html_writer::link($returnurl, get_string('cancel', 'core'), ['class' => 'btn btn-secondary']);
     echo html_writer::end_div();
 
