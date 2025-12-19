@@ -61,6 +61,116 @@ class question_analyzer {
     }
 
     /**
+     * Moodle 4.5+ : savoir si question_versions.status existe.
+     *
+     * @return bool
+     */
+    private static function question_versions_has_status(): bool {
+        static $has = null;
+        if ($has !== null) {
+            return (bool)$has;
+        }
+        global $DB;
+        try {
+            $cols = $DB->get_columns('question_versions');
+            $has = is_array($cols) && isset($cols['status']);
+        } catch (\Throwable $e) {
+            $has = false;
+        }
+        return (bool)$has;
+    }
+
+    /**
+     * Récupère l'entryid (question_bank_entries.id) d'une questionid.
+     *
+     * @param int $questionid
+     * @return int entryid (0 si inconnu)
+     */
+    private static function get_entryid_for_questionid(int $questionid): int {
+        global $DB;
+        $questionid = (int)$questionid;
+        if ($questionid <= 0) {
+            return 0;
+        }
+        try {
+            $entryid = (int)$DB->get_field('question_versions', 'questionbankentryid', ['questionid' => $questionid], IGNORE_MISSING);
+            return $entryid > 0 ? $entryid : 0;
+        } catch (\Throwable $e) {
+            return 0;
+        }
+    }
+
+    /**
+     * Récupère la question représentative (dernière version non-draft si possible) d'une entry.
+     * Permet d'exclure les doublons de versions partout dans le plugin.
+     *
+     * @param int $questionid
+     * @return int questionid représentative (fallback = questionid)
+     */
+    private static function get_representative_questionid_for_questionid(int $questionid): int {
+        global $DB;
+
+        $questionid = (int)$questionid;
+        if ($questionid <= 0) {
+            return 0;
+        }
+
+        $entryid = self::get_entryid_for_questionid($questionid);
+        if ($entryid <= 0) {
+            return $questionid;
+        }
+
+        $where = 'questionbankentryid = :entryid';
+        $params = ['entryid' => (int)$entryid];
+        if (self::question_versions_has_status()) {
+            $where .= " AND status <> 'draft'";
+        }
+
+        try {
+            $repqid = (int)$DB->get_field_select('question_versions', 'questionid', $where . ' ORDER BY version DESC', $params, IGNORE_MISSING);
+            return $repqid > 0 ? $repqid : $questionid;
+        } catch (\Throwable $e) {
+            return $questionid;
+        }
+    }
+
+    /**
+     * Récupère la liste des questions représentatives (1 par entry).
+     *
+     * @param int $limit
+     * @return array<int,object> questionid => question record
+     */
+    private static function get_representative_questions(int $limit = 0): array {
+        global $DB;
+
+        $statusfilter = '';
+        if (self::question_versions_has_status()) {
+            $statusfilter = " AND v.status <> 'draft' ";
+        }
+
+        $sql = "SELECT q.id, q.name, q.qtype, q.questiontext, q.questiontextformat
+                  FROM {question_versions} qv
+                  INNER JOIN (
+                        SELECT v.questionbankentryid, MAX(v.version) AS maxversion
+                          FROM {question_versions} v
+                         WHERE v.questionbankentryid IS NOT NULL {$statusfilter}
+                      GROUP BY v.questionbankentryid
+                  ) mv ON mv.questionbankentryid = qv.questionbankentryid AND mv.maxversion = qv.version
+                  INNER JOIN {question} q ON q.id = qv.questionid
+              ORDER BY qv.questionbankentryid ASC, q.id ASC";
+
+        try {
+            if ($limit > 0) {
+                return $DB->get_records_sql($sql, [], 0, (int)$limit);
+            }
+            return $DB->get_records_sql($sql);
+        } catch (\Throwable $e) {
+            debugging('Error in get_representative_questions: ' . $e->getMessage(), DEBUG_DEVELOPER);
+            return [];
+        }
+    }
+
+    /**
      * Signature interne d'un groupe de doublons "certains" (debug et regroupement en mémoire).
      *
      * On n'inclut PAS le titre : l'objectif est d'éviter les faux positifs "même titre, contenu différent".
@@ -94,38 +204,74 @@ class question_analyzer {
             return [];
         }
 
+        // IMPORTANT Moodle 4.5+ :
+        // - question.id peut être une VERSION.
+        // - On ne doit jamais considérer 2 versions d'une même entry comme des "doublons".
+        //
+        // Donc on travaille uniquement sur 1 question représentative par entry (dernière version).
+        $repqid = self::get_representative_questionid_for_questionid((int)$question->id);
+        $rep = $DB->get_record('question', ['id' => (int)$repqid], 'id,name,qtype,questiontext,questiontextformat', IGNORE_MISSING);
+        if (!$rep) {
+            return [];
+        }
+
+        $statusfilter = '';
+        if (self::question_versions_has_status()) {
+            $statusfilter = " AND v.status <> 'draft' ";
+        }
+
         // Définition "doublons certains" : qtype + questiontextformat + questiontext strictement identiques.
         if (self::can_use_certain_duplicates_definition()) {
+            $qtext = $DB->sql_compare_text('q.questiontext');
             $sql = "SELECT q.id
-                      FROM {question} q
+                      FROM {question_versions} qv
+                      INNER JOIN (
+                            SELECT v.questionbankentryid, MAX(v.version) AS maxversion
+                              FROM {question_versions} v
+                             WHERE v.questionbankentryid IS NOT NULL {$statusfilter}
+                          GROUP BY v.questionbankentryid
+                      ) mv ON mv.questionbankentryid = qv.questionbankentryid AND mv.maxversion = qv.version
+                      INNER JOIN {question} q ON q.id = qv.questionid
                      WHERE q.qtype = :qtype
                        AND q.questiontextformat = :fmt
-                       AND " . $DB->sql_compare_text('q.questiontext') . ' = ' . $DB->sql_compare_text(':qtext') . "
+                       AND {$qtext} = " . $DB->sql_compare_text(':qtext') . "
                   ORDER BY q.id ASC";
 
             try {
                 $ids = $DB->get_fieldset_sql($sql, [
-                    'qtype' => (string)($question->qtype ?? ''),
-                    'fmt' => (int)($question->questiontextformat ?? 0),
-                    'qtext' => (string)($question->questiontext ?? ''),
+                    'qtype' => (string)($rep->qtype ?? ''),
+                    'fmt' => (int)($rep->questiontextformat ?? 0),
+                    'qtext' => (string)($rep->questiontext ?? ''),
                 ]);
-                return array_values(array_unique(array_map('intval', $ids)));
-            } catch (\Exception $e) {
-                debugging('Error in get_duplicate_group_question_ids_for_question (certain): ' . $e->getMessage(), DEBUG_DEVELOPER);
+                $ids = array_values(array_unique(array_map('intval', $ids)));
+                return count($ids) >= 2 ? $ids : [];
+            } catch (\Throwable $e) {
+                debugging('Error in get_duplicate_group_question_ids_for_question (certain/entry): ' . $e->getMessage(), DEBUG_DEVELOPER);
                 // Fallback ci-dessous.
             }
         }
 
-        // Fallback : name + qtype (ancien comportement).
+        // Fallback entry-centric : name + qtype.
         try {
-            $ids = $DB->get_fieldset_select('question', 'id',
-                'name = :name AND qtype = :qtype',
-                ['name' => (string)($question->name ?? ''), 'qtype' => (string)($question->qtype ?? '')],
-                'id ASC'
-            );
-            return array_values(array_unique(array_map('intval', $ids)));
-        } catch (\Exception $e) {
-            debugging('Error in get_duplicate_group_question_ids_for_question (fallback): ' . $e->getMessage(), DEBUG_DEVELOPER);
+            $sql = "SELECT q.id
+                      FROM {question_versions} qv
+                      INNER JOIN (
+                            SELECT v.questionbankentryid, MAX(v.version) AS maxversion
+                              FROM {question_versions} v
+                             WHERE v.questionbankentryid IS NOT NULL {$statusfilter}
+                          GROUP BY v.questionbankentryid
+                      ) mv ON mv.questionbankentryid = qv.questionbankentryid AND mv.maxversion = qv.version
+                      INNER JOIN {question} q ON q.id = qv.questionid
+                     WHERE q.name = :name AND q.qtype = :qtype
+                  ORDER BY q.id ASC";
+            $ids = $DB->get_fieldset_sql($sql, [
+                'name' => (string)($rep->name ?? ''),
+                'qtype' => (string)($rep->qtype ?? ''),
+            ]);
+            $ids = array_values(array_unique(array_map('intval', $ids)));
+            return count($ids) >= 2 ? $ids : [];
+        } catch (\Throwable $e) {
+            debugging('Error in get_duplicate_group_question_ids_for_question (fallback/entry): ' . $e->getMessage(), DEBUG_DEVELOPER);
             return [];
         }
     }
@@ -325,10 +471,22 @@ class question_analyzer {
             // Doublons (optionnel)
             if ($include_duplicates) {
                 // Utiliser le cache si disponible
-                if ($duplicates_map !== null && isset($duplicates_map[$question->id])) {
-                    $stats->duplicate_count = count($duplicates_map[$question->id]);
-                    $stats->duplicate_ids = $duplicates_map[$question->id];
-                    $stats->is_duplicate = $stats->duplicate_count > 0;
+                if ($duplicates_map !== null) {
+                    $dupkey = (int)$question->id;
+                    if (!isset($duplicates_map[$dupkey])) {
+                        // Entry-centric : si map calculée sur les représentantes, fallback sur la représentante de l'entry.
+                        $dupkey = (int)self::get_representative_questionid_for_questionid((int)$question->id);
+                    }
+                    if (isset($duplicates_map[$dupkey])) {
+                        $stats->duplicate_count = count($duplicates_map[$dupkey]);
+                        $stats->duplicate_ids = $duplicates_map[$dupkey];
+                        $stats->is_duplicate = $stats->duplicate_count > 0;
+                    } else {
+                        $duplicates = self::find_question_duplicates($question);
+                        $stats->duplicate_count = count($duplicates);
+                        $stats->duplicate_ids = array_map(function($q) { return $q->id; }, $duplicates);
+                        $stats->is_duplicate = $stats->duplicate_count > 0;
+                    }
                 } else {
                     $duplicates = self::find_question_duplicates($question);
                     $stats->duplicate_count = count($duplicates);
@@ -621,45 +779,38 @@ class question_analyzer {
         }
 
         try {
-            // Créer un index des questions par signature "doublons certains" (ou fallback) pour recherche rapide.
-            $questions_by_sig = [];
-            foreach ($questions as $question) {
-                $key = self::can_use_certain_duplicates_definition()
-                    ? self::build_certain_duplicate_signature($question)
-                    : (strtolower(trim((string)$question->name)) . '|' . (string)$question->qtype);
-
-                if (!isset($questions_by_sig[$key])) {
-                    $questions_by_sig[$key] = [];
-                }
-                $questions_by_sig[$key][] = $question;
-            }
-
-            // Pour chaque groupe, chercher les doublons dans la base complète.
-            foreach ($questions_by_sig as $local_questions) {
-                if (empty($local_questions)) {
+            // Entry-centric : regrouper les questions locales par entry (représentante),
+            // puis appliquer les doublons au niveau des entries (1 questionid représentative par entry).
+            $local_by_rep = [];
+            foreach ($questions as $q) {
+                $qid = (int)($q->id ?? 0);
+                if ($qid <= 0) {
                     continue;
                 }
+                $repqid = self::get_representative_questionid_for_questionid($qid);
+                if (!isset($local_by_rep[$repqid])) {
+                    $local_by_rep[$repqid] = [];
+                }
+                $local_by_rep[$repqid][] = $qid;
+            }
 
-                $rep = $local_questions[0];
-                $group_ids = self::get_duplicate_group_question_ids_for_question($rep);
-                if (count($group_ids) <= 1) {
+            foreach ($local_by_rep as $repqid => $localqids) {
+                $rep = $DB->get_record('question', ['id' => (int)$repqid], 'id,name,qtype,questiontext,questiontextformat', IGNORE_MISSING);
+                if (!$rep) {
                     continue;
                 }
-
-                foreach ($local_questions as $local_question) {
-                    $qid = (int)$local_question->id;
-                    if ($qid <= 0) {
-                        continue;
-                    }
-                    $others = array_values(array_filter($group_ids, function($id) use ($qid) {
-                        return (int)$id !== (int)$qid;
-                    }));
-                    if (!empty($others)) {
-                        $duplicates_map[$qid] = $others;
-                    }
+                $group_ids = self::get_duplicate_group_question_ids_for_question($rep); // représentantes (1/entry)
+                $others = array_values(array_filter(array_map('intval', $group_ids), function(int $id) use ($repqid): bool {
+                    return $id > 0 && $id !== (int)$repqid;
+                }));
+                if (empty($others)) {
+                    continue;
+                }
+                foreach ($localqids as $qid) {
+                    $duplicates_map[(int)$qid] = $others;
                 }
             }
-            
+
         } catch (\Exception $e) {
             debugging('Error in get_duplicates_for_questions: ' . $e->getMessage(), DEBUG_DEVELOPER);
         }
@@ -940,6 +1091,14 @@ class question_analyzer {
      * @return bool True si doublons, false sinon
      */
     public static function are_duplicates($q1, $q2) {
+        // Même entry (donc versions d'une même question) = jamais un doublon.
+        if (isset($q1->id) && isset($q2->id)) {
+            $e1 = self::get_entryid_for_questionid((int)$q1->id);
+            $e2 = self::get_entryid_for_questionid((int)$q2->id);
+            if ($e1 > 0 && $e2 > 0 && $e1 === $e2) {
+                return false;
+            }
+        }
         // Même ID = même question, pas un doublon.
         if (isset($q1->id) && isset($q2->id) && (int)$q1->id === (int)$q2->id) {
             return false;
@@ -984,39 +1143,26 @@ class question_analyzer {
         
         try {
             $questionid = (int)($question->id ?? 0);
-
-            // Définition "doublons certains" : qtype + questiontextformat + questiontext strictement identiques.
-            if (self::can_use_certain_duplicates_definition()) {
-                $sql = "SELECT q.*
-                          FROM {question} q
-                         WHERE q.qtype = :qtype
-                           AND q.questiontextformat = :fmt
-                           AND " . $DB->sql_compare_text('q.questiontext') . ' = ' . $DB->sql_compare_text(':qtext') . "
-                           AND q.id != :questionid
-                      ORDER BY q.id ASC";
-
-                $duplicates = $DB->get_records_sql($sql, [
-                    'qtype' => (string)($question->qtype ?? ''),
-                    'fmt' => (int)($question->questiontextformat ?? 0),
-                    'qtext' => (string)($question->questiontext ?? ''),
-                    'questionid' => $questionid,
-                ]);
-            } else {
-                // Fallback : name + qtype (ancien comportement).
-                $sql = "SELECT q.*
-                          FROM {question} q
-                         WHERE q.name = :name
-                           AND q.qtype = :qtype
-                           AND q.id != :questionid
-                      ORDER BY q.id ASC";
-
-                $duplicates = $DB->get_records_sql($sql, [
-                    'name' => (string)($question->name ?? ''),
-                    'qtype' => (string)($question->qtype ?? ''),
-                    'questionid' => $questionid,
-                ]);
+            if ($questionid <= 0) {
+                return [];
             }
-            
+
+            // Entry-centric : on part de la représentante de l'entry, puis on récupère les autres entries.
+            $repqid = self::get_representative_questionid_for_questionid($questionid);
+            $rep = $DB->get_record('question', ['id' => (int)$repqid], 'id,name,qtype,questiontext,questiontextformat', IGNORE_MISSING);
+            if (!$rep) {
+                return [];
+            }
+
+            $group_ids = self::get_duplicate_group_question_ids_for_question($rep); // représentantes (1/entry)
+            $otherids = array_values(array_filter(array_map('intval', $group_ids), function(int $id) use ($repqid): bool {
+                return $id > 0 && $id !== (int)$repqid;
+            }));
+            if (empty($otherids)) {
+                return [];
+            }
+
+            $duplicates = $DB->get_records_list('question', 'id', $otherids);
             return array_values($duplicates);
             
         } catch (\Exception $e) {
@@ -1076,71 +1222,41 @@ class question_analyzer {
         $duplicates_map = [];
 
         try {
-            // Optimisation: utiliser une signature en mémoire pour grouper les candidats potentiels.
-            // Objectif : ne PAS se baser uniquement sur le titre (name), mais sur le contenu quand possible.
-            if (self::can_use_certain_duplicates_definition()) {
-                $sql = "SELECT id, name, qtype, questiontext, questiontextformat
-                          FROM {question}
-                      ORDER BY qtype, questiontextformat, id ASC";
-            } else {
-                // Fallback historique.
-                $sql = "SELECT id, name, qtype, questiontext
-                          FROM {question}
-                      ORDER BY name, id ASC";
+            // IMPORTANT : ne pas traiter toutes les versions (question.id) → uniquement 1 question représentative par entry.
+            $questions = self::get_representative_questions($limit > 0 ? (int)$limit : 0);
+            if (empty($questions)) {
+                return [];
             }
-            
-            if ($limit > 0) {
-                $sql .= " LIMIT " . intval($limit);
-            }
-            
-            $questions = $DB->get_records_sql($sql);
-            
+
             if (count($questions) > 5000) {
-                // Pour les grandes bases, on ne traite que les noms exacts
+                // Pour les grandes bases, on applique une version rapide basée sur signatures.
                 return self::get_duplicates_map_fast($questions, $use_cache);
             }
-            
-            $processed = [];
-            $count = 0;
-            // Timeout configurable : 60s par défaut, peut être augmenté via config.php
-            $max_time = get_config('local_question_diagnostic', 'duplicate_detection_timeout');
-            if (!$max_time || $max_time < 10) {
-                $max_time = 60; // 60 secondes par défaut (augmenté de 30s)
-            }
-            $start_time = time();
 
+            // Grouper par signature sur les représentantes → exclut les "doublons de versions".
+            $signature_groups = [];
             foreach ($questions as $question) {
-                // Vérifier le timeout
-                if (time() - $start_time > $max_time) {
-                    debugging('Duplicate detection timeout - processed ' . $count . ' questions', DEBUG_DEVELOPER);
-                    break;
+                $key = self::can_use_certain_duplicates_definition()
+                    ? self::build_certain_duplicate_signature($question)
+                    : (strtolower(trim((string)$question->name)) . '|' . (string)$question->qtype);
+                if (!isset($signature_groups[$key])) {
+                    $signature_groups[$key] = [];
                 }
-                
-                if (in_array($question->id, $processed)) {
+                $signature_groups[$key][] = (int)$question->id;
+            }
+
+            foreach ($signature_groups as $group) {
+                if (count($group) <= 1) {
                     continue;
                 }
-
-                $duplicates = self::find_question_duplicates($question, 0.85);
-                
-                if (!empty($duplicates)) {
-                    $duplicate_ids = array_map(function($q) { return $q->id; }, $duplicates);
-                    $duplicates_map[$question->id] = $duplicate_ids;
-                    
-                    // Marquer les doublons comme traités pour éviter les calculs redondants
-                    foreach ($duplicate_ids as $dup_id) {
-                        if (!isset($duplicates_map[$dup_id])) {
-                            $duplicates_map[$dup_id] = array_merge([$question->id], 
-                                array_filter($duplicate_ids, function($id) use ($dup_id) { 
-                                    return $id != $dup_id; 
-                                })
-                            );
-                        }
-                        $processed[] = $dup_id;
+                foreach ($group as $qid) {
+                    $others = array_values(array_filter($group, function($id) use ($qid) {
+                        return (int)$id !== (int)$qid;
+                    }));
+                    if (!empty($others)) {
+                        $duplicates_map[(int)$qid] = $others;
                     }
                 }
-                
-                $processed[] = $question->id;
-                $count++;
             }
 
             // Mettre en cache pour 1 heure
@@ -2046,19 +2162,39 @@ class question_analyzer {
         // Étape 1 : Récupérer tous les groupes avec doublons.
         // Définition "doublons certains" (si possible) : même qtype + questiontextformat + questiontext (compare_text) strictement identiques.
         // Fallback historique : même name + qtype.
+        // IMPORTANT Moodle 4.5+ : exclure les "doublons de versions".
+        // On ne considère qu'1 question représentative (dernière version) par entry (questionbankentryid).
+        $statusfilter = '';
+        if (self::question_versions_has_status()) {
+            $statusfilter = " AND v.status <> 'draft' ";
+        }
         if (self::can_use_certain_duplicates_definition()) {
             $qtext = $DB->sql_compare_text('q.questiontext');
             $sql = "SELECT q.qtype, q.questiontextformat, COUNT(*) as dup_count, MIN(q.id) as representative_id
-                    FROM {question} q
-                    GROUP BY q.qtype, q.questiontextformat, {$qtext}
+                      FROM {question_versions} qv
+                      INNER JOIN (
+                            SELECT v.questionbankentryid, MAX(v.version) AS maxversion
+                              FROM {question_versions} v
+                             WHERE v.questionbankentryid IS NOT NULL {$statusfilter}
+                          GROUP BY v.questionbankentryid
+                      ) mv ON mv.questionbankentryid = qv.questionbankentryid AND mv.maxversion = qv.version
+                      INNER JOIN {question} q ON q.id = qv.questionid
+                  GROUP BY q.qtype, q.questiontextformat, {$qtext}
                     HAVING COUNT(*) > 1
-                    ORDER BY dup_count DESC";
+                  ORDER BY dup_count DESC";
         } else {
             $sql = "SELECT q.name, q.qtype, COUNT(*) as dup_count, MIN(q.id) as representative_id
-                    FROM {question} q
-                    GROUP BY q.name, q.qtype
+                      FROM {question_versions} qv
+                      INNER JOIN (
+                            SELECT v.questionbankentryid, MAX(v.version) AS maxversion
+                              FROM {question_versions} v
+                             WHERE v.questionbankentryid IS NOT NULL {$statusfilter}
+                          GROUP BY v.questionbankentryid
+                      ) mv ON mv.questionbankentryid = qv.questionbankentryid AND mv.maxversion = qv.version
+                      INNER JOIN {question} q ON q.id = qv.questionid
+                  GROUP BY q.name, q.qtype
                     HAVING COUNT(*) > 1
-                    ORDER BY dup_count DESC";
+                  ORDER BY dup_count DESC";
         }
         
         // get_recordset_sql() ne nécessite pas de 1ère colonne unique (contrairement à get_records_sql()).
@@ -2195,16 +2331,34 @@ class question_analyzer {
         global $DB;
         
         // 🎯 Compter le nombre total de groupes (même définition que get_duplicate_groups()).
+        $statusfilter = '';
+        if (self::question_versions_has_status()) {
+            $statusfilter = " AND v.status <> 'draft' ";
+        }
         if (self::can_use_certain_duplicates_definition()) {
             $qtext = $DB->sql_compare_text('q.questiontext');
             $sql = "SELECT q.qtype, q.questiontextformat, COUNT(*) as dup_count, MIN(q.id) as representative_id
-                    FROM {question} q
-                    GROUP BY q.qtype, q.questiontextformat, {$qtext}
+                      FROM {question_versions} qv
+                      INNER JOIN (
+                            SELECT v.questionbankentryid, MAX(v.version) AS maxversion
+                              FROM {question_versions} v
+                             WHERE v.questionbankentryid IS NOT NULL {$statusfilter}
+                          GROUP BY v.questionbankentryid
+                      ) mv ON mv.questionbankentryid = qv.questionbankentryid AND mv.maxversion = qv.version
+                      INNER JOIN {question} q ON q.id = qv.questionid
+                  GROUP BY q.qtype, q.questiontextformat, {$qtext}
                     HAVING COUNT(*) > 1";
         } else {
             $sql = "SELECT q.name, q.qtype, COUNT(*) as dup_count, MIN(q.id) as representative_id
-                    FROM {question} q
-                    GROUP BY q.name, q.qtype
+                      FROM {question_versions} qv
+                      INNER JOIN (
+                            SELECT v.questionbankentryid, MAX(v.version) AS maxversion
+                              FROM {question_versions} v
+                             WHERE v.questionbankentryid IS NOT NULL {$statusfilter}
+                          GROUP BY v.questionbankentryid
+                      ) mv ON mv.questionbankentryid = qv.questionbankentryid AND mv.maxversion = qv.version
+                      INNER JOIN {question} q ON q.id = qv.questionid
+                  GROUP BY q.name, q.qtype
                     HAVING COUNT(*) > 1";
         }
         

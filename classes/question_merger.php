@@ -118,9 +118,8 @@ class question_merger {
 
         $entryids = array_keys($qidsbyentry);
         if (count($entryids) < 2) {
-            $entryid = !empty($entryids) ? (int)$entryids[0] : 0;
-            $plan->errors[] = 'Ce groupe correspond à plusieurs versions d’une même question (questionbankentryid=' . $entryid . '). '
-                . 'La fusion de doublons s’applique uniquement entre entrées différentes (question_bank_entries).';
+            // Ce cas est normalement exclu en amont (question_analyzer ne liste plus les doublons de versions).
+            $plan->errors[] = 'Ce groupe ne contient pas (ou plus) de doublons stricts.';
             return $plan;
         }
 
