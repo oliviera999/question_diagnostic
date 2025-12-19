@@ -673,6 +673,9 @@ $string['question_merge_column_quiz_count'] = 'Quiz';
 $string['question_merge_impacts_title'] = 'Impacts (références à mettre à jour)';
 $string['question_merge_impacts_count'] = 'Références trouvées';
 $string['question_merge_confirm_button'] = 'Confirmer la fusion';
+$string['question_merge_open_in_context'] = 'Ouvrir';
+$string['question_merge_open_in_context_help'] = 'Ouvrir la question dans la banque de questions (bon contexte)';
+$string['question_merge_open_category_in_context_help'] = 'Ouvrir la catégorie dans la banque de questions (bon contexte)';
 
 // Carte dashboard
 $string['question_merge_tool_title'] = 'Fusion de questions';

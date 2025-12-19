@@ -673,6 +673,9 @@ $string['question_merge_column_quiz_count'] = 'Quizzes';
 $string['question_merge_impacts_title'] = 'Impacts (references to update)';
 $string['question_merge_impacts_count'] = 'References found';
 $string['question_merge_confirm_button'] = 'Confirm merge';
+$string['question_merge_open_in_context'] = 'Open';
+$string['question_merge_open_in_context_help'] = 'Open the question in the question bank (correct context)';
+$string['question_merge_open_category_in_context_help'] = 'Open the category in the question bank (correct context)';
 
 // Dashboard card
 $string['question_merge_tool_title'] = 'Question merge';

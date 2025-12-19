@@ -110,6 +110,7 @@ if (!$confirm) {
     $table = new html_table();
     $table->head = [
         'ID',
+        get_string('question_merge_open_in_context', 'local_question_diagnostic'),
         get_string('name'),
         get_string('type', 'local_question_diagnostic'),
         get_string('column_attempts', 'local_question_diagnostic'),
@@ -130,18 +131,54 @@ if (!$confirm) {
             $classes[] = 'table-warning';
         }
         $catname = '';
+        $catid = 0;
         $ctxid = 0;
+        $openlink = '-';
         if (!empty($info->context)) {
             $catname = (string)($info->context->categoryname ?? '');
+            $catid = (int)($info->context->categoryid ?? 0);
             $ctxid = (int)($info->context->contextid ?? 0);
+        }
+
+        // Lien "ouvrir la question" dans son contexte (banque de questions).
+        if ($catid > 0 && $ctxid > 0) {
+            $cat = (object)[
+                'id' => $catid,
+                'contextid' => $ctxid,
+            ];
+            $viewurl = local_question_diagnostic_get_question_bank_url($cat, $qid);
+            if ($viewurl) {
+                $openlink = html_writer::link($viewurl, '👁️', [
+                    'class' => 'btn btn-sm btn-primary',
+                    'target' => '_blank',
+                    'title' => get_string('question_merge_open_in_context_help', 'local_question_diagnostic'),
+                ]);
+            }
+        }
+
+        // Catégorie cliquable (même logique helper).
+        $categorydisplay = format_string($catname);
+        if ($catid > 0 && $ctxid > 0) {
+            $cat = (object)[
+                'id' => $catid,
+                'contextid' => $ctxid,
+            ];
+            $caturl = local_question_diagnostic_get_question_bank_url($cat, null);
+            if ($caturl) {
+                $categorydisplay = html_writer::link($caturl, $categorydisplay, [
+                    'target' => '_blank',
+                    'title' => get_string('question_merge_open_category_in_context_help', 'local_question_diagnostic'),
+                ]);
+            }
         }
         $row = new html_table_row([
             $qid,
+            $openlink,
             format_string((string)($info->name ?? '')),
             s((string)($info->qtype ?? '')),
             (int)($info->attempt_count ?? 0),
             (int)($info->quiz_count ?? 0),
-            format_string($catname),
+            $categorydisplay,
             $ctxid,
         ]);
         if (!empty($classes)) {
