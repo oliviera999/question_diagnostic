@@ -9,8 +9,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'local_question_diagnostic';
-$plugin->version = 2025121600;  // YYYYMMDDXX format (v1.11.48 - AI triage: diagnostics + explicit fallback)
+$plugin->version = 2025121900;  // YYYYMMDDXX format (v1.12.1 - Question merge: strict duplicates)
 $plugin->requires = 2022041900; // Moodle 4.0+ (architecture question_bank_entries requise)
 $plugin->maturity = MATURITY_STABLE;
-$plugin->release = 'v1.11.48';
+$plugin->release = 'v1.12.1';
 

@@ -36,6 +36,9 @@ class audit_logger {
     
     /** @var string Événement : suppression question */
     const EVENT_QUESTION_DELETED = 'question_deleted';
+
+    /** @var string Événement : fusion questions */
+    const EVENT_QUESTIONS_MERGED = 'questions_merged';
     
     /** @var string Événement : export CSV */
     const EVENT_DATA_EXPORTED = 'data_exported';
@@ -160,6 +163,23 @@ class audit_logger {
             'question_type' => $questiontype,
             'action_type' => 'delete'
         ], $questionid);
+    }
+
+    /**
+     * Log une fusion de questions.
+     *
+     * @param int $referenceid Question référence conservée
+     * @param int[] $mergedids Questions fusionnées (supprimées)
+     * @param array $details Détails additionnels (updates, options, etc.)
+     * @return bool
+     */
+    public static function log_questions_merge(int $referenceid, array $mergedids, array $details = []) {
+        $payload = array_merge([
+            'reference_questionid' => (int)$referenceid,
+            'merged_questionids' => array_values(array_map('intval', (array)$mergedids)),
+            'action_type' => 'merge',
+        ], $details);
+        return self::log_action(self::EVENT_QUESTIONS_MERGED, $payload, (int)$referenceid);
     }
 
     /**

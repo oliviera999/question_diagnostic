@@ -602,6 +602,34 @@ $string['move_all_warning'] = 'Cette action va déplacer TOUTES les questions en
 $string['no_movable_questions'] = 'Aucune question déplaçable trouvée';
 $string['move_batch_result'] = '{$a->success} question(s) déplacée(s) avec succès, {$a->failed} erreur(s)';
 
+// Fusion de questions (doublons stricts) (v1.12.x)
+$string['question_merge_title'] = 'Fusion de questions (doublons stricts)';
+$string['question_merge_heading'] = 'Fusion de questions — doublons strictement identiques';
+$string['question_merge_intro'] = 'Cette page liste les groupes de doublons “certains” (mêmes qtype + questiontextformat + questiontext). Pour chaque groupe, vous pouvez générer une prévisualisation (dry-run), puis exécuter la fusion : la question avec le plus de tentatives devient la référence, et les doublons sans tentatives peuvent être fusionnés.';
+$string['question_merge_includequiz'] = 'Inclure les doublons utilisés dans des quiz (sans tentatives) — plus risqué';
+$string['question_merge_discovery'] = 'Découverte contrôlée des tables à remapper (recommandé)';
+$string['question_merge_no_groups'] = 'Aucun groupe de doublons stricts trouvé.';
+$string['question_merge_groups_title'] = 'Groupes de doublons stricts';
+$string['question_merge_group_size'] = 'Taille';
+$string['question_merge_used_count'] = 'Versions utilisées';
+$string['question_merge_unused_count'] = 'Versions inutilisées';
+$string['question_merge_preview_button'] = 'Prévisualiser / Fusionner';
+$string['question_merge_preview_heading'] = 'Prévisualisation — Fusion de doublons';
+$string['question_merge_summary_title'] = 'Résumé';
+$string['question_merge_summary'] = 'Groupe : <strong>{$a->groupname}</strong> ({$a->qtype}) — {$a->count} question(s). Référence : <strong>ID {$a->referenceid}</strong>. Doublons fusionnables : <strong>{$a->mergecount}</strong>.';
+$string['question_merge_questions_list'] = 'Questions du groupe';
+$string['question_merge_column_quiz_count'] = 'Quiz';
+$string['question_merge_impacts_title'] = 'Impacts (références à mettre à jour)';
+$string['question_merge_impacts_count'] = 'Références trouvées';
+$string['question_merge_confirm_button'] = 'Confirmer la fusion';
+
+// Carte dashboard
+$string['question_merge_tool_title'] = 'Fusion de questions';
+$string['question_merge_tool_desc'] = 'Fusionne les doublons strictement identiques en conservant comme référence la question ayant des tentatives. Les doublons sans tentatives peuvent être remappés puis supprimés proprement via l’API Moodle.';
+$string['question_merge_tool_open'] = 'Ouvrir la fusion';
+$string['question_merge_tool_stat_groups'] = 'groupe(s) de doublons';
+$string['question_merge_tool_stat_duplicates'] = 'doublon(s) totaux';
+
 // Olution triage (commun > Question à trier).
 $string['olution_triage_title'] = 'Triage des questions (commun → sous-catégories)';
 $string['olution_triage_heading'] = 'Trier les questions de \"Question à trier\"';

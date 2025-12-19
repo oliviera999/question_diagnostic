@@ -602,6 +602,34 @@ $string['move_all_warning'] = 'This action will move ALL detected duplicate ques
 $string['no_movable_questions'] = 'No movable questions found';
 $string['move_batch_result'] = '{$a->success} question(s) successfully moved, {$a->failed} error(s)';
 
+// Question merge (strict duplicates) (v1.12.x)
+$string['question_merge_title'] = 'Question merge (strict duplicates)';
+$string['question_merge_heading'] = 'Question merge — strictly identical duplicates';
+$string['question_merge_intro'] = 'This page lists “certain duplicates” groups (same qtype + questiontextformat + questiontext). For each group, you can generate a preview (dry-run), then execute the merge: the question with the most attempts becomes the reference, and duplicates without attempts can be merged.';
+$string['question_merge_includequiz'] = 'Include duplicates used in quizzes (no attempts) — riskier';
+$string['question_merge_discovery'] = 'Controlled discovery of tables to remap (recommended)';
+$string['question_merge_no_groups'] = 'No strict duplicate groups found.';
+$string['question_merge_groups_title'] = 'Strict duplicate groups';
+$string['question_merge_group_size'] = 'Size';
+$string['question_merge_used_count'] = 'Used versions';
+$string['question_merge_unused_count'] = 'Unused versions';
+$string['question_merge_preview_button'] = 'Preview / Merge';
+$string['question_merge_preview_heading'] = 'Preview — Duplicate merge';
+$string['question_merge_summary_title'] = 'Summary';
+$string['question_merge_summary'] = 'Group: <strong>{$a->groupname}</strong> ({$a->qtype}) — {$a->count} question(s). Reference: <strong>ID {$a->referenceid}</strong>. Mergeable duplicates: <strong>{$a->mergecount}</strong>.';
+$string['question_merge_questions_list'] = 'Questions in this group';
+$string['question_merge_column_quiz_count'] = 'Quizzes';
+$string['question_merge_impacts_title'] = 'Impacts (references to update)';
+$string['question_merge_impacts_count'] = 'References found';
+$string['question_merge_confirm_button'] = 'Confirm merge';
+
+// Dashboard card
+$string['question_merge_tool_title'] = 'Question merge';
+$string['question_merge_tool_desc'] = 'Merges strictly identical duplicates while keeping as reference the question that has attempts. Duplicates without attempts can be remapped and then safely deleted via Moodle API.';
+$string['question_merge_tool_open'] = 'Open merge';
+$string['question_merge_tool_stat_groups'] = 'duplicate group(s)';
+$string['question_merge_tool_stat_duplicates'] = 'total duplicates';
+
 // Olution triage (commun > Question à trier).
 $string['olution_triage_title'] = 'Question triage (commun → subcategories)';
 $string['olution_triage_heading'] = 'Triage questions from \"Question à trier\"';

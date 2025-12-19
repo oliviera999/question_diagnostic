@@ -593,7 +593,46 @@ echo html_writer::end_tag('div'); // fin qd-tool-content
 echo html_writer::end_tag('div'); // fin qd-tool-card
 
 // ======================================================================
-// OPTION 8 : Page de test
+// 🆕 v1.12.x : OPTION 8 : Fusion de questions (doublons stricts)
+// ======================================================================
+
+echo html_writer::start_tag('div', ['class' => 'qd-tool-card']);
+
+echo html_writer::start_tag('div', ['class' => 'qd-tool-icon']);
+echo '🧬';
+echo html_writer::end_tag('div');
+
+echo html_writer::start_tag('div', ['class' => 'qd-tool-content']);
+
+echo html_writer::tag('h4', get_string('question_merge_tool_title', 'local_question_diagnostic'), ['class' => 'qd-tool-title']);
+
+echo html_writer::tag('p',
+    get_string('question_merge_tool_desc', 'local_question_diagnostic'),
+    ['class' => 'qd-tool-description']
+);
+
+echo html_writer::start_tag('div', ['class' => 'qd-tool-stats']);
+echo html_writer::tag('span',
+    '🔍 ' . (int)($question_stats->duplicate_questions ?? 0) . ' ' . get_string('question_merge_tool_stat_groups', 'local_question_diagnostic'),
+    ['class' => 'qd-tool-stat-item ' . ((int)($question_stats->duplicate_questions ?? 0) > 0 ? 'qd-stat-warning' : 'qd-stat-success')]
+);
+if (!empty($question_stats->total_duplicates)) {
+    echo html_writer::tag('span',
+        '📊 ' . (int)$question_stats->total_duplicates . ' ' . get_string('question_merge_tool_stat_duplicates', 'local_question_diagnostic'),
+        ['class' => 'qd-tool-stat-item qd-stat-warning']
+    );
+}
+echo html_writer::end_tag('div');
+
+$merge_url = new moodle_url('/local/question_diagnostic/question_merge.php');
+echo html_writer::link($merge_url, get_string('question_merge_tool_open', 'local_question_diagnostic') . ' →', ['class' => 'qd-tool-button']);
+
+echo html_writer::end_tag('div'); // fin qd-tool-content
+
+echo html_writer::end_tag('div'); // fin qd-tool-card
+
+// ======================================================================
+// OPTION 9 : Page de test
 // ======================================================================
 
 echo html_writer::start_tag('div', ['class' => 'qd-tool-card']);

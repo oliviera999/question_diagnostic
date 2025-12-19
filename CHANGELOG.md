@@ -5,6 +5,25 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.12.1] - 2025-12-19
+
+### ✨ Feature : fusion de questions (doublons stricts)
+
+- Ajout d’un module de **fusion** des doublons strictement identiques (mêmes `qtype` + `questiontextformat` + `questiontext`).
+- La **référence** est choisie automatiquement : question avec le plus de **tentatives**.
+- Les doublons **sans tentatives** peuvent être fusionnés : remap des références (quiz / question_references) puis suppression via l’API Moodle.
+- Exécution protégée : **preview/dry-run**, transaction, post-check “références restantes”, purge caches, audit.
+
+Fichiers :
+- `classes/question_merger.php`
+- `actions/merge_questions.php`
+- `question_merge.php`
+- `classes/audit_logger.php`
+- `index.php`
+- `lang/fr/local_question_diagnostic.php`
+- `lang/en/local_question_diagnostic.php`
+- `version.php`
+
 ## [1.11.46] - 2025-12-15
 
 ### ✨ Amélioration : tri automatisé — option IA Moodle 4.5 (OpenAI)
