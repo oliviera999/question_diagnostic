@@ -2317,6 +2317,117 @@ class question_analyzer {
         
         return $groups;
     }
+
+    /**
+     * Récupère les groupes de doublons par lot, avec pagination stable (seek) basée sur representative_id.
+     *
+     * Objectif : permettre de traiter TOUT le site "par lots" sans utiliser offset sur un tri instable
+     * (les groupes peuvent changer pendant une fusion).
+     *
+     * Retourne une liste de groupes, ordonnée par representative_id ASC, dont representative_id > $afterrepid.
+     *
+     * @param int $limit Nombre max de groupes à retourner
+     * @param int $afterrepid Dernier representative_id traité (seek)
+     * @return array Liste de groupes (même format que get_duplicate_groups, sans pagination offset)
+     */
+    public static function get_duplicate_groups_seek(int $limit = 100, int $afterrepid = 0): array {
+        global $DB;
+
+        $limit = max(1, min(1000, (int)$limit));
+        $afterrepid = max(0, (int)$afterrepid);
+
+        $statusfilter = '';
+        if (self::question_versions_has_status()) {
+            $statusfilter = " AND v.status <> 'draft' ";
+        }
+
+        // 1) Sélectionner une fenêtre de groupes avec HAVING MIN(q.id) > :after.
+        if (self::can_use_certain_duplicates_definition()) {
+            $qtext = $DB->sql_compare_text('q.questiontext');
+            $sql = "SELECT q.qtype, q.questiontextformat, COUNT(*) as dup_count, MIN(q.id) as representative_id
+                      FROM {question_versions} qv
+                      INNER JOIN (
+                            SELECT v.questionbankentryid, MAX(v.version) AS maxversion
+                              FROM {question_versions} v
+                             WHERE v.questionbankentryid IS NOT NULL {$statusfilter}
+                          GROUP BY v.questionbankentryid
+                      ) mv ON mv.questionbankentryid = qv.questionbankentryid AND mv.maxversion = qv.version
+                      INNER JOIN {question} q ON q.id = qv.questionid
+                  GROUP BY q.qtype, q.questiontextformat, {$qtext}
+                    HAVING COUNT(*) > 1 AND MIN(q.id) > :after
+                  ORDER BY MIN(q.id) ASC";
+        } else {
+            $sql = "SELECT q.name, q.qtype, COUNT(*) as dup_count, MIN(q.id) as representative_id
+                      FROM {question_versions} qv
+                      INNER JOIN (
+                            SELECT v.questionbankentryid, MAX(v.version) AS maxversion
+                              FROM {question_versions} v
+                             WHERE v.questionbankentryid IS NOT NULL {$statusfilter}
+                          GROUP BY v.questionbankentryid
+                      ) mv ON mv.questionbankentryid = qv.questionbankentryid AND mv.maxversion = qv.version
+                      INNER JOIN {question} q ON q.id = qv.questionid
+                  GROUP BY q.name, q.qtype
+                    HAVING COUNT(*) > 1 AND MIN(q.id) > :after
+                  ORDER BY MIN(q.id) ASC";
+        }
+
+        $groups = array_values($DB->get_records_sql($sql, ['after' => $afterrepid], 0, $limit));
+        if (empty($groups)) {
+            return [];
+        }
+
+        // 2) Enrichir chaque groupe comme get_duplicate_groups() (ids, usage counts, etc.).
+        // Pour éviter une refacto lourde, on réutilise la logique existante :
+        // - on construit un "all_groups" temporaire et on exécute le même pipeline interne.
+        //
+        // NB : cette méthode ne supporte pas used_only / deletable_only car le besoin est le batch merge.
+        $out = [];
+        foreach ($groups as $group) {
+            $question_ids = self::get_duplicate_group_question_ids_by_representative_id((int)$group->representative_id);
+            if (empty($question_ids)) {
+                continue;
+            }
+            $usage_map = self::get_questions_usage_by_ids($question_ids);
+
+            $used_count = 0;
+            $unused_count = 0;
+            foreach ($question_ids as $qid) {
+                $is_used = isset($usage_map[$qid]) && isset($usage_map[$qid]['quiz_count']) && $usage_map[$qid]['quiz_count'] > 0;
+                if ($is_used) {
+                    $used_count++;
+                } else {
+                    $unused_count++;
+                }
+            }
+
+            $repname = '';
+            $repqtype = (string)($group->qtype ?? '');
+            try {
+                $rep = $DB->get_record('question', ['id' => (int)$group->representative_id], 'id,name,qtype', IGNORE_MISSING);
+                if ($rep) {
+                    $repname = (string)$rep->name;
+                    $repqtype = (string)$rep->qtype;
+                }
+            } catch (\Exception $e) {
+                // Ignore.
+            }
+
+            $out[] = (object)[
+                'question_name' => $repname !== '' ? $repname : (string)($group->name ?? ''),
+                'qtype' => $repqtype,
+                'duplicate_count' => $group->dup_count,
+                'representative_id' => $group->representative_id,
+                'all_question_ids' => $question_ids,
+                'used_count' => $used_count,
+                'unused_count' => $unused_count,
+                // Compat avec l'ancien tri/priorité.
+                'deletable_count' => 0,
+                'priority_score' => 0,
+            ];
+        }
+
+        return $out;
+    }
     
     /**
      * Compte le nombre total de groupes de doublons

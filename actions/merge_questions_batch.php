@@ -46,13 +46,16 @@ if (!is_siteadmin()) {
 $confirm = optional_param('confirm', 0, PARAM_INT);
 $includequiz = optional_param('includequiz', 1, PARAM_INT);
 $discovery = optional_param('discovery', 0, PARAM_INT);
-$limit = optional_param('limit', 100, PARAM_INT); // combien de groupes à traiter à partir de l'offset
-$offset = optional_param('offset', 0, PARAM_INT);
+$limit = optional_param('limit', 200, PARAM_INT); // taille du lot (nb de groupes scannés par itération)
+$offset = optional_param('offset', 0, PARAM_INT); // compat ancienne pagination
+$processall = optional_param('processall', 1, PARAM_INT); // 1 = traiter tout le site par lots
+$afterrepid = optional_param('afterrepid', 0, PARAM_INT); // pagination stable (seek) si processall=1
 $stoponerror = optional_param('stoponerror', 1, PARAM_INT);
 $returnurlparam = optional_param('returnurl', '', PARAM_LOCALURL);
 
 $limit = max(1, min(1000, (int)$limit));
 $offset = max(0, (int)$offset);
+$afterrepid = max(0, (int)$afterrepid);
 
 $returnurl = !empty($returnurlparam)
     ? new moodle_url($returnurlparam)
@@ -65,6 +68,8 @@ $PAGE->set_url(new moodle_url('/local/question_diagnostic/actions/merge_question
     'discovery' => $discovery,
     'limit' => $limit,
     'offset' => $offset,
+    'processall' => $processall,
+    'afterrepid' => $afterrepid,
     'stoponerror' => $stoponerror,
     'returnurl' => $returnurl->out(false),
 ]));
@@ -79,8 +84,12 @@ $options = [
     'advanced_discovery' => (int)$discovery === 1,
 ];
 
-// Récupérer une fenêtre de groupes.
-$groups = question_analyzer::get_duplicate_groups((int)$limit, (int)$offset, false, false);
+// Récupérer une fenêtre de groupes (soit seek sur tout le site, soit compat offset).
+if ((int)$processall === 1) {
+    $groups = question_analyzer::get_duplicate_groups_seek((int)$limit, (int)$afterrepid);
+} else {
+    $groups = question_analyzer::get_duplicate_groups((int)$limit, (int)$offset, false, false);
+}
 if (empty($groups)) {
     echo $OUTPUT->header();
     echo local_question_diagnostic_render_version_badge();
@@ -149,6 +158,11 @@ echo html_writer::tag('p', get_string('question_merge_batch_summary', 'local_que
     'limit' => (int)$limit,
     'offset' => (int)$offset,
 ]));
+if ((int)$processall === 1) {
+    echo html_writer::tag('p', 'Mode : traitement de tout le site par lots (seek). Dernier representative_id traité : ' . (int)$afterrepid . '.', [
+        'style' => 'margin-bottom:0;',
+    ]);
+}
 echo html_writer::end_div();
 
 if (empty($eligible)) {
@@ -226,33 +240,77 @@ $results = [
     'success_groups' => 0,
     'failed_groups' => 0,
     'deleted_questions' => 0,
+    'scanned_groups' => 0,
+    'eligible_groups' => 0,
+    'skipped_no_mergeable' => 0,
+    'skipped_errors' => 0,
     'messages' => [],
 ];
 
-foreach ($eligible as $e) {
-    $repid = (int)$e->repid;
-    $plan = question_merger::build_merge_plan($repid, $options);
-    if (!empty($plan->errors)) {
-        $results['failed_groups']++;
-        $results['messages'][] = 'Group repid=' . $repid . ' : ' . implode(' | ', array_map('s', (array)$plan->errors));
-        if ((int)$stoponerror === 1) {
-            break;
-        }
-        continue;
+// Exécuter soit uniquement la fenêtre preview, soit tout le site par lots.
+$loopafter = (int)$afterrepid;
+do {
+    $batchgroups = (int)$processall === 1
+        ? question_analyzer::get_duplicate_groups_seek((int)$limit, (int)$loopafter)
+        : $groups;
+
+    if (empty($batchgroups)) {
+        break;
     }
 
-    $res = question_merger::apply_merge_plan($plan, $options);
-    if (!empty($res->success)) {
-        $results['success_groups']++;
-        $results['deleted_questions'] += count((array)($res->details['deleted'] ?? []));
-    } else {
-        $results['failed_groups']++;
-        $results['messages'][] = 'Group repid=' . $repid . ' : ' . s((string)($res->message ?? 'Erreur inconnue'));
-        if ((int)$stoponerror === 1) {
-            break;
+    // Mettre à jour le curseur de progression (max repid du lot scanné).
+    $maxrepid = $loopafter;
+    foreach ($batchgroups as $g) {
+        $rid = (int)($g->representative_id ?? 0);
+        if ($rid > $maxrepid) {
+            $maxrepid = $rid;
         }
     }
-}
+
+    foreach ($batchgroups as $g) {
+        $repid = (int)($g->representative_id ?? 0);
+        if ($repid <= 0) {
+            continue;
+        }
+        $results['scanned_groups']++;
+
+        $plan = question_merger::build_merge_plan($repid, $options);
+        if (!empty($plan->errors)) {
+            $results['skipped_errors']++;
+            if ((int)$stoponerror === 1) {
+                $results['failed_groups']++;
+                $results['messages'][] = 'Group repid=' . $repid . ' : ' . implode(' | ', array_map('s', (array)$plan->errors));
+                break 2;
+            }
+            continue;
+        }
+        $mergecount = count((array)($plan->mergeable_questionids ?? []));
+        if ($mergecount <= 0) {
+            $results['skipped_no_mergeable']++;
+            continue;
+        }
+        $results['eligible_groups']++;
+
+        $res = question_merger::apply_merge_plan($plan, $options);
+        if (!empty($res->success)) {
+            $results['success_groups']++;
+            $results['deleted_questions'] += count((array)($res->details['deleted'] ?? []));
+        } else {
+            $results['failed_groups']++;
+            $results['messages'][] = 'Group repid=' . $repid . ' : ' . s((string)($res->message ?? 'Erreur inconnue'));
+            if ((int)$stoponerror === 1) {
+                break 2;
+            }
+        }
+    }
+
+    $loopafter = $maxrepid;
+
+    // En mode fenêtre unique, on ne boucle pas.
+    if ((int)$processall !== 1) {
+        break;
+    }
+} while (true);
 
 echo html_writer::start_div('alert alert-info mt-3');
 echo html_writer::tag('h4', get_string('question_merge_batch_done_title', 'local_question_diagnostic'));
@@ -261,6 +319,13 @@ echo html_writer::tag('p', get_string('question_merge_batch_done_summary', 'loca
     'failed' => (int)$results['failed_groups'],
     'deleted' => (int)$results['deleted_questions'],
 ]));
+echo html_writer::tag('p', 'Groupes scannés: ' . (int)$results['scanned_groups']
+    . ' | éligibles: ' . (int)$results['eligible_groups']
+    . ' | ignorés (0 fusionnable): ' . (int)$results['skipped_no_mergeable']
+    . ' | ignorés (erreurs plan): ' . (int)$results['skipped_errors']
+    . ((int)$processall === 1 ? ' | dernier representative_id: ' . (int)$loopafter : ''), [
+    'style' => 'margin-bottom:0;',
+]);
 echo html_writer::end_div();
 
 if (!empty($results['messages'])) {
