@@ -190,10 +190,10 @@ class question_merger {
             $oldv = $plan->questions[$oldqid]->version ?? null;
             $oldqbeid = (int)($oldv->questionbankentryid ?? 0);
             $oldqvid = (int)($oldv->id ?? 0);
-            if ($oldqbeid > 0 && $refqbeid > 0) {
+            if ($oldqbeid > 0 && $refqbeid > 0 && $oldqbeid !== $refqbeid) {
                 $plan->mappings->questionbankentryid[$oldqbeid] = $refqbeid;
             }
-            if ($oldqvid > 0 && $refqvid > 0) {
+            if ($oldqvid > 0 && $refqvid > 0 && $oldqvid !== $refqvid) {
                 $plan->mappings->questionversionid[$oldqvid] = $refqvid;
             }
         }
@@ -639,7 +639,16 @@ class question_merger {
         $out = [];
         foreach ($targets as $t) {
             $map = (array)($mappings->{$t->type} ?? []);
-            $keys = array_values(array_unique(array_map('intval', array_keys($map))));
+            // Exclure les mappings identitaires (old == ref), sinon le post-check comptera les références légitimes.
+            $keys = [];
+            foreach ($map as $old => $ref) {
+                $old = (int)$old;
+                $ref = (int)$ref;
+                if ($old > 0 && $ref > 0 && $old !== $ref) {
+                    $keys[] = $old;
+                }
+            }
+            $keys = array_values(array_unique($keys));
             $keys = array_values(array_filter($keys, function(int $id): bool {
                 return $id > 0;
             }));
@@ -683,7 +692,16 @@ class question_merger {
         $still = [];
         foreach ($targets as $t) {
             $map = (array)($mappings->{$t->type} ?? []);
-            $keys = array_values(array_unique(array_map('intval', array_keys($map))));
+            // Exclure les mappings identitaires (old == ref) : sinon on “voit” les références de la référence elle-même.
+            $keys = [];
+            foreach ($map as $old => $ref) {
+                $old = (int)$old;
+                $ref = (int)$ref;
+                if ($old > 0 && $ref > 0 && $old !== $ref) {
+                    $keys[] = $old;
+                }
+            }
+            $keys = array_values(array_unique($keys));
             $keys = array_values(array_filter($keys, function(int $id): bool {
                 return $id > 0;
             }));
