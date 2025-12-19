@@ -574,6 +574,9 @@ function showRepairModal(questionId, questionName, brokenLinks) {
         const isPluginfile = (String(link.url || '').toLowerCase().indexOf('pluginfile.php') !== -1);
         if (isPluginfile) {
             content += '<a href="' + repairUrl.toString() + '" class="btn btn-outline-primary btn-sm" style="margin-right: 5px;" target="_blank">🔎 Trouver via doublon strict</a>';
+        } else {
+            // Afficher quand même l'option (désactivée) pour éviter l'impression qu'elle a "disparu".
+            content += '<span class="btn btn-outline-secondary btn-sm disabled" style="margin-right: 5px;" title="Disponible uniquement pour les liens de type pluginfile.php">🔎 Trouver via doublon strict</span>';
         }
         content += '<span style="font-size: 12px; color: #666;">' + hint + '</span>';
         content += '</div>';
