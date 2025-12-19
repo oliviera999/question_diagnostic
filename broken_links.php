@@ -40,8 +40,14 @@ $PAGE->requires->js('/local/question_diagnostic/scripts/main.js', true);
 $action = optional_param('action', '', PARAM_ALPHA);
 $questionid = optional_param('questionid', 0, PARAM_INT);
 $field = optional_param('field', '', PARAM_TEXT);
-$url = optional_param('url', '', PARAM_TEXT);
+$url = optional_param('url', '', PARAM_RAW_TRIMMED);
 $refresh = optional_param('refresh', 0, PARAM_INT);
+$confirm = optional_param('confirm', 0, PARAM_INT);
+$newurl = optional_param('newurl', '', PARAM_RAW_TRIMMED);
+$sourcequestionid = optional_param('sourcequestionid', 0, PARAM_INT);
+
+$show_repair_confirm = false;
+$repair_result = null;
 
 // Action de rafraîchissement du cache
 if ($refresh) {
@@ -62,12 +68,28 @@ if ($action) {
             redirect($PAGE->url, $result, null, \core\output\notification::NOTIFY_ERROR);
         }
     } else if ($action === 'repair') {
-        $repair_result = question_link_checker::attempt_repair($questionid, $field, $url);
-        // Actuellement, attempt_repair() est un stub : on informe clairement l'utilisateur.
-        $msg = is_array($repair_result) && !empty($repair_result['message'])
-            ? $repair_result['message']
-            : 'Fonctionnalité de réparation automatique non encore implémentée.';
-        redirect($PAGE->url, $msg, null, \core\output\notification::NOTIFY_INFO);
+        // Deux étapes:
+        // - confirm=0 : proposer des suggestions (sans modifier la BDD)
+        // - confirm=1 : appliquer le remplacement (MODIFIE la BDD)
+        if ($confirm && !empty($newurl)) {
+            $apply = question_link_checker::replace_broken_link_with_url($questionid, $field, $url, $newurl, $sourcequestionid ?: null);
+            if ($apply === true) {
+                question_link_checker::purge_broken_links_cache();
+                redirect($PAGE->url, 'Réparation appliquée avec succès.', null, \core\output\notification::NOTIFY_SUCCESS);
+            } else {
+                redirect($PAGE->url, (string)$apply, null, \core\output\notification::NOTIFY_ERROR);
+            }
+        } else {
+            $repair_result = question_link_checker::attempt_repair($questionid, $field, $url);
+            if (is_array($repair_result) && !empty($repair_result['success']) && !empty($repair_result['suggestions'])) {
+                $show_repair_confirm = true;
+            } else {
+                $msg = is_array($repair_result) && !empty($repair_result['message'])
+                    ? $repair_result['message']
+                    : 'Aucune suggestion de réparation disponible.';
+                redirect($PAGE->url, $msg, null, \core\output\notification::NOTIFY_INFO);
+            }
+        }
     }
 }
 
@@ -82,6 +104,64 @@ echo local_question_diagnostic_render_version_badge();
 echo html_writer::start_div('text-right', ['style' => 'margin-bottom: 20px;']);
 echo local_question_diagnostic_render_cache_purge_button();
 echo html_writer::end_div();
+
+// Page de confirmation "réparer via doublon strict" (évite d'afficher tout le tableau si on est en mode réparation)
+if ($show_repair_confirm && is_array($repair_result)) {
+    echo html_writer::tag('h2', '🔧 Réparation via doublon strict');
+
+    echo html_writer::start_div('alert alert-info');
+    echo '<strong>Principe :</strong> rechercher un doublon strict (même type + même texte) et proposer une URL valide trouvée dans ce doublon. ';
+    echo 'Vous devez confirmer avant toute modification.';
+    echo html_writer::end_div();
+
+    echo html_writer::start_div('qd-card', ['style' => 'padding: 15px; margin-bottom: 20px;']);
+    echo html_writer::tag('div', '<strong>Question:</strong> #' . (int)$questionid);
+    echo html_writer::tag('div', '<strong>Champ:</strong> ' . s($field));
+    echo html_writer::tag('div', '<strong>URL cassée:</strong> <code style="word-break: break-all;">' . s($url) . '</code>');
+    echo html_writer::end_div();
+
+    $suggestions = (array)($repair_result['suggestions'] ?? []);
+    if (empty($suggestions)) {
+        echo html_writer::start_div('alert alert-warning');
+        echo 'Aucune suggestion disponible.';
+        echo html_writer::end_div();
+    } else {
+        echo html_writer::tag('h3', 'Suggestions');
+        echo html_writer::start_tag('ul');
+        foreach ($suggestions as $sugg) {
+            $replacement_url = is_array($sugg) ? ($sugg['replacement_url'] ?? '') : '';
+            $srcid = is_array($sugg) ? (int)($sugg['sourcequestionid'] ?? 0) : 0;
+            $desc = is_array($sugg) ? ($sugg['description'] ?? '') : '';
+
+            if (empty($replacement_url) || $srcid <= 0) {
+                continue;
+            }
+
+            $apply_url = new moodle_url('/local/question_diagnostic/broken_links.php', [
+                'action' => 'repair',
+                'confirm' => 1,
+                'questionid' => (int)$questionid,
+                'field' => $field,
+                'url' => $url,
+                'newurl' => $replacement_url,
+                'sourcequestionid' => $srcid,
+                'sesskey' => sesskey(),
+            ]);
+
+            echo html_writer::tag('li',
+                html_writer::tag('div', s($desc)) .
+                html_writer::tag('div', '<strong>Source:</strong> #' . $srcid, ['style' => 'font-size: 12px; color: #666;']) .
+                html_writer::tag('div', '<strong>Nouvelle URL:</strong> <code style="word-break: break-all;">' . s($replacement_url) . '</code>', ['style' => 'margin: 6px 0;']) .
+                html_writer::link($apply_url, '✅ Appliquer cette réparation', ['class' => 'btn btn-primary btn-sm', 'onclick' => "return confirm('Confirmer le remplacement du lien cassé par celui du doublon ?')"])
+            );
+        }
+        echo html_writer::end_tag('ul');
+    }
+
+    echo html_writer::link(new moodle_url('/local/question_diagnostic/broken_links.php'), '← Retour', ['class' => 'btn btn-secondary']);
+    echo $OUTPUT->footer();
+    exit;
+}
 
 // 🆕 v1.9.44 : Lien retour hiérarchique + Bouton rafraîchir
 echo html_writer::start_tag('div', ['style' => 'margin-bottom: 20px; display: flex; gap: 10px;']);
@@ -468,6 +548,14 @@ function showRepairModal(questionId, questionName, brokenLinks) {
         removeUrl.searchParams.set('url', link.url);
         removeUrl.searchParams.set('sesskey', M.cfg.sesskey);
 
+        // Bouton "réparer via doublon strict" (ouvre une page de confirmation avec suggestions).
+        const repairUrl = new URL(window.location.href);
+        repairUrl.searchParams.set('action', 'repair');
+        repairUrl.searchParams.set('questionid', questionId);
+        repairUrl.searchParams.set('field', link.field);
+        repairUrl.searchParams.set('url', link.url);
+        repairUrl.searchParams.set('sesskey', M.cfg.sesskey);
+
         const isBgImage = (String(link.field || '').toLowerCase().indexOf('bgimage') !== -1);
         const actionLabel = isBgImage
             ? '🧹 Désactiver l’image de fond'
@@ -480,6 +568,7 @@ function showRepairModal(questionId, questionName, brokenLinks) {
             : '(<?php echo addslashes(get_string('remove_reference_desc', 'local_question_diagnostic')); ?>)';
 
         content += '<a href="' + removeUrl.toString() + '" class="btn btn-danger btn-sm" style="margin-right: 5px;" onclick="return confirm(\'' + confirmText + '\')">' + actionLabel + '</a>';
+        content += '<a href="' + repairUrl.toString() + '" class="btn btn-outline-primary btn-sm" style="margin-right: 5px;" target="_blank">🔎 Trouver via doublon strict</a>';
         content += '<span style="font-size: 12px; color: #666;">' + hint + '</span>';
         content += '</div>';
         content += '</div>';

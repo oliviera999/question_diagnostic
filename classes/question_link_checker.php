@@ -531,14 +531,380 @@ class question_link_checker {
      * @return array ['success' => bool, 'message' => string, 'suggestions' => array]
      */
     public static function attempt_repair($questionid, $field, $broken_url) {
-        // Fonctionnalité à implémenter
+        global $DB;
+
+        $questionid = (int)$questionid;
+        $field = (string)$field;
+        $broken_url = (string)$broken_url;
+
         $result = [
             'success' => false,
-            'message' => 'Fonctionnalité de réparation automatique non encore implémentée.',
+            'message' => 'Aucune réparation automatique fiable n’a été trouvée.',
             'suggestions' => []
         ];
-        
+
+        // Heuristique: chercher un doublon strict (même qtype + même questiontext),
+        // puis récupérer une URL pluginfile valide pointant vers la même ressource (même filename).
+        try {
+            $question = $DB->get_record('question', ['id' => $questionid], 'id,qtype,questiontext', MUST_EXIST);
+        } catch (\Exception $e) {
+            $result['message'] = 'Question introuvable.';
+            return $result;
+        }
+
+        // On ne tente pas de réparer des "URL" non pluginfile : la logique est basée sur la table files.
+        if (strpos($broken_url, 'pluginfile.php') === false) {
+            $result['message'] = 'Réparation via doublon non supportée : URL non pluginfile.';
+            return $result;
+        }
+
+        $duplicates = self::find_strict_duplicates($question, 10);
+        if (empty($duplicates)) {
+            $result['message'] = 'Aucun doublon strict trouvé pour cette question.';
+            return $result;
+        }
+
+        $suggestions = [];
+        foreach ($duplicates as $dup) {
+            $replacement = self::find_replacement_url_in_duplicate((int)$dup->id, $field, $broken_url);
+            if (!$replacement) {
+                continue;
+            }
+
+            $suggestions[] = [
+                'type' => 'strict_duplicate',
+                'confidence' => 85,
+                'sourcequestionid' => (int)$dup->id,
+                'sourcequestionname' => (string)($dup->name ?? ''),
+                'replacement_url' => $replacement,
+                'description' => 'Doublon strict détecté : lien valide trouvé dans la question #' . (int)$dup->id
+            ];
+
+            // On propose au max quelques suggestions.
+            if (count($suggestions) >= 3) {
+                break;
+            }
+        }
+
+        if (empty($suggestions)) {
+            $result['message'] = 'Doublon(s) strict(s) trouvé(s), mais aucun lien valide correspondant n’a été détecté.';
+            return $result;
+        }
+
+        $result['success'] = true;
+        $result['message'] = count($suggestions) . ' suggestion(s) trouvée(s) via doublon strict.';
+        $result['suggestions'] = $suggestions;
         return $result;
+    }
+
+    /**
+     * Applique une réparation de type "remplacement d'URL" (ex: par URL d'un doublon strict).
+     *
+     * @param int $questionid
+     * @param string $field
+     * @param string $broken_url
+     * @param string $replacement_url
+     * @param int|null $sourcequestionid
+     * @return bool|string
+     */
+    public static function replace_broken_link_with_url($questionid, $field, $broken_url, $replacement_url, $sourcequestionid = null) {
+        global $DB;
+
+        $questionid = (int)$questionid;
+        $field = (string)$field;
+        $broken_url = (string)$broken_url;
+        $replacement_url = (string)$replacement_url;
+
+        // Vérifier que l'URL de remplacement correspond à un fichier existant (sinon on remplace par une autre URL cassée).
+        if (strpos($replacement_url, 'pluginfile.php') !== false) {
+            if (!self::pluginfile_url_exists_in_files($replacement_url)) {
+                return 'URL de remplacement invalide : fichier introuvable dans la table files.';
+            }
+        }
+
+        try {
+            $question = $DB->get_record('question', ['id' => $questionid], '*', MUST_EXIST);
+
+            // Déterminer quel champ modifier (mêmes règles que remove_broken_link).
+            if (strpos($field, 'answer_') === 0) {
+                $answer_id = (int)str_replace('answer_', '', $field);
+                $answer = $DB->get_record('question_answers', ['id' => $answer_id], '*', MUST_EXIST);
+                $before = (string)$answer->answer;
+                $after = str_replace($broken_url, $replacement_url, $before);
+                if ($after === $before) {
+                    return 'Aucune occurrence du lien n’a été trouvée (rien modifié).';
+                }
+                $answer->answer = $after;
+                $DB->update_record('question_answers', $answer);
+            } else if (strpos($field, 'feedback_') === 0) {
+                $answer_id = (int)str_replace('feedback_', '', $field);
+                $answer = $DB->get_record('question_answers', ['id' => $answer_id], '*', MUST_EXIST);
+                $before = (string)$answer->feedback;
+                $after = str_replace($broken_url, $replacement_url, $before);
+                if ($after === $before) {
+                    return 'Aucune occurrence du lien n’a été trouvée (rien modifié).';
+                }
+                $answer->feedback = $after;
+                $DB->update_record('question_answers', $answer);
+            } else {
+                // Champ de la question.
+                if (!is_string($field) || $field === '' || !property_exists($question, $field)) {
+                    return 'Champ non supporté pour réparation : ' . s((string)$field);
+                }
+                $before = (string)$question->$field;
+                $after = str_replace($broken_url, $replacement_url, $before);
+                if ($after === $before) {
+                    return 'Aucune occurrence du lien n’a été trouvée (rien modifié).';
+                }
+                $question->$field = $after;
+                $DB->update_record('question', $question);
+            }
+
+            // Optionnel: audit/debug.
+            if ($sourcequestionid) {
+                // Ne pas supposer que lib.php est chargé (tâches planifiées, CLI, etc.).
+                if (function_exists('local_question_diagnostic_debug_log')) {
+                    local_question_diagnostic_debug_log(
+                        '🔧 Broken link replaced using strict duplicate. question=' . $questionid .
+                        ', source=' . (int)$sourcequestionid .
+                        ', field=' . $field,
+                        DEBUG_DEVELOPER
+                    );
+                }
+            }
+
+            return true;
+        } catch (\Exception $e) {
+            return 'Erreur lors de la réparation : ' . $e->getMessage();
+        }
+    }
+
+    /**
+     * Trouve des doublons stricts : même qtype + même questiontext (hors question courante).
+     *
+     * @param object $question Question record (id,qtype,questiontext)
+     * @param int $limit
+     * @return array
+     */
+    private static function find_strict_duplicates($question, $limit = 10) {
+        global $DB;
+
+        $limit = max(1, (int)$limit);
+        try {
+            // Comparaison stricte du champ questiontext.
+            $sql = "SELECT id, name, qtype
+                      FROM {question}
+                     WHERE id <> :id
+                       AND qtype = :qtype
+                       AND questiontext = :questiontext
+                  ORDER BY timemodified DESC, id DESC";
+            return array_values($DB->get_records_sql($sql, [
+                'id' => (int)$question->id,
+                'qtype' => (string)$question->qtype,
+                'questiontext' => (string)$question->questiontext,
+            ], 0, $limit));
+        } catch (\Exception $e) {
+            return [];
+        }
+    }
+
+    /**
+     * Cherche une URL pluginfile valide dans une question doublon, correspondant au même filename que l'URL cassée.
+     *
+     * @param int $duplicate_questionid
+     * @param string $field
+     * @param string $broken_url
+     * @return string|null
+     */
+    private static function find_replacement_url_in_duplicate($duplicate_questionid, $field, $broken_url) {
+        global $DB;
+
+        $duplicate_questionid = (int)$duplicate_questionid;
+        $field = (string)$field;
+        $broken_url = (string)$broken_url;
+
+        $broken_filename = self::extract_filename_from_url($broken_url);
+        if ($broken_filename === '') {
+            return null;
+        }
+
+        try {
+            if (strpos($field, 'answer_') === 0 || strpos($field, 'feedback_') === 0) {
+                // On ne peut pas mapper 1:1 les answer_id entre doublons : on scanne toutes les réponses.
+                $answers = $DB->get_records('question_answers', ['question' => $duplicate_questionid], 'id ASC', 'id,answer,feedback');
+                foreach ($answers as $ans) {
+                    $html = (strpos($field, 'feedback_') === 0) ? (string)$ans->feedback : (string)$ans->answer;
+                    $urls = self::extract_urls_from_html($html);
+                    foreach ($urls as $u) {
+                        if (self::extract_filename_from_url($u) !== $broken_filename) {
+                            continue;
+                        }
+                        if (strpos($u, 'pluginfile.php') !== false && self::pluginfile_url_exists_in_files($u)) {
+                            return $u;
+                        }
+                    }
+                }
+                return null;
+            }
+
+            $q = $DB->get_record('question', ['id' => $duplicate_questionid], '*', MUST_EXIST);
+            if (!property_exists($q, $field)) {
+                return null;
+            }
+            $html = (string)$q->$field;
+            $urls = self::extract_urls_from_html($html);
+
+            foreach ($urls as $u) {
+                if (self::extract_filename_from_url($u) !== $broken_filename) {
+                    continue;
+                }
+                if (strpos($u, 'pluginfile.php') !== false && self::pluginfile_url_exists_in_files($u)) {
+                    return $u;
+                }
+            }
+        } catch (\Exception $e) {
+            return null;
+        }
+
+        return null;
+    }
+
+    /**
+     * Extrait les URLs pertinentes d'un HTML (img src + pluginfile occurrences).
+     *
+     * @param string $html
+     * @return array
+     */
+    private static function extract_urls_from_html($html) {
+        $html = (string)$html;
+        if ($html === '') {
+            return [];
+        }
+
+        $urls = [];
+
+        // img src.
+        if (preg_match_all('/<img[^>]+src=["\']([^"\']+)["\'][^>]*>/i', $html, $m)) {
+            $urls = array_merge($urls, $m[1]);
+        }
+
+        // pluginfile occurrences.
+        if (preg_match_all('/pluginfile\\.php[^"\'\\s]*/i', $html, $m2)) {
+            $urls = array_merge($urls, $m2[0]);
+        }
+
+        // Dédupliquer.
+        $urls = array_values(array_unique(array_filter($urls)));
+        return $urls;
+    }
+
+    /**
+     * Extrait le filename depuis une URL (avec ou sans querystring).
+     *
+     * @param string $url
+     * @return string
+     */
+    private static function extract_filename_from_url($url) {
+        $url = (string)$url;
+        if ($url === '') {
+            return '';
+        }
+        // Retirer querystring.
+        $path = $url;
+        $qpos = strpos($path, '?');
+        if ($qpos !== false) {
+            $path = substr($path, 0, $qpos);
+        }
+        // Si URL absolue, garder uniquement le path.
+        $parsed = @parse_url($path);
+        if (is_array($parsed) && !empty($parsed['path'])) {
+            $path = (string)$parsed['path'];
+        }
+        $path = str_replace('\\', '/', $path);
+        $base = basename($path);
+        return (string)$base;
+    }
+
+    /**
+     * Parse une URL pluginfile et retourne les composantes nécessaires pour {files}.
+     *
+     * @param string $url
+     * @return array|null
+     */
+    private static function parse_pluginfile_url($url) {
+        $url = (string)$url;
+        if ($url === '' || strpos($url, 'pluginfile.php') === false) {
+            return null;
+        }
+
+        // Enlever querystring.
+        $qpos = strpos($url, '?');
+        if ($qpos !== false) {
+            $url = substr($url, 0, $qpos);
+        }
+
+        // Extraire la partie après pluginfile.php
+        $pos = strpos($url, 'pluginfile.php');
+        $after = substr($url, $pos + strlen('pluginfile.php'));
+        $after = ltrim($after, '/');
+        $parts = array_values(array_filter(explode('/', $after), 'strlen'));
+
+        // Attendu: contextid/component/filearea/itemid/.../filename
+        if (count($parts) < 5) {
+            return null;
+        }
+
+        $contextid = (int)$parts[0];
+        $component = (string)$parts[1];
+        $filearea = (string)$parts[2];
+        $itemid = (int)$parts[3];
+
+        $filename = (string)$parts[count($parts) - 1];
+        $pathparts = array_slice($parts, 4, -1);
+        $filepath = '/';
+        if (!empty($pathparts)) {
+            $filepath = '/' . implode('/', $pathparts) . '/';
+        }
+
+        if ($contextid <= 0 || $component === '' || $filearea === '' || $filename === '') {
+            return null;
+        }
+
+        return [
+            'contextid' => $contextid,
+            'component' => $component,
+            'filearea' => $filearea,
+            'itemid' => $itemid,
+            'filepath' => $filepath,
+            'filename' => $filename,
+        ];
+    }
+
+    /**
+     * Vérifie qu'une URL pluginfile pointe vers un enregistrement existant dans {files}.
+     *
+     * @param string $url
+     * @return bool
+     */
+    private static function pluginfile_url_exists_in_files($url) {
+        global $DB;
+        $info = self::parse_pluginfile_url($url);
+        if (!$info) {
+            return false;
+        }
+
+        try {
+            return $DB->record_exists('files', [
+                'contextid' => $info['contextid'],
+                'component' => $info['component'],
+                'filearea' => $info['filearea'],
+                'itemid' => $info['itemid'],
+                'filepath' => $info['filepath'],
+                'filename' => $info['filename'],
+            ]);
+        } catch (\Exception $e) {
+            return false;
+        }
     }
 
     // 🗑️ REMOVED v1.9.27 : find_similar_files() supprimée (code mort)
