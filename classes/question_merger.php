@@ -364,7 +364,11 @@ class question_merger {
             return [];
         }
 
-        list($insql, $params) = $DB->get_in_or_equal($questionids, SQL_PARAMS_NAMED, 'qid');
+        // ⚠️ Important : ne pas réutiliser le même IN(:qid0,...) 2 fois dans une requête avec params nommés,
+        // sinon Moodle compte les placeholders deux fois (ex: 14 attendus) alors que $params n'en contient que 7.
+        list($insqlsub, $paramssub) = $DB->get_in_or_equal($questionids, SQL_PARAMS_NAMED, 'qid');
+        list($insqlmain, $paramsmain) = $DB->get_in_or_equal($questionids, SQL_PARAMS_NAMED, 'qid2');
+        $params = array_merge($paramssub, $paramsmain);
 
         // Moodle 4.5+ : utiliser la version la plus récente (version max), idéalement non-brouillon si la colonne status existe.
         $qvcols = [];
@@ -388,13 +392,13 @@ class question_merger {
                   INNER JOIN (
                         SELECT v.questionid, MAX(v.version) AS maxversion
                           FROM {question_versions} v
-                         WHERE v.questionid {$insql} {$statusfilter}
+                         WHERE v.questionid {$insqlsub} {$statusfilter}
                       GROUP BY v.questionid
                   ) mv ON mv.questionid = qv.questionid AND mv.maxversion = qv.version
                   INNER JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
                   INNER JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
                   LEFT JOIN {context} ctx ON ctx.id = qc.contextid
-                 WHERE qv.questionid {$insql}";
+                 WHERE qv.questionid {$insqlmain}";
 
         $records = $DB->get_records_sql($sql, $params);
         $out = [];
@@ -427,7 +431,10 @@ class question_merger {
             return [];
         }
 
-        list($insql, $params) = $DB->get_in_or_equal($questionids, SQL_PARAMS_NAMED, 'qid');
+        // Même contrainte : 2 IN(...) -> 2 jeux de placeholders + merge des params.
+        list($insqlsub, $paramssub) = $DB->get_in_or_equal($questionids, SQL_PARAMS_NAMED, 'qid');
+        list($insqlmain, $paramsmain) = $DB->get_in_or_equal($questionids, SQL_PARAMS_NAMED, 'qid2');
+        $params = array_merge($paramssub, $paramsmain);
         // Moodle 4.5+ : prendre la version la plus récente (max(version)), idéalement non-brouillon si status existe.
         $qvcols = [];
         try {
@@ -445,10 +452,10 @@ class question_merger {
                   INNER JOIN (
                         SELECT v.questionid, MAX(v.version) AS maxversion
                           FROM {question_versions} v
-                         WHERE v.questionid {$insql} {$statusfilter}
+                         WHERE v.questionid {$insqlsub} {$statusfilter}
                       GROUP BY v.questionid
                   ) mv ON mv.questionid = qv.questionid AND mv.maxversion = qv.version
-                 WHERE qv.questionid {$insql}";
+                 WHERE qv.questionid {$insqlmain}";
         $records = $DB->get_records_sql($sql, $params);
         $out = [];
         foreach ($records as $r) {
