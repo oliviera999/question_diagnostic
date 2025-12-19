@@ -235,9 +235,30 @@ class question_merger {
         }
 
         // 6) Construire les mappings au niveau ENTRY (questionbankentryid).
-        // On garde aussi un mapping questionid (représentants) pour compat/anciennes tables.
+        // On garde aussi un mapping questionid pour compat/anciennes tables (ex: quiz_slots.questionid).
+        // IMPORTANT : certains usages peuvent pointer une ancienne version (question.id) de l’entry.
+        // On mappe donc TOUS les questionids (toutes versions) d’une entry fusionnée vers la questionid
+        // représentative de l’entry de référence.
+        $refquestionid = (int)$plan->reference_questionid;
+        $mergeableentryids = [];
         foreach ($plan->mergeable_questionids as $oldqid) {
-            $plan->mappings->questionid[(int)$oldqid] = (int)$plan->reference_questionid;
+            $oldqid = (int)$oldqid;
+            $oldentryid = (int)($plan->questions[$oldqid]->entryid ?? 0);
+            if ($oldentryid > 0) {
+                $mergeableentryids[] = $oldentryid;
+            }
+        }
+        $mergeableentryids = array_values(array_unique(array_filter($mergeableentryids, function(int $id): bool {
+            return $id > 0;
+        })));
+        $qidsbyentry = self::get_question_ids_by_entry_ids($mergeableentryids);
+        foreach ($qidsbyentry as $entryid => $qids) {
+            foreach ((array)$qids as $qid) {
+                $qid = (int)$qid;
+                if ($qid > 0 && $qid !== $refquestionid) {
+                    $plan->mappings->questionid[$qid] = $refquestionid;
+                }
+            }
         }
 
         $refv = $plan->questions[$plan->reference_questionid]->version ?? null;
@@ -572,6 +593,46 @@ class question_merger {
         $out = [];
         foreach ($records as $r) {
             $out[(int)$r->entryid] = (int)($r->attempt_count ?? 0);
+        }
+        return $out;
+    }
+
+    /**
+     * Liste tous les questionids (toutes versions) d’un ensemble d’entries.
+     *
+     * @param int[] $entryids question_bank_entries.id
+     * @return array<int,int[]> entryid => [questionid...]
+     */
+    private static function get_question_ids_by_entry_ids(array $entryids): array {
+        global $DB;
+
+        $entryids = array_values(array_unique(array_map('intval', (array)$entryids)));
+        $entryids = array_values(array_filter($entryids, function(int $id): bool { return $id > 0; }));
+        if (empty($entryids)) {
+            return [];
+        }
+
+        list($insql, $params) = $DB->get_in_or_equal($entryids, SQL_PARAMS_NAMED, 'e');
+        $sql = "SELECT qv.questionbankentryid AS entryid, qv.questionid
+                  FROM {question_versions} qv
+                 WHERE qv.questionbankentryid {$insql}";
+        $records = $DB->get_records_sql($sql, $params);
+        $out = [];
+        foreach ($records as $r) {
+            $entryid = (int)($r->entryid ?? 0);
+            $qid = (int)($r->questionid ?? 0);
+            if ($entryid <= 0 || $qid <= 0) {
+                continue;
+            }
+            if (!isset($out[$entryid])) {
+                $out[$entryid] = [];
+            }
+            $out[$entryid][] = $qid;
+        }
+        foreach ($out as $entryid => $qids) {
+            $out[$entryid] = array_values(array_unique(array_filter(array_map('intval', (array)$qids), function(int $id): bool {
+                return $id > 0;
+            })));
         }
         return $out;
     }
