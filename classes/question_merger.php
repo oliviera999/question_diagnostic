@@ -771,18 +771,75 @@ class question_merger {
                     // - on remap questionbankentryid vers la référence
                     // - on met version/questionversionid à NULL pour pointer vers la dernière version non-brouillon.
                     if (($t->table === 'question_references' || $t->table === 'question_set_references') && $t->column === 'questionbankentryid') {
-                        // ⚠️ Important : certains drivers gèrent mal NULL en paramètre sur des colonnes int.
-                        // On met donc NULL directement dans le SQL (comportement attendu : latest non-draft).
-                        $set = ["questionbankentryid = :ref"];
-                        $params = ['ref' => $ref, 'old' => $old];
+                        // IMPORTANT (Moodle 4.5): il peut déjà exister une référence identique pointant vers $ref.
+                        // Dans ce cas, l'UPDATE pur ne suffit pas (ou peut être bloqué par une contrainte unique),
+                        // et on se retrouve avec des refs vers les anciens IDs (post-check échoue).
+                        //
+                        // On fait donc un traitement sûr, ligne par ligne :
+                        // - si une ligne équivalente existe déjà pour $ref → supprimer la ligne $old
+                        // - sinon → mettre à jour la ligne $old vers $ref (+ version/questionversionid = NULL si colonnes présentes)
+                        $hasusingctx = is_array($tablecols) && isset($tablecols['usingcontextid']);
+                        $hascomponent = is_array($tablecols) && isset($tablecols['component']);
+                        $hasquestionarea = is_array($tablecols) && isset($tablecols['questionarea']);
+                        $hasitemid = is_array($tablecols) && isset($tablecols['itemid']);
+
+                        // Champs minimaux pour pouvoir dédupliquer proprement.
+                        $fields = ['id', 'questionbankentryid'];
+                        if ($hasusingctx) {
+                            $fields[] = 'usingcontextid';
+                        }
+                        if ($hascomponent) {
+                            $fields[] = 'component';
+                        }
+                        if ($hasquestionarea) {
+                            $fields[] = 'questionarea';
+                        }
+                        if ($hasitemid) {
+                            $fields[] = 'itemid';
+                        }
                         if (is_array($tablecols) && isset($tablecols['version'])) {
-                            $set[] = "version = NULL";
+                            $fields[] = 'version';
                         }
                         if (is_array($tablecols) && isset($tablecols['questionversionid'])) {
-                            $set[] = "questionversionid = NULL";
+                            $fields[] = 'questionversionid';
                         }
-                        $sql = "UPDATE {" . $t->table . "} SET " . implode(', ', $set) . " WHERE questionbankentryid = :old";
-                        $DB->execute($sql, $params);
+
+                        $rows = $DB->get_records($t->table, ['questionbankentryid' => $old], 'id ASC', implode(',', $fields));
+                        foreach ($rows as $row) {
+                            $existsparams = ['questionbankentryid' => $ref];
+                            if ($hasusingctx) {
+                                $existsparams['usingcontextid'] = (int)($row->usingcontextid ?? 0);
+                            }
+                            if ($hascomponent) {
+                                $existsparams['component'] = (string)($row->component ?? '');
+                            }
+                            if ($hasquestionarea) {
+                                $existsparams['questionarea'] = (string)($row->questionarea ?? '');
+                            }
+                            if ($hasitemid) {
+                                $existsparams['itemid'] = (int)($row->itemid ?? 0);
+                            }
+
+                            // Si on n'a pas les champs de déduplication, fallback : update global.
+                            $can_dedupe = $hasusingctx && $hascomponent && $hasquestionarea && $hasitemid;
+                            if ($can_dedupe && $DB->record_exists($t->table, $existsparams)) {
+                                // La référence cible existe déjà → supprimer la ligne redondante.
+                                $DB->delete_records($t->table, ['id' => (int)$row->id]);
+                                continue;
+                            }
+
+                            // Mettre à jour la ligne.
+                            $upd = new \stdClass();
+                            $upd->id = (int)$row->id;
+                            $upd->questionbankentryid = $ref;
+                            if (is_array($tablecols) && isset($tablecols['version'])) {
+                                $upd->version = null;
+                            }
+                            if (is_array($tablecols) && isset($tablecols['questionversionid'])) {
+                                $upd->questionversionid = null;
+                            }
+                            $DB->update_record($t->table, $upd);
+                        }
                     } else {
                         $sql = "UPDATE {" . $t->table . "} SET " . $t->column . " = :ref WHERE " . $t->column . " = :old";
                         $DB->execute($sql, ['ref' => $ref, 'old' => $old]);

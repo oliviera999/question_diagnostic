@@ -568,7 +568,13 @@ function showRepairModal(questionId, questionName, brokenLinks) {
             : '(<?php echo addslashes(get_string('remove_reference_desc', 'local_question_diagnostic')); ?>)';
 
         content += '<a href="' + removeUrl.toString() + '" class="btn btn-danger btn-sm" style="margin-right: 5px;" onclick="return confirm(\'' + confirmText + '\')">' + actionLabel + '</a>';
-        content += '<a href="' + repairUrl.toString() + '" class="btn btn-outline-primary btn-sm" style="margin-right: 5px;" target="_blank">🔎 Trouver via doublon strict</a>';
+
+        // Ne proposer la réparation via doublon strict que si l'URL est un pluginfile.
+        // Sinon, attempt_repair() refusera (ex: bgimage missing, messages, etc.).
+        const isPluginfile = (String(link.url || '').toLowerCase().indexOf('pluginfile.php') !== -1);
+        if (isPluginfile) {
+            content += '<a href="' + repairUrl.toString() + '" class="btn btn-outline-primary btn-sm" style="margin-right: 5px;" target="_blank">🔎 Trouver via doublon strict</a>';
+        }
         content += '<span style="font-size: 12px; color: #666;">' + hint + '</span>';
         content += '</div>';
         content += '</div>';
