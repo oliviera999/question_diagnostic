@@ -328,14 +328,23 @@ foreach ($all_questions as $q) {
             : 'Version unique'
     ]);
     
-    // Catégorie cliquable
+    // Catégorie cliquable + lien vers la question dans son contexte (banque de questions)
     echo html_writer::start_tag('td');
     if (isset($stats->category_id) && $stats->category_id > 0 && isset($stats->context_id)) {
-        $cat_url = new moodle_url('/question/edit.php', [
-            'courseid' => 1,
-            'cat' => $stats->category_id . ',' . $stats->context_id
-        ]);
-        $category_display = html_writer::link($cat_url, format_string($stats->category_name), ['target' => '_blank', 'title' => 'Ouvrir la catégorie dans la banque de questions']);
+        $cat = (object)[
+            'id' => (int)$stats->category_id,
+            'contextid' => (int)$stats->context_id,
+        ];
+        $cat_url = local_question_diagnostic_get_question_bank_url($cat, null);
+        if ($cat_url) {
+            $category_display = html_writer::link(
+                $cat_url,
+                format_string($stats->category_name),
+                ['target' => '_blank', 'title' => 'Ouvrir la catégorie dans la banque de questions']
+            );
+        } else {
+            $category_display = format_string($stats->category_name);
+        }
         $category_display .= ' <span style="color: #666; font-size: 11px;">(ID: ' . $stats->category_id . ')</span>';
         echo $category_display;
     } else {
@@ -371,15 +380,21 @@ foreach ($all_questions as $q) {
     // Actions
     echo html_writer::start_tag('td', ['style' => 'white-space: nowrap;']);
     
-    // Bouton Voir
-    $view_url = question_analyzer::get_question_bank_url($q);
-    if ($view_url) {
-        echo html_writer::link($view_url, '👁️', [
-            'class' => 'btn btn-sm btn-primary', 
-            'target' => '_blank', 
-            'title' => 'Voir',
-            'style' => 'margin-right: 5px;'
-        ]);
+    // Bouton Voir (dans le bon contexte)
+    if (isset($stats->category_id) && $stats->category_id > 0 && isset($stats->context_id)) {
+        $cat = (object)[
+            'id' => (int)$stats->category_id,
+            'contextid' => (int)$stats->context_id,
+        ];
+        $view_url = local_question_diagnostic_get_question_bank_url($cat, (int)$q->id);
+        if ($view_url) {
+            echo html_writer::link($view_url, '👁️', [
+                'class' => 'btn btn-sm btn-primary',
+                'target' => '_blank',
+                'title' => 'Ouvrir la question dans sa banque (contexte)',
+                'style' => 'margin-right: 5px;'
+            ]);
+        }
     }
     
     // Bouton Supprimer avec protection
