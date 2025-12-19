@@ -97,8 +97,49 @@ class question_merger {
             return $plan;
         }
 
-        // 2) Charger questions + usage (tentatives / quiz) en batch.
-        list($insql, $inparams) = $DB->get_in_or_equal($questionids, SQL_PARAMS_NAMED, 'qid');
+        // 2) IMPORTANT Moodle 4.5 : travailler au niveau des "entries" (question_bank_entries),
+        // pas au niveau des versions (question.id peut représenter une version).
+        //
+        // On regroupe donc les questionids détectés par leur questionbankentryid, puis on ne garde
+        // qu'UNE "question représentative" (dernière version non-brouillon) par entry.
+        $versionsbyqid = self::get_question_versions_by_question_ids($questionids);
+        $qidsbyentry = [];
+        foreach ($questionids as $qid) {
+            $v = $versionsbyqid[(int)$qid] ?? null;
+            $qbeid = (int)($v->questionbankentryid ?? 0);
+            if ($qbeid <= 0) {
+                continue;
+            }
+            if (!isset($qidsbyentry[$qbeid])) {
+                $qidsbyentry[$qbeid] = [];
+            }
+            $qidsbyentry[$qbeid][] = (int)$qid;
+        }
+
+        $entryids = array_keys($qidsbyentry);
+        if (count($entryids) < 2) {
+            $entryid = !empty($entryids) ? (int)$entryids[0] : 0;
+            $plan->errors[] = 'Ce groupe correspond à plusieurs versions d’une même question (questionbankentryid=' . $entryid . '). '
+                . 'La fusion de doublons s’applique uniquement entre entrées différentes (question_bank_entries).';
+            return $plan;
+        }
+
+        // Pour chaque entry, prendre la dernière version (non-draft si possible) afin de représenter l’entry.
+        $repbyentry = self::get_latest_question_versions_by_entry_ids($entryids);
+        $repqids = [];
+        foreach ($repbyentry as $entryid => $r) {
+            if (!empty($r->questionid)) {
+                $repqids[] = (int)$r->questionid;
+            }
+        }
+        $repqids = array_values(array_unique(array_filter($repqids, function(int $id): bool { return $id > 0; })));
+        if (count($repqids) < 2) {
+            $plan->errors[] = 'Impossible de déterminer une question représentative par entrée (question_versions).';
+            return $plan;
+        }
+
+        // Charger la question "représentative" de chaque entry + usage.
+        list($insql, $inparams) = $DB->get_in_or_equal($repqids, SQL_PARAMS_NAMED, 'qid');
         $questions = $DB->get_records_select(
             'question',
             "id {$insql}",
@@ -106,12 +147,14 @@ class question_merger {
             '',
             'id,name,qtype,questiontext,questiontextformat,timecreated,timemodified'
         );
-        $usage = question_analyzer::get_questions_usage_by_ids($questionids);
-        $ctxmap = self::get_questions_context_info_by_ids($questionids);
-        $versionmap = self::get_question_versions_by_question_ids($questionids);
+        $usage = question_analyzer::get_questions_usage_by_ids($repqids);
+        $ctxmap = self::get_questions_context_info_by_ids($repqids);
 
-        // 3) Construire une vue par question (et repérer les manquantes).
-        foreach ($questionids as $qid) {
+        // Tentatives au niveau ENTRY : si une ancienne version a des tentatives, l'entrée est protégée.
+        $attemptsbyentry = self::get_attempt_counts_by_entry_ids($entryids);
+
+        // 3) Construire une vue par question représentative (1 par entry).
+        foreach ($repqids as $qid) {
             $q = $questions[$qid] ?? null;
             if (!$q) {
                 $plan->skipped['not_found'][] = (int)$qid;
@@ -119,45 +162,62 @@ class question_merger {
             }
             $u = $usage[$qid] ?? ['quiz_count' => 0, 'attempt_count' => 0, 'is_used' => false, 'quiz_list' => []];
             $c = $ctxmap[$qid] ?? null;
-            $v = $versionmap[$qid] ?? null;
+
+            // entryid depuis repbyentry (par questionid).
+            $entryid = 0;
+            $qv = null;
+            foreach ($repbyentry as $eid => $rep) {
+                if ((int)($rep->questionid ?? 0) === (int)$qid) {
+                    $entryid = (int)$eid;
+                    $qv = $rep;
+                    break;
+                }
+            }
 
             $plan->questions[$qid] = (object)[
                 'id' => (int)$qid,
+                'entryid' => (int)$entryid, // question_bank_entries.id (clé stable Moodle 4.5)
                 'name' => (string)($q->name ?? ''),
                 'qtype' => (string)($q->qtype ?? ''),
                 'questiontextformat' => (int)($q->questiontextformat ?? 0),
-                'attempt_count' => (int)($u['attempt_count'] ?? 0),
+                'attempt_count' => (int)($attemptsbyentry[$entryid] ?? 0),
                 'quiz_count' => (int)($u['quiz_count'] ?? 0),
                 'context' => $c,
-                'version' => $v,
+                'version' => $qv, // {id(questionversionid), questionid, questionbankentryid}
             ];
         }
 
         if (count($plan->questions) < 2) {
-            $plan->errors[] = 'Impossible de charger suffisamment de questions dans ce groupe.';
+            $plan->errors[] = 'Impossible de charger suffisamment de questions représentatives dans ce groupe.';
             return $plan;
         }
 
-        // 4) Choisir la référence : max attempt_count, tie-breaker min id.
-        $bestid = 0;
+        // 4) Choisir la RÉFÉRENCE au niveau ENTRY : max attempt_count, tie-breaker min entryid.
+        $bestentry = 0;
         $bestattempts = -1;
         foreach ($plan->questions as $qid => $info) {
             $attempts = (int)($info->attempt_count ?? 0);
-            if ($attempts > $bestattempts || ($attempts === $bestattempts && ($bestid === 0 || $qid < $bestid))) {
+            $entryid = (int)($info->entryid ?? 0);
+            if ($attempts > $bestattempts || ($attempts === $bestattempts && ($bestentry === 0 || $entryid < $bestentry))) {
                 $bestattempts = $attempts;
-                $bestid = (int)$qid;
+                $bestentry = $entryid;
             }
         }
-        $plan->reference_questionid = (int)$bestid;
+        foreach ($plan->questions as $qid => $info) {
+            if ((int)($info->entryid ?? 0) === (int)$bestentry) {
+                $plan->reference_questionid = (int)$qid;
+                break;
+            }
+        }
 
         if ($plan->reference_questionid <= 0) {
             $plan->errors[] = 'Impossible de déterminer une question de référence.';
             return $plan;
         }
 
-        // 5) Déterminer les doublons fusionnables : UNIQUEMENT attempt_count=0.
-        // Les questions déjà utilisées dans des quiz mais sans tentatives restent fusionnables :
-        // on remappe les références (quiz_slots) vers la référence.
+        // 5) Déterminer les doublons fusionnables : au niveau ENTRY uniquement (attempt_count=0).
+        // Les questions déjà utilisées dans des quiz mais sans tentatives restent fusionnables,
+        // via remap question_references (+ quiz_slots si présent).
         foreach ($plan->questions as $qid => $info) {
             if ((int)$qid === $plan->reference_questionid) {
                 continue;
@@ -174,7 +234,8 @@ class question_merger {
             // Plan vide mais valide pour preview.
         }
 
-        // 6) Construire les mappings (questionid/qbe/qv).
+        // 6) Construire les mappings au niveau ENTRY (questionbankentryid).
+        // On garde aussi un mapping questionid (représentants) pour compat/anciennes tables.
         foreach ($plan->mergeable_questionids as $oldqid) {
             $plan->mappings->questionid[(int)$oldqid] = (int)$plan->reference_questionid;
         }
@@ -369,41 +430,17 @@ class question_merger {
             return [];
         }
 
-        // ⚠️ Important : ne pas réutiliser le même IN(:qid0,...) 2 fois dans une requête avec params nommés,
-        // sinon Moodle compte les placeholders deux fois (ex: 14 attendus) alors que $params n'en contient que 7.
-        list($insqlsub, $paramssub) = $DB->get_in_or_equal($questionids, SQL_PARAMS_NAMED, 'qid');
-        list($insqlmain, $paramsmain) = $DB->get_in_or_equal($questionids, SQL_PARAMS_NAMED, 'qid2');
-        $params = array_merge($paramssub, $paramsmain);
-
-        // Moodle 4.5+ : utiliser la version la plus récente (version max), idéalement non-brouillon si la colonne status existe.
-        $qvcols = [];
-        try {
-            $qvcols = $DB->get_columns('question_versions');
-        } catch (\Throwable $e) {
-            $qvcols = [];
-        }
-        $statusfilter = '';
-        if (is_array($qvcols) && isset($qvcols['status'])) {
-            // Les valeurs exactes de status sont gérées par Moodle; on exclut "draft" si présent.
-            $statusfilter = " AND v.status <> 'draft' ";
-        }
-
+        list($insql, $params) = $DB->get_in_or_equal($questionids, SQL_PARAMS_NAMED, 'qid');
         $sql = "SELECT qv.questionid,
                        qc.id AS categoryid,
                        qc.name AS categoryname,
                        qc.contextid,
                        ctx.contextlevel
                   FROM {question_versions} qv
-                  INNER JOIN (
-                        SELECT v.questionid, MAX(v.version) AS maxversion
-                          FROM {question_versions} v
-                         WHERE v.questionid {$insqlsub} {$statusfilter}
-                      GROUP BY v.questionid
-                  ) mv ON mv.questionid = qv.questionid AND mv.maxversion = qv.version
                   INNER JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
                   INNER JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
                   LEFT JOIN {context} ctx ON ctx.id = qc.contextid
-                 WHERE qv.questionid {$insqlmain}";
+                 WHERE qv.questionid {$insql}";
 
         $records = $DB->get_records_sql($sql, $params);
         $out = [];
@@ -436,11 +473,43 @@ class question_merger {
             return [];
         }
 
-        // Même contrainte : 2 IN(...) -> 2 jeux de placeholders + merge des params.
-        list($insqlsub, $paramssub) = $DB->get_in_or_equal($questionids, SQL_PARAMS_NAMED, 'qid');
-        list($insqlmain, $paramsmain) = $DB->get_in_or_equal($questionids, SQL_PARAMS_NAMED, 'qid2');
+        list($insql, $params) = $DB->get_in_or_equal($questionids, SQL_PARAMS_NAMED, 'qid');
+        // Un questionid correspond à une ligne question_versions (version spécifique).
+        $sql = "SELECT qv.id, qv.questionid, qv.questionbankentryid
+                  FROM {question_versions} qv
+                 WHERE qv.questionid {$insql}";
+        $records = $DB->get_records_sql($sql, $params);
+        $out = [];
+        foreach ($records as $r) {
+            $qid = (int)$r->questionid;
+            $out[$qid] = (object)[
+                'id' => (int)($r->id ?? 0),
+                'questionid' => $qid,
+                'questionbankentryid' => (int)($r->questionbankentryid ?? 0),
+            ];
+        }
+        return $out;
+    }
+
+    /**
+     * Récupère, pour chaque entry, la question/version la plus récente (non-draft si possible).
+     *
+     * @param int[] $entryids question_bank_entries.id
+     * @return array<int,object> entryid => {id(questionversionid), questionid, questionbankentryid}
+     */
+    private static function get_latest_question_versions_by_entry_ids(array $entryids): array {
+        global $DB;
+
+        $entryids = array_values(array_unique(array_map('intval', (array)$entryids)));
+        $entryids = array_values(array_filter($entryids, function(int $id): bool { return $id > 0; }));
+        if (empty($entryids)) {
+            return [];
+        }
+
+        list($insqlsub, $paramssub) = $DB->get_in_or_equal($entryids, SQL_PARAMS_NAMED, 'e');
+        list($insqlmain, $paramsmain) = $DB->get_in_or_equal($entryids, SQL_PARAMS_NAMED, 'e2');
         $params = array_merge($paramssub, $paramsmain);
-        // Moodle 4.5+ : prendre la version la plus récente (max(version)), idéalement non-brouillon si status existe.
+
         $qvcols = [];
         try {
             $qvcols = $DB->get_columns('question_versions');
@@ -455,21 +524,54 @@ class question_merger {
         $sql = "SELECT qv.id, qv.questionid, qv.questionbankentryid
                   FROM {question_versions} qv
                   INNER JOIN (
-                        SELECT v.questionid, MAX(v.version) AS maxversion
+                        SELECT v.questionbankentryid, MAX(v.version) AS maxversion
                           FROM {question_versions} v
-                         WHERE v.questionid {$insqlsub} {$statusfilter}
-                      GROUP BY v.questionid
-                  ) mv ON mv.questionid = qv.questionid AND mv.maxversion = qv.version
-                 WHERE qv.questionid {$insqlmain}";
+                         WHERE v.questionbankentryid {$insqlsub} {$statusfilter}
+                      GROUP BY v.questionbankentryid
+                  ) mv ON mv.questionbankentryid = qv.questionbankentryid AND mv.maxversion = qv.version
+                 WHERE qv.questionbankentryid {$insqlmain}";
+
         $records = $DB->get_records_sql($sql, $params);
         $out = [];
         foreach ($records as $r) {
-            $qid = (int)$r->questionid;
-            $out[$qid] = (object)[
+            $entryid = (int)($r->questionbankentryid ?? 0);
+            if ($entryid <= 0) {
+                continue;
+            }
+            $out[$entryid] = (object)[
                 'id' => (int)($r->id ?? 0),
-                'questionid' => $qid,
-                'questionbankentryid' => (int)($r->questionbankentryid ?? 0),
+                'questionid' => (int)($r->questionid ?? 0),
+                'questionbankentryid' => $entryid,
             ];
+        }
+        return $out;
+    }
+
+    /**
+     * Compte les tentatives au niveau ENTRY : si une version a des tentatives, l'entry est protégée.
+     *
+     * @param int[] $entryids question_bank_entries.id
+     * @return array<int,int> entryid => attempt_count
+     */
+    private static function get_attempt_counts_by_entry_ids(array $entryids): array {
+        global $DB;
+
+        $entryids = array_values(array_unique(array_map('intval', (array)$entryids)));
+        $entryids = array_values(array_filter($entryids, function(int $id): bool { return $id > 0; }));
+        if (empty($entryids)) {
+            return [];
+        }
+
+        list($insql, $params) = $DB->get_in_or_equal($entryids, SQL_PARAMS_NAMED, 'e');
+        $sql = "SELECT qv.questionbankentryid AS entryid, COUNT(DISTINCT qa.id) AS attempt_count
+                  FROM {question_attempts} qa
+                  INNER JOIN {question_versions} qv ON qv.questionid = qa.questionid
+                 WHERE qv.questionbankentryid {$insql}
+              GROUP BY qv.questionbankentryid";
+        $records = $DB->get_records_sql($sql, $params);
+        $out = [];
+        foreach ($records as $r) {
+            $out[(int)$r->entryid] = (int)($r->attempt_count ?? 0);
         }
         return $out;
     }
