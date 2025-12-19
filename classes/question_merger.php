@@ -366,12 +366,31 @@ class question_merger {
 
         list($insql, $params) = $DB->get_in_or_equal($questionids, SQL_PARAMS_NAMED, 'qid');
 
+        // Moodle 4.5+ : utiliser la version la plus récente (version max), idéalement non-brouillon si la colonne status existe.
+        $qvcols = [];
+        try {
+            $qvcols = $DB->get_columns('question_versions');
+        } catch (\Throwable $e) {
+            $qvcols = [];
+        }
+        $statusfilter = '';
+        if (is_array($qvcols) && isset($qvcols['status'])) {
+            // Les valeurs exactes de status sont gérées par Moodle; on exclut "draft" si présent.
+            $statusfilter = " AND v.status <> 'draft' ";
+        }
+
         $sql = "SELECT qv.questionid,
                        qc.id AS categoryid,
                        qc.name AS categoryname,
                        qc.contextid,
                        ctx.contextlevel
                   FROM {question_versions} qv
+                  INNER JOIN (
+                        SELECT v.questionid, MAX(v.version) AS maxversion
+                          FROM {question_versions} v
+                         WHERE v.questionid {$insql} {$statusfilter}
+                      GROUP BY v.questionid
+                  ) mv ON mv.questionid = qv.questionid AND mv.maxversion = qv.version
                   INNER JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
                   INNER JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
                   LEFT JOIN {context} ctx ON ctx.id = qc.contextid
@@ -409,8 +428,26 @@ class question_merger {
         }
 
         list($insql, $params) = $DB->get_in_or_equal($questionids, SQL_PARAMS_NAMED, 'qid');
+        // Moodle 4.5+ : prendre la version la plus récente (max(version)), idéalement non-brouillon si status existe.
+        $qvcols = [];
+        try {
+            $qvcols = $DB->get_columns('question_versions');
+        } catch (\Throwable $e) {
+            $qvcols = [];
+        }
+        $statusfilter = '';
+        if (is_array($qvcols) && isset($qvcols['status'])) {
+            $statusfilter = " AND v.status <> 'draft' ";
+        }
+
         $sql = "SELECT qv.id, qv.questionid, qv.questionbankentryid
                   FROM {question_versions} qv
+                  INNER JOIN (
+                        SELECT v.questionid, MAX(v.version) AS maxversion
+                          FROM {question_versions} v
+                         WHERE v.questionid {$insql} {$statusfilter}
+                      GROUP BY v.questionid
+                  ) mv ON mv.questionid = qv.questionid AND mv.maxversion = qv.version
                  WHERE qv.questionid {$insql}";
         $records = $DB->get_records_sql($sql, $params);
         $out = [];
@@ -439,8 +476,13 @@ class question_merger {
         // Whitelist (core, externes aux définitions de question).
         $whitelist = [
             'quiz_slots' => ['questionid', 'questionbankentryid'],
-            'question_references' => ['questionbankentryid', 'questionid', 'questionversionid'],
-            'question_set_references' => ['questionbankentryid', 'questionversionid', 'questionid'],
+            // Moodle 4.5+ : les usages (ex: quiz) passent par question_references.
+            // NB: on ne mappe pas la "version" en dur : on remet version/questionversionid à NULL
+            // afin d'utiliser la dernière version non-brouillon (comportement core).
+            'question_references' => ['questionbankentryid'],
+            // Selon versions, question_set_references peut exposer un questionbankentryid.
+            // On applique la même logique "latest" si des colonnes version/questionversionid existent.
+            'question_set_references' => ['questionbankentryid'],
         ];
 
         foreach ($whitelist as $table => $cols) {
@@ -497,6 +539,13 @@ class question_merger {
 
                 foreach (['questionid', 'questionbankentryid', 'questionversionid'] as $col) {
                     if (!isset($cols[$col])) {
+                        continue;
+                    }
+                    // Tables spéciales : éviter d'update des colonnes version/questionid inadaptées.
+                    if ($t === 'question_references' && $col !== 'questionbankentryid') {
+                        continue;
+                    }
+                    if ($t === 'question_set_references' && $col !== 'questionbankentryid') {
                         continue;
                     }
                     $type = self::guess_target_type($col);
@@ -669,6 +718,17 @@ class question_merger {
             if (empty($map)) {
                 continue;
             }
+
+            // Colonnes présentes (pour traitements spécifiques).
+            $tablecols = null;
+            if ($t->table === 'question_references' || $t->table === 'question_set_references') {
+                try {
+                    $tablecols = $DB->get_columns($t->table);
+                } catch (\Throwable $e) {
+                    $tablecols = null;
+                }
+            }
+
             $sum = 0;
             foreach ($map as $old => $ref) {
                 $old = (int)$old;
@@ -677,8 +737,26 @@ class question_merger {
                     continue;
                 }
                 try {
-                    $sql = "UPDATE {" . $t->table . "} SET " . $t->column . " = :ref WHERE " . $t->column . " = :old";
-                    $DB->execute($sql, ['ref' => $ref, 'old' => $old]);
+                    // Cas spécial Moodle 4.5+ : question_references
+                    // - on remap questionbankentryid vers la référence
+                    // - on met version/questionversionid à NULL pour pointer vers la dernière version non-brouillon.
+                    if (($t->table === 'question_references' || $t->table === 'question_set_references') && $t->column === 'questionbankentryid') {
+                        $set = ["questionbankentryid = :ref"];
+                        $params = ['ref' => $ref, 'old' => $old];
+                        if (is_array($tablecols) && isset($tablecols['version'])) {
+                            $set[] = "version = :vnull";
+                            $params['vnull'] = null;
+                        }
+                        if (is_array($tablecols) && isset($tablecols['questionversionid'])) {
+                            $set[] = "questionversionid = :qvnull";
+                            $params['qvnull'] = null;
+                        }
+                        $sql = "UPDATE {" . $t->table . "} SET " . implode(', ', $set) . " WHERE questionbankentryid = :old";
+                        $DB->execute($sql, $params);
+                    } else {
+                        $sql = "UPDATE {" . $t->table . "} SET " . $t->column . " = :ref WHERE " . $t->column . " = :old";
+                        $DB->execute($sql, ['ref' => $ref, 'old' => $old]);
+                    }
                     $sum++;
                 } catch (\Throwable $e) {
                     // Ne pas throw ici : laisser le caller décider via post-check (plus fiable).
