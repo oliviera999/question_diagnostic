@@ -26,8 +26,10 @@ require_once(__DIR__ . '/../../config.php');
 require_once($CFG->libdir . '/adminlib.php');
 require_once(__DIR__ . '/lib.php');
 require_once(__DIR__ . '/classes/question_analyzer.php');
+require_once(__DIR__ . '/classes/question_merger.php');
 
 use local_question_diagnostic\question_analyzer;
+use local_question_diagnostic\question_merger;
 
 require_login();
 
@@ -120,6 +122,31 @@ echo html_writer::end_tag('form');
 $offset = max(0, (int)$page) * (int)$perpage;
 $totalgroups = (int)question_analyzer::count_duplicate_groups(false, false);
 $groups = question_analyzer::get_duplicate_groups((int)$perpage, (int)$offset, false, false);
+
+// Filtrer : ne conserver que les groupes avec au moins 1 doublon fusionnable.
+// (Sinon, ces groupes ne doivent pas apparaître dans la liste.)
+$options = [
+    'include_quiz_references' => true,
+    'advanced_discovery' => (int)$discovery === 1,
+];
+$eligiblegroups = [];
+foreach ((array)$groups as $g) {
+    $repid = (int)($g->representative_id ?? 0);
+    if ($repid <= 0) {
+        continue;
+    }
+    $plan = question_merger::build_merge_plan($repid, $options);
+    if (!empty($plan->errors)) {
+        continue;
+    }
+    $mergecount = count((array)($plan->mergeable_questionids ?? []));
+    if ($mergecount <= 0) {
+        continue;
+    }
+    $eligiblegroups[] = $g;
+}
+// Remplacer l'affichage par la liste filtrée.
+$groups = $eligiblegroups;
 
 if (empty($groups)) {
     echo $OUTPUT->notification(get_string('question_merge_no_groups', 'local_question_diagnostic'), \core\output\notification::NOTIFY_SUCCESS);
