@@ -44,7 +44,7 @@ if (!is_siteadmin()) {
 }
 
 $confirm = optional_param('confirm', 0, PARAM_INT);
-$includequiz = optional_param('includequiz', 0, PARAM_INT);
+$includequiz = optional_param('includequiz', 1, PARAM_INT);
 $discovery = optional_param('discovery', 0, PARAM_INT);
 $limit = optional_param('limit', 100, PARAM_INT); // combien de groupes à traiter à partir de l'offset
 $offset = optional_param('offset', 0, PARAM_INT);
@@ -73,7 +73,9 @@ $PAGE->set_title(get_string('question_merge_batch_title', 'local_question_diagno
 $PAGE->set_heading(get_string('question_merge_batch_title', 'local_question_diagnostic'));
 
 $options = [
-    'include_quiz_references' => (int)$includequiz === 1,
+    // include_quiz_references est toujours actif : les questions utilisées dans des quiz
+    // mais sans tentatives sont fusionnables et les références quiz seront remappées.
+    'include_quiz_references' => true,
     'advanced_discovery' => (int)$discovery === 1,
 ];
 

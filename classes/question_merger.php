@@ -155,7 +155,9 @@ class question_merger {
             return $plan;
         }
 
-        // 5) Déterminer les doublons fusionnables : attempt_count=0 (et quiz_count=0 sauf si option activée).
+        // 5) Déterminer les doublons fusionnables : UNIQUEMENT attempt_count=0.
+        // Les questions déjà utilisées dans des quiz mais sans tentatives restent fusionnables :
+        // on remappe les références (quiz_slots) vers la référence.
         foreach ($plan->questions as $qid => $info) {
             if ((int)$qid === $plan->reference_questionid) {
                 continue;
@@ -164,15 +166,11 @@ class question_merger {
                 $plan->skipped['has_attempts'][] = (int)$qid;
                 continue;
             }
-            if (!$opts->include_quiz_references && (int)($info->quiz_count ?? 0) > 0) {
-                $plan->skipped['in_quiz'][] = (int)$qid;
-                continue;
-            }
             $plan->mergeable_questionids[] = (int)$qid;
         }
 
         if (empty($plan->mergeable_questionids)) {
-            $plan->warnings[] = 'Aucun doublon fusionnable (tous ont des tentatives ou sont utilisés dans des quiz).';
+            $plan->warnings[] = 'Aucun doublon fusionnable (tous ont des tentatives).';
             // Plan vide mais valide pour preview.
         }
 

@@ -39,7 +39,7 @@ if (!is_siteadmin()) {
 
 $repid = required_param('repid', PARAM_INT);
 $confirm = optional_param('confirm', 0, PARAM_INT);
-$includequiz = optional_param('includequiz', 0, PARAM_INT);
+$includequiz = optional_param('includequiz', 1, PARAM_INT);
 $discovery = optional_param('discovery', 0, PARAM_INT);
 $returnurlparam = optional_param('returnurl', '', PARAM_LOCALURL);
 
@@ -59,7 +59,9 @@ $PAGE->set_title(get_string('question_merge_title', 'local_question_diagnostic')
 $PAGE->set_heading(get_string('question_merge_title', 'local_question_diagnostic'));
 
 $options = [
-    'include_quiz_references' => (int)$includequiz === 1,
+    // include_quiz_references est toujours actif : les questions utilisées dans des quiz
+    // mais sans tentatives sont fusionnables et les références quiz seront remappées.
+    'include_quiz_references' => true,
     'advanced_discovery' => (int)$discovery === 1,
 ];
 

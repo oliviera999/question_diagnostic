@@ -37,7 +37,7 @@ if (!is_siteadmin()) {
 
 $page = optional_param('page', 0, PARAM_INT);
 $perpage = optional_param('perpage', 50, PARAM_INT);
-$includequiz = optional_param('includequiz', 0, PARAM_INT);
+$includequiz = optional_param('includequiz', 1, PARAM_INT);
 $discovery = optional_param('discovery', 0, PARAM_INT);
 
 $PAGE->set_url(new moodle_url('/local/question_diagnostic/question_merge.php', [
@@ -88,19 +88,8 @@ echo html_writer::start_tag('form', [
 ]);
 echo html_writer::start_div('form-inline', ['style' => 'display:flex;gap:16px;flex-wrap:wrap;align-items:center;']);
 
-echo html_writer::start_div();
-echo html_writer::empty_tag('input', [
-    'type' => 'checkbox',
-    'name' => 'includequiz',
-    'value' => '1',
-    'id' => 'qd-merge-includequiz',
-    'checked' => (int)$includequiz === 1 ? 'checked' : null,
-]);
-echo html_writer::tag('label', ' ' . get_string('question_merge_includequiz', 'local_question_diagnostic'), [
-    'for' => 'qd-merge-includequiz',
-    'style' => 'margin-left:6px;',
-]);
-echo html_writer::end_div();
+// includequiz est toujours actif : une question utilisée dans un quiz mais sans tentatives est fusionnable
+// (les références quiz sont remappées). On garde le paramètre en compat, mais on ne l'expose pas en UI.
 
 echo html_writer::start_div();
 echo html_writer::empty_tag('input', [
