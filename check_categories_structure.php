@@ -7,7 +7,7 @@ require_once(__DIR__ . '/../../config.php');
 require_login();
 
 if (!is_siteadmin()) {
-    print_error('accessdenied', 'admin');
+    throw new \moodle_exception('accessdenied', 'admin');
 }
 
 $context = context_system::instance();

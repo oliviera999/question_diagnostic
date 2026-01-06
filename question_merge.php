@@ -34,7 +34,7 @@ use local_question_diagnostic\question_merger;
 require_login();
 
 if (!is_siteadmin()) {
-    print_error('accessdenied', 'admin');
+    throw new \moodle_exception('accessdenied', 'admin');
 }
 
 $page = optional_param('page', 0, PARAM_INT);

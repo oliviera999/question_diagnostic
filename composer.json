@@ -10,7 +10,7 @@
         }
     ],
     "require": {
-        "php": ">=7.4",
+        "php": ">=8.2",
         "ext-json": "*",
         "ext-mbstring": "*",
         "ext-curl": "*",
@@ -67,15 +67,11 @@
     "extra": {
         "moodle-plugin": {
             "component": "local_question_diagnostic",
-            "release": "v1.11.27",
+            "release": "v1.14.0",
             "maturity": "MATURITY_STABLE",
-            "requires": "2022041900",
+            "requires": "2026010100",
             "supported": [
-                "400",
-                "401",
-                "403",
-                "404",
-                "405"
+                "510"
             ]
         }
     }

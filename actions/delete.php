@@ -13,7 +13,7 @@ require_login();
 require_sesskey();
 
 if (!is_siteadmin()) {
-    print_error('accessdenied', 'admin');
+    throw new \moodle_exception('accessdenied', 'admin');
 }
 
 // 🔧 SÉCURITÉ v1.9.27 : Limite stricte sur les opérations en masse (mode "one-shot" historique).
@@ -271,7 +271,7 @@ if ($categoryids) {
     // Normaliser.
     $ids = array_values(array_unique(array_filter($ids, function($v) { return $v > 0; })));
     if (count($ids) > MAX_BULK_DELETE_CATEGORIES_JOB) {
-        print_error('error', 'local_question_diagnostic', $returnurl,
+        throw new \moodle_exception('error', 'local_question_diagnostic', $returnurl,
             'Trop de catégories sélectionnées. Maximum autorisé : ' . MAX_BULK_DELETE_CATEGORIES_JOB);
     }
     

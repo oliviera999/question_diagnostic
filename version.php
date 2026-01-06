@@ -9,8 +9,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'local_question_diagnostic';
-$plugin->version = 2025121905;  // YYYYMMDDXX format (v1.12.6 - Option recherche fichiers similaires par nom)
-$plugin->requires = 2022041900; // Moodle 4.0+ (architecture question_bank_entries requise)
+$plugin->version = 2025121907;  // YYYYMMDDXX format (v1.14.0 - API Moodle standard pour création de questions)
+$plugin->requires = 2026010100; // Moodle 5.1+ (PHP 8.2+ requis)
 $plugin->maturity = MATURITY_STABLE;
-$plugin->release = 'v1.12.6';
+$plugin->release = 'v1.14.0';
 

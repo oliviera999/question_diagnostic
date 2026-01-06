@@ -5,6 +5,73 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.14.0] - 2025-12-19
+
+### 🚀 Évolution majeure : Migration vers l'API Moodle standard pour création de questions
+
+**BREAKING CHANGE** : Refactorisation majeure de la création de questions pour utiliser l'API Moodle officielle.
+
+#### Modifications principales
+
+- **API Moodle standard** : Migration de `repair_create_recovery()` dans `classes/orphan_file_repairer.php`
+  - ✅ Utilisation de `question_bank::get_qtype()->save_question()` au lieu d'insertions directes en BDD
+  - ✅ Gestion automatique des événements et hooks Moodle
+  - ✅ Validation automatique des données selon les règles Moodle
+  - ✅ Gestion automatique de `question_bank_entries` et `question_versions` par l'API
+  - ✅ Compatibilité garantie avec toutes les futures versions de Moodle
+
+- **Avantages** :
+  - Plus de risque d'incohérence si la structure BDD change
+  - Respect des événements Moodle (question_created, etc.)
+  - Validation automatique des données
+  - Code plus maintenable et conforme aux standards Moodle
+
+- **Fichiers modifiés** :
+  - `classes/orphan_file_repairer.php` : Refactorisation complète de `repair_create_recovery()`
+  - `version.php` : Version incrémentée vers v1.14.0
+
+#### Notes techniques
+
+- L'ancienne méthode utilisait des insertions directes dans `question`, `question_bank_entries` et `question_versions`
+- La nouvelle méthode utilise l'API Moodle standard via `question_bank::get_qtype('description')->save_question()`
+- Les transactions SQL sont conservées pour garantir l'intégrité des opérations
+
+## [1.13.0] - 2025-12-19
+
+### 🚀 Portage Moodle 5.1
+
+**BREAKING CHANGE** : Ce plugin est maintenant compatible uniquement avec Moodle 5.1+.
+
+#### Modifications principales
+
+- **Compatibilité Moodle** : Passage à Moodle 5.1 uniquement (requis `2026010100`)
+  - **⚠️ IMPORTANT** : Plus de compatibilité avec Moodle 4.x
+  - Prérequis PHP : 8.2 minimum (au lieu de 7.4)
+
+- **APIs dépréciées** : Remplacement de toutes les occurrences de `print_error()` par `throw new \moodle_exception()`
+  - 72+ fichiers mis à jour
+  - Conforme aux standards Moodle 5.1
+
+- **Code incohérent supprimé** :
+  - Suppression des méthodes `backup_file_state()` et `restore_file_state()` dans `orphan_file_repairer.php` qui référençaient une table inexistante (`local_qd_file_backups`)
+
+- **Documentation** :
+  - Ajout de commentaires de compatibilité Moodle 5.1 dans les zones critiques (manipulations directes BDD)
+  - Mise à jour du README.md et badges de compatibilité
+
+- **Fichiers modifiés** :
+  - `version.php` : Version core Moodle 5.1
+  - `composer.json` : PHP 8.2+ requis, support Moodle 5.1
+  - Tous les fichiers PHP avec `print_error()` → `\moodle_exception`
+  - `classes/orphan_file_repairer.php` : Suppression code incohérent
+  - `README.md` : Mise à jour compatibilité
+
+#### Notes de migration
+
+- **Migration depuis Moodle 4.x** : Mettre à jour Moodle vers 5.1 avant d'installer cette version du plugin
+- **Vérification PHP** : S'assurer que PHP 8.2+ est disponible
+- **Tests recommandés** : Tester toutes les fonctionnalités après migration
+
 ## [1.12.1] - 2025-12-19
 
 ### ✨ Feature : fusion de questions (doublons stricts)

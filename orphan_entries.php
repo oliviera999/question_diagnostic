@@ -31,7 +31,7 @@ use local_question_diagnostic\question_analyzer;
 // Sécurité
 require_login();
 if (!is_siteadmin()) {
-    print_error('accessdenied', 'admin');
+    throw new \moodle_exception('accessdenied', 'admin');
 }
 
 // Paramètres
@@ -139,6 +139,9 @@ if ($action === 'bulk_delete_empty' && !empty($selectedentries)) {
         // Pas de confirmation, afficher la page de confirmation plus bas
     } else {
     
+    // ⚠️ MOODLE 5.1 : Transaction SQL pour garantir l'intégrité des suppressions
+    $transaction = $DB->start_delegated_transaction();
+    
     try {
         $success_count = 0;
         $errors = [];
@@ -181,6 +184,9 @@ if ($action === 'bulk_delete_empty' && !empty($selectedentries)) {
                 $errors[] = "Entry #{$entry_id} : " . $e->getMessage();
             }
         }
+        
+        // ✅ COMMIT si tout OK
+        $transaction->allow_commit();
         
         // Purger le cache après modification
         if ($success_count > 0) {

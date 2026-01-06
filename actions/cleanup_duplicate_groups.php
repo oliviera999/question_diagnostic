@@ -33,7 +33,7 @@ use local_question_diagnostic\question_analyzer;
 require_login();
 
 if (!is_siteadmin()) {
-    print_error('accessdenied', 'admin');
+    throw new \moodle_exception('accessdenied', 'admin');
 }
 
 require_sesskey();
@@ -53,7 +53,7 @@ if ($bulk) {
     $groups_data = json_decode($groups_json);
     
     if (!$groups_data || !is_array($groups_data)) {
-        print_error('Données invalides pour le nettoyage en masse');
+        throw new \moodle_exception('invalidparameter', 'error', '', 'Données invalides pour le nettoyage en masse');
     }
     
     // Décoder chaque groupe (format: "representative_id").
@@ -74,7 +74,7 @@ if ($bulk) {
 }
 
 if (empty($groups_to_clean)) {
-    print_error('Aucun groupe à nettoyer');
+    throw new \moodle_exception('invalidparameter', 'error', '', 'Aucun groupe à nettoyer');
 }
 
 // Vérifier si c'est une confirmation ou une première demande

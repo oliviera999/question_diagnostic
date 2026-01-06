@@ -22,7 +22,7 @@ require_once(__DIR__ . '/lib.php');
 require_login();
 
 if (!is_siteadmin()) {
-    print_error('accessdenied', 'admin');
+    throw new \moodle_exception('accessdenied', 'admin');
 }
 
 $context = context_system::instance();

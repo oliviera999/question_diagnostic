@@ -33,7 +33,7 @@ require_login();
 require_sesskey();
 
 if (!is_siteadmin()) {
-    print_error('accessdenied', 'admin');
+    throw new \moodle_exception('accessdenied', 'admin');
 }
 
 $confirm = optional_param('confirm', 0, PARAM_INT);
@@ -255,5 +255,9 @@ if ($success === 0 && $failed === 0) {
 }
 
 redirect($returnurl);
+
+
+
+
 
 

@@ -12,7 +12,7 @@ require_login();
 
 // Vérification stricte : seuls les administrateurs du site peuvent accéder à cette page.
 if (!is_siteadmin()) {
-    print_error('accesinterdit', 'admin', '', 'Vous devez être administrateur du site pour accéder à cet outil.');
+    throw new \moodle_exception('accesinterdit', 'admin', '', 'Vous devez être administrateur du site pour accéder à cet outil.');
     exit;
 }
 

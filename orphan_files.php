@@ -19,7 +19,7 @@ require_login();
 
 // Vérification stricte : seuls les administrateurs du site peuvent accéder à cette page.
 if (!is_siteadmin()) {
-    print_error('accessdenied', 'admin', '', get_string('accessdenied', 'local_question_diagnostic'));
+    throw new \moodle_exception('accessdenied', 'admin', '', get_string('accessdenied', 'local_question_diagnostic'));
     exit;
 }
 

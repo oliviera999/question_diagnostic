@@ -12,6 +12,7 @@ defined('MOODLE_INTERNAL') || die();
 
 require_once($CFG->libdir . '/filelib.php');
 require_once($CFG->libdir . '/questionlib.php');
+require_once($CFG->dirroot . '/question/engine/lib.php');
 
 /**
  * Réparateur intelligent de fichiers orphelins
@@ -264,9 +265,6 @@ class orphan_file_repairer {
             ];
         }
         
-        // Sauvegarder l'état actuel (pour rollback potentiel)
-        self::backup_file_state($orphan_file);
-        
         try {
             switch ($repair_type) {
                 case 'reassociate_contenthash':
@@ -288,8 +286,7 @@ class orphan_file_repairer {
                     ];
             }
         } catch (\Exception $e) {
-            // En cas d'erreur, tenter de restaurer
-            self::restore_file_state($orphan_file_id);
+            // En cas d'erreur, retourner l'erreur
             return [
                 'success' => false,
                 'message' => get_string('repair_error', 'local_question_diagnostic') . ': ' . $e->getMessage()
@@ -405,74 +402,100 @@ class orphan_file_repairer {
 
     /**
      * Crée une question de récupération pour héberger le fichier
+     * 
+     * ✅ MOODLE 5.1 : Utilise maintenant l'API Moodle standard via question_bank::get_qtype()
+     * 
+     * Cette méthode utilise l'API officielle Moodle pour créer des questions, garantissant:
+     * - Compatibilité avec toutes les versions futures de Moodle
+     * - Gestion automatique des événements et hooks
+     * - Validation des données selon les règles Moodle
+     * - Gestion automatique de question_bank_entries et question_versions
+     * 
+     * @param object $orphan_file Fichier orphelin à réparer
+     * @return array Résultat de la création [success, message, question_id, category]
      */
     private static function repair_create_recovery($orphan_file) {
         global $DB, $USER;
         
-        // Créer ou récupérer la catégorie "Fichiers Récupérés"
-        $category = self::get_or_create_recovery_category();
+        // ✅ MOODLE 5.1 : Transaction SQL pour garantir l'intégrité de la création
+        $transaction = $DB->start_delegated_transaction();
         
-        // Créer une question de type "description"
-        $question = new \stdClass();
-        $question->category = $category->id;
-        $question->name = 'Recovered: ' . $orphan_file->filename . ' [' . date('Y-m-d H:i') . ']';
-        $question->questiontext = '<p><strong>Fichier récupéré automatiquement</strong></p>' .
-                                  '<p>Nom original : ' . htmlspecialchars($orphan_file->filename) . '</p>' .
-                                  '<p>Date de récupération : ' . date('Y-m-d H:i:s') . '</p>';
-        $question->questiontextformat = FORMAT_HTML;
-        $question->generalfeedback = '';
-        $question->generalfeedbackformat = FORMAT_HTML;
-        $question->qtype = 'description';
-        $question->defaultmark = 0;
-        $question->penalty = 0;
-        $question->length = 0;
-        $question->stamp = make_unique_id_code();
-        $question->timecreated = time();
-        $question->timemodified = time();
-        $question->createdby = $USER->id ?? 2;
-        $question->modifiedby = $USER->id ?? 2;
-        
-        // Sauvegarder la question
-        $question->id = $DB->insert_record('question', $question);
-        
-        // Créer l'entrée dans question_bank_entries
-        $entry = new \stdClass();
-        $entry->questioncategoryid = $category->id;
-        $entry->idnumber = null;
-        $entry->ownerid = $USER->id ?? 2;
-        $entry->id = $DB->insert_record('question_bank_entries', $entry);
-        
-        // Créer la version
-        $version = new \stdClass();
-        $version->questionbankentryid = $entry->id;
-        $version->version = 1;
-        $version->questionid = $question->id;
-        $version->status = 'ready';
-        $DB->insert_record('question_versions', $version);
-        
-        // Mettre à jour question.parent
-        $question->parent = $entry->id;
-        $DB->update_record('question', $question);
-        
-        // Réassocier le fichier
-        $update = new \stdClass();
-        $update->id = $orphan_file->id;
-        $update->component = 'question';
-        $update->filearea = 'questiontext';
-        $update->itemid = $question->id;
-        $update->contextid = $category->contextid;
-        
-        $DB->update_record('files', $update);
-        
-        // Logger
-        self::log_repair('recovery', $orphan_file->id, $question);
-        
-        return [
-            'success' => true,
-            'message' => get_string('repair_success_recovery', 'local_question_diagnostic'),
-            'question_id' => $question->id,
-            'category' => $category->name
-        ];
+        try {
+            // Créer ou récupérer la catégorie "Fichiers Récupérés"
+            $category = self::get_or_create_recovery_category();
+            
+            // ✅ MOODLE 5.1 : Utiliser l'API Moodle standard pour créer la question
+            $qtype = 'description';
+            
+            // Vérifier que le type de question existe
+            if (!\question_bank::is_qtype_installed($qtype)) {
+                throw new \moodle_exception('qtypenotfound', 'question', '', $qtype);
+            }
+            
+            // Obtenir le gestionnaire du type de question
+            $qtypeobj = \question_bank::get_qtype($qtype);
+            
+            // Préparer les données de la question selon l'API Moodle
+            // Structure attendue par save_question() de l'API Moodle
+            $fromform = new \stdClass();
+            $fromform->name = 'Recovered: ' . $orphan_file->filename . ' [' . date('Y-m-d H:i') . ']';
+            $fromform->questiontext = [
+                'text' => '<p><strong>Fichier récupéré automatiquement</strong></p>' .
+                         '<p>Nom original : ' . s($orphan_file->filename) . '</p>' .
+                         '<p>Date de récupération : ' . date('Y-m-d H:i:s') . '</p>',
+                'format' => FORMAT_HTML
+            ];
+            $fromform->generalfeedback = [
+                'text' => '',
+                'format' => FORMAT_HTML
+            ];
+            $fromform->defaultmark = 0;
+            $fromform->penalty = 0;
+            $fromform->qtype = $qtype;
+            $fromform->category = $category->id;
+            $fromform->idnumber = '';
+            $fromform->hidden = 0;
+            
+            // Utiliser l'API Moodle standard pour sauvegarder la question
+            // save_question() accepte: (fromform, question) où question peut être null pour une nouvelle question
+            // Cette méthode gère automatiquement question_bank_entries et question_versions
+            $question = $qtypeobj->save_question($fromform, null);
+            
+            if (!$question || !isset($question->id)) {
+                throw new \moodle_exception('errorcreatingquestion', 'question');
+            }
+            
+            // Réassocier le fichier à la question créée
+            $update = new \stdClass();
+            $update->id = $orphan_file->id;
+            $update->component = 'question';
+            $update->filearea = 'questiontext';
+            $update->itemid = $question->id;
+            
+            // Récupérer le contexte de la catégorie
+            $categorycontext = $DB->get_field('question_categories', 'contextid', ['id' => $category->id], MUST_EXIST);
+            $update->contextid = $categorycontext;
+            
+            $DB->update_record('files', $update);
+            
+            // ✅ COMMIT si tout OK
+            $transaction->allow_commit();
+            
+            // Logger
+            self::log_repair('recovery', $orphan_file->id, $question);
+            
+            return [
+                'success' => true,
+                'message' => get_string('repair_success_recovery', 'local_question_diagnostic'),
+                'question_id' => $question->id,
+                'category' => $category->name
+            ];
+            
+        } catch (\Exception $e) {
+            // 🔄 ROLLBACK AUTOMATIQUE en cas d'erreur
+            debugging('Erreur dans transaction repair_create_recovery : ' . $e->getMessage(), DEBUG_DEVELOPER);
+            throw $e; // Re-lancer pour traitement par l'appelant
+        }
     }
 
     /**
@@ -508,43 +531,6 @@ class orphan_file_repairer {
         return $category;
     }
 
-    /**
-     * Sauvegarde l'état d'un fichier avant modification
-     */
-    private static function backup_file_state($file) {
-        global $DB;
-        
-        $backup = new \stdClass();
-        $backup->fileid = $file->id;
-        $backup->component = $file->component;
-        $backup->filearea = $file->filearea;
-        $backup->itemid = $file->itemid;
-        $backup->contextid = $file->contextid;
-        $backup->backup_time = time();
-        
-        // Créer une table temporaire si elle n'existe pas
-        // Note: En production, utiliser une vraie table ou un système de versioning
-        $DB->insert_record('local_qd_file_backups', $backup);
-    }
-
-    /**
-     * Restaure l'état d'un fichier
-     */
-    private static function restore_file_state($fileid) {
-        global $DB;
-        
-        $backup = $DB->get_record('local_qd_file_backups', ['fileid' => $fileid], '*', IGNORE_MULTIPLE);
-        if ($backup) {
-            $restore = new \stdClass();
-            $restore->id = $fileid;
-            $restore->component = $backup->component;
-            $restore->filearea = $backup->filearea;
-            $restore->itemid = $backup->itemid;
-            $restore->contextid = $backup->contextid;
-            
-            $DB->update_record('files', $restore);
-        }
-    }
 
     /**
      * Logger une opération de réparation

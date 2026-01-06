@@ -30,7 +30,7 @@ require_login();
 require_sesskey();
 
 if (!is_siteadmin()) {
-    print_error('accessdenied', 'admin');
+    throw new \moodle_exception('accessdenied', 'admin');
 }
 
 // 🆕 v1.9.23 : Support suppression en masse
@@ -55,7 +55,7 @@ if (!empty($questionids_param)) {
     // Suppression unique
     $question_ids = [$questionid];
 } else {
-    print_error('invalidparameter', 'error');
+    throw new \moodle_exception('invalidparameter', 'error');
 }
 
 // 🆕 v1.9.23 : Vérifier toutes les questions en batch

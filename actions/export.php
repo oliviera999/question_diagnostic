@@ -13,7 +13,7 @@ require_login();
 require_sesskey();
 
 if (!is_siteadmin()) {
-    print_error('accessdenied', 'admin');
+    throw new \moodle_exception('accessdenied', 'admin');
 }
 
 // 🔧 SÉCURITÉ v1.9.28 : Limites strictes sur export CSV
@@ -40,7 +40,7 @@ if ($type === 'csv') {
     if (count($categories) > MAX_EXPORT_CATEGORIES) {
         // 🆕 v1.9.44 : URL de retour hiérarchique
         $returnurl = local_question_diagnostic_get_parent_url('actions/export.php');
-        print_error('error', 'local_question_diagnostic', $returnurl,
+        throw new \moodle_exception('error', 'local_question_diagnostic', $returnurl,
             'Trop de catégories à exporter. Maximum autorisé : ' . MAX_EXPORT_CATEGORIES . '. Trouvé : ' . count($categories) . '. Utilisez les filtres pour réduire la sélection.');
     }
     
@@ -70,7 +70,7 @@ if ($type === 'csv') {
     // Vérifier la limite
     if (count($questions) >= MAX_EXPORT_QUESTIONS) {
         $returnurl = new moodle_url('/local/question_diagnostic/questions_cleanup.php');
-        print_error('error', 'local_question_diagnostic', $returnurl,
+        throw new \moodle_exception('error', 'local_question_diagnostic', $returnurl,
             'Trop de questions à exporter. Maximum autorisé : ' . MAX_EXPORT_QUESTIONS . '. Utilisez les filtres ou la pagination pour réduire la sélection.');
     }
     

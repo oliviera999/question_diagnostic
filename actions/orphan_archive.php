@@ -15,8 +15,7 @@ require_login();
 
 // Vérification stricte : seuls les administrateurs du site peuvent accéder à cette page.
 if (!is_siteadmin()) {
-    print_error('accessdenied', 'admin');
-    exit;
+    throw new \moodle_exception('accessdenied', 'admin');
 }
 
 require_sesskey();

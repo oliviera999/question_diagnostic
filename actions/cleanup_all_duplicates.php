@@ -40,7 +40,7 @@ use local_question_diagnostic\question_analyzer;
 require_login();
 
 if (!is_siteadmin()) {
-    print_error('accessdenied', 'admin');
+    throw new \moodle_exception('accessdenied', 'admin');
 }
 
 require_sesskey();

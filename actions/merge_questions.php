@@ -34,7 +34,7 @@ require_login();
 require_sesskey();
 
 if (!is_siteadmin()) {
-    print_error('accessdenied', 'admin');
+    throw new \moodle_exception('accessdenied', 'admin');
 }
 
 $repid = required_param('repid', PARAM_INT);

@@ -24,7 +24,7 @@ require_login();
 require_sesskey();
 
 if (!is_siteadmin()) {
-    print_error('accessdenied', 'admin');
+    throw new \moodle_exception('accessdenied', 'admin');
 }
 
 // 🔧 SÉCURITÉ v1.9.27 : Limite stricte sur les opérations en masse
@@ -43,12 +43,12 @@ $question_ids = array_map('intval', explode(',', $questionids_param));
 $question_ids = array_filter($question_ids, function($id) { return $id > 0; });
 
 if (empty($question_ids)) {
-    print_error('invalidparameter', 'error');
+    throw new \moodle_exception('invalidparameter', 'error');
 }
 
 // 🔧 SÉCURITÉ v1.9.27 : Vérifier la limite
 if (count($question_ids) > MAX_BULK_DELETE_QUESTIONS) {
-    print_error('error', 'local_question_diagnostic', $returnurl, 
+    throw new \moodle_exception('error', 'local_question_diagnostic', $returnurl, 
         'Trop de questions sélectionnées. Maximum autorisé : ' . MAX_BULK_DELETE_QUESTIONS . '. Vous avez sélectionné : ' . count($question_ids));
 }
 

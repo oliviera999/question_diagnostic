@@ -861,7 +861,7 @@ function local_question_diagnostic_require_capability_or_die($permission) {
     $context = context_system::instance();
     
     if (!is_siteadmin() && !has_capability($permission, $context)) {
-        print_error('nopermission', 'error', '', $permission);
+        throw new \moodle_exception('nopermission', 'error', '', $permission);
     }
 }
 

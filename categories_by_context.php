@@ -32,8 +32,7 @@ require_once(__DIR__ . '/classes/olution_manager.php');
 
 require_login();
 if (!is_siteadmin()) {
-    print_error('accesinterdit', 'admin', '', 'Vous devez être administrateur du site pour accéder à cet outil.');
-    exit;
+    throw new \moodle_exception('accessdenied', 'admin', '', 'Vous devez être administrateur du site pour accéder à cet outil.');
 }
 
 $context = context_system::instance();

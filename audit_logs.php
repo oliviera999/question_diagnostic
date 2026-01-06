@@ -25,7 +25,7 @@ use local_question_diagnostic\audit_logger;
 require_login();
 
 if (!is_siteadmin()) {
-    print_error('accessdenied', 'admin');
+    throw new \moodle_exception('accessdenied', 'admin');
 }
 
 $PAGE->set_context(context_system::instance());

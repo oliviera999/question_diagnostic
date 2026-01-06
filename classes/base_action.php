@@ -67,7 +67,7 @@ abstract class base_action {
         require_sesskey();
 
         if (!is_siteadmin()) {
-            print_error('accessdenied', 'admin');
+            throw new \moodle_exception('accessdenied', 'admin');
         }
 
         // Récupérer les paramètres communs

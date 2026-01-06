@@ -2,19 +2,20 @@
 
 ![Tests](https://github.com/oliviera999/question_diagnostic/workflows/Tests/badge.svg)
 ![Moodle Plugin CI](https://github.com/oliviera999/question_diagnostic/workflows/Moodle%20Plugin%20CI/badge.svg)
-![PHP Version](https://img.shields.io/badge/PHP-8.0%2B-blue)
-![Moodle](https://img.shields.io/badge/Moodle-4.0--4.5-orange)
+![PHP Version](https://img.shields.io/badge/PHP-8.2%2B-blue)
+![Moodle](https://img.shields.io/badge/Moodle-5.1-orange)
 ![License](https://img.shields.io/badge/License-GPL%20v3-green)
 
-Outil complet de gestion et diagnostic de la banque de questions pour Moodle 4.0+
+Outil complet de gestion et diagnostic de la banque de questions pour Moodle 5.1+
 
-**Version actuelle :** v1.11.27 | **Statut :** Production-Ready ✅ | **Qualité :** 9.9/10 ⭐⭐⭐⭐⭐
+**Version actuelle :** v1.13.0 | **Statut :** Production-Ready ✅ | **Qualité :** 9.9/10 ⭐⭐⭐⭐⭐
 
 ### 📌 Compatibilité Moodle
 
-- **✅ Supporté** : Moodle 4.0, 4.1 LTS, 4.3, 4.4, **4.5** (recommandé)
-- **❌ Non supporté** : Moodle 3.x (architecture incompatible)
+- **✅ Supporté** : Moodle **5.1** (requis)
+- **❌ Non supporté** : Moodle 4.x et antérieurs (architecture incompatible)
 - **📖 Détails** : [docs/technical/MOODLE_COMPATIBILITY_POLICY.md](docs/technical/MOODLE_COMPATIBILITY_POLICY.md)
+- **⚠️ Prérequis** : PHP 8.2 minimum
 
 ---
 

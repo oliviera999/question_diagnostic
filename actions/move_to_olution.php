@@ -25,7 +25,7 @@ require_login();
 require_sesskey();
 
 if (!is_siteadmin()) {
-    print_error('accessdenied', 'admin');
+    throw new \moodle_exception('accessdenied', 'admin');
 }
 
 $PAGE->set_url(new moodle_url('/local/question_diagnostic/actions/move_to_olution.php'));

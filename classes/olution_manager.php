@@ -2016,7 +2016,9 @@ class olution_manager {
                     local_question_diagnostic_debug_log('✅ Moved using native question_move_questions_to_category', DEBUG_DEVELOPER);
                 } else {
                     // Fallback manuel si la fonction n'existe pas (versions très anciennes ou modifiées)
-                    // Mettre à jour question_bank_entries (Moodle 4.x)
+                    // ⚠️ MOODLE 5.1: Cette fonction question_move_questions_to_category() devrait exister.
+                    // Si ce fallback s'exécute, cela indique un problème d'environnement Moodle.
+                    // Mettre à jour question_bank_entries (Moodle 4.x/5.1)
                     $sql_update = "UPDATE {question_bank_entries}
                                   SET questioncategoryid = :newcatid
                                   WHERE id IN (

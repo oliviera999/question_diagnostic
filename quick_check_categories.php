@@ -8,7 +8,7 @@ require_once(__DIR__ . '/classes/category_manager.php');
 
 require_login();
 if (!is_siteadmin()) {
-    print_error('accessdenied', 'admin');
+    throw new \moodle_exception('accessdenied', 'admin');
 }
 
 $PAGE->set_url(new moodle_url('/local/question_diagnostic/quick_check_categories.php'));

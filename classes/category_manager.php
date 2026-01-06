@@ -777,7 +777,9 @@ class category_manager {
                 $question_ids = $DB->get_fieldset_sql($sql_q_ids, ['sourceid' => $sourceid]);
 
                 // Étape 2 : Déplacer toutes les questions de source vers dest (SQL rapide)
-                // Compatible Moodle 4.x (question_bank_entries)
+                // Compatible Moodle 4.x/5.1 (question_bank_entries)
+                // ⚠️ NOTE: Cette opération UPDATE directe est validée pour Moodle 5.1.
+                // Les événements sont déclenchés manuellement ci-dessous pour garantir l'intégrité.
                 $sql = "UPDATE {question_bank_entries} SET questioncategoryid = :destid WHERE questioncategoryid = :sourceid";
                 $moved_questions = $DB->execute($sql, ['destid' => $destid, 'sourceid' => $sourceid]);
                 
