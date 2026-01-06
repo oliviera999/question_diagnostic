@@ -522,6 +522,126 @@ class question_link_checker {
     }
 
     /**
+     * Recherche des fichiers similaires par nom dans toute la base de données
+     * 
+     * 🔧 NOUVEAU v1.12.6 : Méthode publique pour recherche par nom similaire
+     * 
+     * @param string $broken_url URL cassée
+     * @param int $questionid ID de la question (optionnel, pour déterminer le bon itemid)
+     * @param int $limit Limite de résultats (défaut: 20)
+     * @return array ['success' => bool, 'message' => string, 'suggestions' => array]
+     */
+    public static function search_similar_files($broken_url, $questionid = 0, $limit = 20) {
+        $broken_url = (string)$broken_url;
+        $questionid = (int)$questionid;
+        $limit = max(1, min(50, (int)$limit)); // Limiter entre 1 et 50
+        
+        $result = [
+            'success' => false,
+            'message' => 'Aucun fichier similaire trouvé.',
+            'suggestions' => []
+        ];
+        
+        // On ne recherche que pour les URLs pluginfile
+        if (strpos($broken_url, 'pluginfile.php') === false) {
+            $result['message'] = 'Recherche non supportée : URL non pluginfile.';
+            return $result;
+        }
+        
+        // Extraire le nom de fichier
+        $filename = self::extract_filename_from_url($broken_url);
+        if (empty($filename)) {
+            $result['message'] = 'Impossible d\'extraire le nom de fichier de l\'URL.';
+            return $result;
+        }
+        
+        // Rechercher les fichiers similaires
+        $similar_files = self::find_similar_files_in_database($filename, $limit);
+        
+        if (empty($similar_files)) {
+            $result['message'] = 'Aucun fichier similaire trouvé dans la base de données.';
+            return $result;
+        }
+        
+        // Convertir en suggestions
+        $suggestions = [];
+        foreach ($similar_files as $file_info) {
+            $file = $file_info['file'];
+            $similarity_score = $file_info['similarity_score'];
+            
+            // Déterminer le bon itemid
+            $itemid = $file_info['itemid'];
+            
+            // Si on a un questionid et que le fichier est dans le même contexte, utiliser questionid
+            if ($questionid > 0) {
+                try {
+                    global $DB;
+                    $category_sql = "SELECT qc.* 
+                                    FROM {question_categories} qc
+                                    INNER JOIN {question_bank_entries} qbe ON qbe.questioncategoryid = qc.id
+                                    INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+                                    WHERE qv.questionid = :questionid
+                                    LIMIT 1";
+                    $category = $DB->get_record_sql($category_sql, ['questionid' => $questionid]);
+                    
+                    if ($category && $file_info['contextid'] == $category->contextid) {
+                        $itemid = $questionid;
+                    }
+                } catch (\Exception $e) {
+                    // En cas d'erreur, garder l'itemid original
+                }
+            }
+            
+            // Générer l'URL correcte
+            $replacement_url = self::generate_pluginfile_url(
+                $file,
+                $file_info['contextid'],
+                $file_info['component'],
+                $file_info['filearea'],
+                $itemid
+            );
+            
+            // Vérifier que l'URL générée est valide
+            if (self::pluginfile_url_exists_in_files($replacement_url)) {
+                $similarity_label = [
+                    100 => 'nom exact',
+                    90 => 'même nom de base',
+                    70 => 'même extension',
+                    50 => 'nom partiel'
+                ];
+                
+                $suggestions[] = [
+                    'type' => 'similar_file_in_database',
+                    'confidence' => min(95, $similarity_score + 5), // 95% max pour nom exact, 55% min pour partiel
+                    'sourcequestionid' => null,
+                    'sourcequestionname' => null,
+                    'replacement_url' => $replacement_url,
+                    'description' => 'Fichier similaire trouvé : ' . 
+                                   ($similarity_label[$similarity_score] ?? 'similarité ' . $similarity_score . '%') . 
+                                   ' (score: ' . $similarity_score . '%)',
+                    'file_info' => [
+                        'contextid' => $file_info['contextid'],
+                        'filearea' => $file_info['filearea'],
+                        'itemid' => $itemid,
+                        'similarity_score' => $similarity_score,
+                        'original_filename' => $file->get_filename()
+                    ]
+                ];
+            }
+        }
+        
+        if (empty($suggestions)) {
+            $result['message'] = 'Fichiers similaires trouvés, mais aucune URL valide générée.';
+            return $result;
+        }
+        
+        $result['success'] = true;
+        $result['message'] = count($suggestions) . ' fichier(s) similaire(s) trouvé(s).';
+        $result['suggestions'] = $suggestions;
+        return $result;
+    }
+
+    /**
      * Cherche des fichiers avec des noms similaires dans toute la table files
      * 
      * 🔧 NOUVEAU v1.12.3 : Recherche de fichiers similaires dans toute la base

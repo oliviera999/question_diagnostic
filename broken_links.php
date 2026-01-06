@@ -90,6 +90,18 @@ if ($action) {
                 redirect($PAGE->url, $msg, null, \core\output\notification::NOTIFY_INFO);
             }
         }
+    } else if ($action === 'search_similar') {
+        // 🔧 NOUVEAU v1.12.6 : Recherche de fichiers similaires par nom
+        $search_result = question_link_checker::search_similar_files($url, $questionid, 20);
+        if (is_array($search_result) && !empty($search_result['success']) && !empty($search_result['suggestions'])) {
+            $show_repair_confirm = true;
+            $repair_result = $search_result; // Réutiliser la même structure pour l'affichage
+        } else {
+            $msg = is_array($search_result) && !empty($search_result['message'])
+                ? $search_result['message']
+                : 'Aucun fichier similaire trouvé.';
+            redirect($PAGE->url, $msg, null, \core\output\notification::NOTIFY_INFO);
+        }
     }
 }
 
@@ -105,13 +117,20 @@ echo html_writer::start_div('text-right', ['style' => 'margin-bottom: 20px;']);
 echo local_question_diagnostic_render_cache_purge_button();
 echo html_writer::end_div();
 
-// Page de confirmation "réparer" (évite d'afficher tout le tableau si on est en mode réparation)
+// Page de confirmation "réparer" ou "recherche similaire" (évite d'afficher tout le tableau si on est en mode réparation)
 if ($show_repair_confirm && is_array($repair_result)) {
-    echo html_writer::tag('h2', '🔧 Réparation de lien cassé');
+    $is_search_similar = ($action === 'search_similar');
+    $page_title = $is_search_similar ? '🔍 Recherche de fichiers similaires' : '🔧 Réparation de lien cassé';
+    echo html_writer::tag('h2', $page_title);
 
     echo html_writer::start_div('alert alert-info');
-    echo '<strong>Principe :</strong> recherche de fichiers existants dans le contexte de la question et/ou de doublons stricts (même type + même texte). ';
-    echo 'Vous devez confirmer avant toute modification.';
+    if ($is_search_similar) {
+        echo '<strong>Principe :</strong> recherche de fichiers avec des noms similaires dans toute la base de données (nom exact, même base, même extension, ou nom partiel). ';
+        echo 'Vous pouvez sélectionner un fichier pour remplacer le lien cassé.';
+    } else {
+        echo '<strong>Principe :</strong> recherche de fichiers existants dans le contexte de la question et/ou de doublons stricts (même type + même texte). ';
+        echo 'Vous devez confirmer avant toute modification.';
+    }
     echo html_writer::end_div();
 
     echo html_writer::start_div('qd-card', ['style' => 'padding: 15px; margin-bottom: 20px;']);
@@ -641,9 +660,19 @@ function showRepairModal(questionId, questionName, brokenLinks) {
         // Sinon, attempt_repair() refusera (ex: bgimage missing, messages, etc.).
         const isPluginfile = (String(link.url || '').toLowerCase().indexOf('pluginfile.php') !== -1);
         if (isPluginfile) {
+            // Bouton recherche par nom similaire
+            const searchSimilarUrl = new URL(window.location.href);
+            searchSimilarUrl.searchParams.set('action', 'search_similar');
+            searchSimilarUrl.searchParams.set('questionid', questionId);
+            searchSimilarUrl.searchParams.set('field', link.field);
+            searchSimilarUrl.searchParams.set('url', link.url);
+            searchSimilarUrl.searchParams.set('sesskey', M.cfg.sesskey);
+            
+            content += '<a href="' + searchSimilarUrl.toString() + '" class="btn btn-outline-info btn-sm" style="margin-right: 5px;" target="_blank">🔍 Rechercher par nom similaire</a>';
             content += '<a href="' + repairUrl.toString() + '" class="btn btn-outline-primary btn-sm" style="margin-right: 5px;" target="_blank">🔎 Trouver via doublon strict</a>';
         } else {
             // Afficher quand même l'option (désactivée) pour éviter l'impression qu'elle a "disparu".
+            content += '<span class="btn btn-outline-secondary btn-sm disabled" style="margin-right: 5px;" title="Disponible uniquement pour les liens de type pluginfile.php">🔍 Rechercher par nom similaire</span>';
             content += '<span class="btn btn-outline-secondary btn-sm disabled" style="margin-right: 5px;" title="Disponible uniquement pour les liens de type pluginfile.php">🔎 Trouver via doublon strict</span>';
         }
         content += '<span style="font-size: 12px; color: #666;">' + hint + '</span>';
