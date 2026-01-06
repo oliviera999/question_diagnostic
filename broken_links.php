@@ -105,12 +105,12 @@ echo html_writer::start_div('text-right', ['style' => 'margin-bottom: 20px;']);
 echo local_question_diagnostic_render_cache_purge_button();
 echo html_writer::end_div();
 
-// Page de confirmation "réparer via doublon strict" (évite d'afficher tout le tableau si on est en mode réparation)
+// Page de confirmation "réparer" (évite d'afficher tout le tableau si on est en mode réparation)
 if ($show_repair_confirm && is_array($repair_result)) {
-    echo html_writer::tag('h2', '🔧 Réparation via doublon strict');
+    echo html_writer::tag('h2', '🔧 Réparation de lien cassé');
 
     echo html_writer::start_div('alert alert-info');
-    echo '<strong>Principe :</strong> rechercher un doublon strict (même type + même texte) et proposer une URL valide trouvée dans ce doublon. ';
+    echo '<strong>Principe :</strong> recherche de fichiers existants dans le contexte de la question et/ou de doublons stricts (même type + même texte). ';
     echo 'Vous devez confirmer avant toute modification.';
     echo html_writer::end_div();
 
@@ -132,8 +132,11 @@ if ($show_repair_confirm && is_array($repair_result)) {
             $replacement_url = is_array($sugg) ? ($sugg['replacement_url'] ?? '') : '';
             $srcid = is_array($sugg) ? (int)($sugg['sourcequestionid'] ?? 0) : 0;
             $desc = is_array($sugg) ? ($sugg['description'] ?? '') : '';
+            $sugg_type = is_array($sugg) ? ($sugg['type'] ?? '') : '';
+            $confidence = is_array($sugg) ? ($sugg['confidence'] ?? 0) : 0;
 
-            if (empty($replacement_url) || $srcid <= 0) {
+            // 🔧 v1.12.3 : Permettre les suggestions sans sourcequestionid (fichiers trouvés dans le contexte)
+            if (empty($replacement_url)) {
                 continue;
             }
 
@@ -144,15 +147,37 @@ if ($show_repair_confirm && is_array($repair_result)) {
                 'field' => $field,
                 'url' => $url,
                 'newurl' => $replacement_url,
-                'sourcequestionid' => $srcid,
+                'sourcequestionid' => $srcid > 0 ? $srcid : 0,
                 'sesskey' => sesskey(),
             ]);
 
+            // Afficher différemment selon le type de suggestion
+            $source_info = '';
+            if ($srcid > 0) {
+                $source_info = html_writer::tag('div', '<strong>Source:</strong> Question #' . $srcid, ['style' => 'font-size: 12px; color: #666;']);
+            } else if ($sugg_type === 'file_found_in_context') {
+                $file_info = is_array($sugg) && isset($sugg['file_info']) ? $sugg['file_info'] : null;
+                if ($file_info) {
+                    $source_info = html_writer::tag('div', 
+                        '<strong>Contexte:</strong> ID ' . (int)($file_info['contextid'] ?? 0) . 
+                        ' | <strong>Zone:</strong> ' . s($file_info['filearea'] ?? '') . 
+                        ' | <strong>Confiance:</strong> ' . (int)$confidence . '%',
+                        ['style' => 'font-size: 12px; color: #666;']
+                    );
+                } else {
+                    $source_info = html_writer::tag('div', '<strong>Type:</strong> Fichier trouvé dans le contexte | <strong>Confiance:</strong> ' . (int)$confidence . '%', ['style' => 'font-size: 12px; color: #666;']);
+                }
+            }
+
+            $confirm_text = $sugg_type === 'file_found_in_context' 
+                ? 'Confirmer le remplacement du lien cassé par le fichier trouvé dans le contexte ?'
+                : 'Confirmer le remplacement du lien cassé par celui du doublon ?';
+
             echo html_writer::tag('li',
                 html_writer::tag('div', s($desc)) .
-                html_writer::tag('div', '<strong>Source:</strong> #' . $srcid, ['style' => 'font-size: 12px; color: #666;']) .
+                $source_info .
                 html_writer::tag('div', '<strong>Nouvelle URL:</strong> <code style="word-break: break-all;">' . s($replacement_url) . '</code>', ['style' => 'margin: 6px 0;']) .
-                html_writer::link($apply_url, '✅ Appliquer cette réparation', ['class' => 'btn btn-primary btn-sm', 'onclick' => "return confirm('Confirmer le remplacement du lien cassé par celui du doublon ?')"])
+                html_writer::link($apply_url, '✅ Appliquer cette réparation', ['class' => 'btn btn-primary btn-sm', 'onclick' => "return confirm('" . addslashes($confirm_text) . "')"])
             );
         }
         echo html_writer::end_tag('ul');

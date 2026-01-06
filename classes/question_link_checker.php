@@ -247,6 +247,8 @@ class question_link_checker {
 
     /**
      * Vérifie si un pluginfile existe
+     * 
+     * 🔧 AMÉLIORÉ v1.11.28 : Recherche étendue dans le contexte si l'URL exacte n'existe pas
      *
      * @param string $url URL pluginfile
      * @param int $questionid ID de la question
@@ -255,19 +257,20 @@ class question_link_checker {
     private static function verify_pluginfile_exists($url, $questionid) {
         global $DB;
         
-        // Parser l'URL pour extraire le contenthash ou filename
-        // Format typique: /pluginfile.php/contextid/component/filearea/itemid/filename
+        // D'abord, vérifier l'URL exacte (méthode rapide)
+        $info = self::parse_pluginfile_url($url);
+        if ($info && self::pluginfile_url_exists_in_files($url)) {
+            return true;
+        }
         
-        // Extraire le filename de l'URL
-        $parts = explode('/', $url);
-        $filename = end($parts);
-        
+        // Si l'URL exacte n'existe pas, chercher le fichier par nom dans le contexte
+        // (le fichier peut exister mais avec une URL différente)
+        $filename = self::extract_filename_from_url($url);
         if (empty($filename)) {
             return false;
         }
         
-        // Rechercher le fichier dans mdl_files
-        // On cherche les fichiers associés à cette question
+        // Recherche rapide : d'abord dans les fichiers de la question (méthode existante)
         $fs = get_file_storage();
         $question_files = self::get_all_question_files($questionid);
         
@@ -277,7 +280,13 @@ class question_link_checker {
             }
         }
         
-        return false;
+        // Si toujours rien, chercher dans le contexte étendu (plus lent mais plus complet)
+        // On limite cette recherche pour éviter les performances dégradées
+        $found_files = self::find_file_by_name_in_context($filename, $questionid);
+        
+        // Si on trouve au moins un fichier avec le même nom, 
+        // on considère que le fichier existe (même si l'URL est incorrecte)
+        return !empty($found_files);
     }
 
     /**
@@ -513,18 +522,198 @@ class question_link_checker {
     }
 
     /**
+     * Cherche un fichier par son nom dans le contexte de la question et ses parents
+     * 
+     * 🔧 NOUVEAU v1.11.28 : Recherche multi-niveaux pour trouver les fichiers existants
+     * 
+     * @param string $filename Nom du fichier recherché
+     * @param int $questionid ID de la question
+     * @return array Tableau de fichiers trouvés avec leurs métadonnées, triés par priorité
+     */
+    private static function find_file_by_name_in_context($filename, $questionid) {
+        global $DB;
+        
+        $fs = get_file_storage();
+        $found_files = [];
+        
+        if (empty($filename) || $filename === '.') {
+            return [];
+        }
+        
+        // 1. Récupérer le contexte de la question
+        $category_sql = "SELECT qc.* 
+                        FROM {question_categories} qc
+                        INNER JOIN {question_bank_entries} qbe ON qbe.questioncategoryid = qc.id
+                        INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+                        WHERE qv.questionid = :questionid
+                        LIMIT 1";
+        $category = $DB->get_record_sql($category_sql, ['questionid' => $questionid]);
+        
+        if (!$category) {
+            return [];
+        }
+        
+        try {
+            $context = \context::instance_by_id($category->contextid, IGNORE_MISSING);
+            if (!$context) {
+                return [];
+            }
+            
+            // 2. Chercher dans tous les fileareas du contexte de la question
+            $fileareas = ['questiontext', 'generalfeedback', 'answer', 'answerfeedback', 
+                         'bgimage', 'correctfeedback', 'partiallycorrectfeedback', 
+                         'incorrectfeedback'];
+            
+            foreach ($fileareas as $filearea) {
+                // Chercher dans plusieurs itemids possibles
+                $itemids = [0, $questionid];
+                
+                foreach ($itemids as $itemid) {
+                    $files = $fs->get_area_files(
+                        $context->id, 
+                        'question', 
+                        $filearea, 
+                        $itemid, 
+                        'filename', 
+                        false
+                    );
+                    
+                    foreach ($files as $file) {
+                        if ($file->get_filename() === $filename) {
+                            $found_files[] = [
+                                'file' => $file,
+                                'priority' => 1, // Priorité haute : même contexte, filearea question
+                                'contextid' => $context->id,
+                                'component' => 'question',
+                                'filearea' => $filearea,
+                                'itemid' => $itemid
+                            ];
+                        }
+                    }
+                }
+            }
+            
+            // 3. Si rien trouvé, chercher dans les contextes parents
+            if (empty($found_files)) {
+                $parent_contexts = $context->get_parent_contexts();
+                foreach ($parent_contexts as $parent_context) {
+                    // Chercher dans les fileareas question des contextes parents
+                    foreach ($fileareas as $filearea) {
+                        $files = $fs->get_area_files(
+                            $parent_context->id,
+                            'question',
+                            $filearea,
+                            0,
+                            'filename',
+                            false
+                        );
+                        
+                        foreach ($files as $file) {
+                            if ($file->get_filename() === $filename) {
+                                $found_files[] = [
+                                    'file' => $file,
+                                    'priority' => 2, // Priorité moyenne : contexte parent
+                                    'contextid' => $parent_context->id,
+                                    'component' => 'question',
+                                    'filearea' => $filearea,
+                                    'itemid' => 0
+                                ];
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // 4. Si toujours rien, chercher par filename dans toute la table files
+            // (dernier recours, plus lent mais plus complet)
+            if (empty($found_files)) {
+                $sql = "SELECT f.* 
+                        FROM {files} f
+                        WHERE f.filename = :filename
+                          AND f.filename != '.'
+                          AND f.component = 'question'
+                        ORDER BY f.timemodified DESC
+                        LIMIT 10";
+                
+                $file_records = $DB->get_records_sql($sql, ['filename' => $filename]);
+                
+                foreach ($file_records as $file_record) {
+                    try {
+                        $file = $fs->get_file(
+                            $file_record->contextid,
+                            $file_record->component,
+                            $file_record->filearea,
+                            $file_record->itemid,
+                            $file_record->filepath,
+                            $file_record->filename
+                        );
+                        
+                        if ($file) {
+                            $found_files[] = [
+                                'file' => $file,
+                                'priority' => 3, // Priorité basse : autre contexte
+                                'contextid' => $file_record->contextid,
+                                'component' => $file_record->component,
+                                'filearea' => $file_record->filearea,
+                                'itemid' => $file_record->itemid
+                            ];
+                        }
+                    } catch (\Exception $e) {
+                        // Ignorer les erreurs de récupération de fichier
+                        continue;
+                    }
+                }
+            }
+            
+            // Trier par priorité (plus spécifique en premier)
+            usort($found_files, function($a, $b) {
+                return $a['priority'] <=> $b['priority'];
+            });
+            
+            return $found_files;
+            
+        } catch (\Exception $e) {
+            debugging('Erreur lors de la recherche de fichier : ' . $e->getMessage(), DEBUG_DEVELOPER);
+            return [];
+        }
+    }
+
+    /**
+     * Génère l'URL pluginfile correcte pour un fichier
+     * 
+     * 🔧 NOUVEAU v1.11.28 : Génération d'URL pluginfile valide
+     * 
+     * @param object $file stored_file
+     * @param int $contextid Context ID
+     * @param string $component Component
+     * @param string $filearea File area
+     * @param int $itemid Item ID
+     * @return string URL pluginfile
+     */
+    private static function generate_pluginfile_url($file, $contextid, $component, $filearea, $itemid) {
+        global $CFG;
+        
+        $filepath = $file->get_filepath();
+        $filename = $file->get_filename();
+        
+        // Construire l'URL pluginfile
+        // Format: /pluginfile.php/contextid/component/filearea/itemid/filepath/filename
+        $url = $CFG->wwwroot . '/pluginfile.php/' . 
+               $contextid . '/' . 
+               $component . '/' . 
+               $filearea . '/' . 
+               $itemid . 
+               $filepath . 
+               $filename;
+        
+        return $url;
+    }
+
+    /**
      * Tente de réparer un lien cassé en cherchant un fichier similaire
      * 
-     * 🚧 FONCTIONNALITÉ INCOMPLÈTE v1.9.27
-     * Cette méthode est un stub pour une future fonctionnalité de réparation automatique.
-     * Actuellement, seule la suppression de lien est implémentée (@see remove_broken_link).
+     * 🔧 AMÉLIORÉ v1.11.28 : Recherche de fichiers dans le contexte en plus des doublons stricts
      * 
-     * TODO pour implémentation complète :
-     * - Recherche intelligente de fichiers similaires (par contenthash, nom, taille)
-     * - Interface de remplacement de fichier (drag & drop)
-     * - Prévisualisation du fichier avant remplacement
-     * - Logs de toutes les réparations effectuées
-     *
      * @param int $questionid ID de la question
      * @param string $field Champ contenant le lien
      * @param string $broken_url URL cassée
@@ -543,8 +732,12 @@ class question_link_checker {
             'suggestions' => []
         ];
 
-        // Heuristique: chercher un doublon strict (même qtype + même questiontext),
-        // puis récupérer une URL pluginfile valide pointant vers la même ressource (même filename).
+        // On ne tente pas de réparer des "URL" non pluginfile : la logique est basée sur la table files.
+        if (strpos($broken_url, 'pluginfile.php') === false) {
+            $result['message'] = 'Réparation non supportée : URL non pluginfile.';
+            return $result;
+        }
+
         try {
             $question = $DB->get_record('question', ['id' => $questionid], 'id,qtype,questiontext', MUST_EXIST);
         } catch (\Exception $e) {
@@ -552,48 +745,105 @@ class question_link_checker {
             return $result;
         }
 
-        // On ne tente pas de réparer des "URL" non pluginfile : la logique est basée sur la table files.
-        if (strpos($broken_url, 'pluginfile.php') === false) {
-            $result['message'] = 'Réparation via doublon non supportée : URL non pluginfile.';
-            return $result;
-        }
-
-        $duplicates = self::find_strict_duplicates($question, 10);
-        if (empty($duplicates)) {
-            $result['message'] = 'Aucun doublon strict trouvé pour cette question.';
-            return $result;
-        }
-
         $suggestions = [];
-        foreach ($duplicates as $dup) {
-            $replacement = self::find_replacement_url_in_duplicate((int)$dup->id, $field, $broken_url);
-            if (!$replacement) {
-                continue;
-            }
 
-            $suggestions[] = [
-                'type' => 'strict_duplicate',
-                'confidence' => 85,
-                'sourcequestionid' => (int)$dup->id,
-                'sourcequestionname' => (string)($dup->name ?? ''),
-                'replacement_url' => $replacement,
-                'description' => 'Doublon strict détecté : lien valide trouvé dans la question #' . (int)$dup->id
-            ];
-
-            // On propose au max quelques suggestions.
-            if (count($suggestions) >= 3) {
-                break;
+        // 🔧 NOUVEAU v1.11.28 : Chercher le fichier par nom dans le contexte (priorité haute)
+        $filename = self::extract_filename_from_url($broken_url);
+        
+        if (!empty($filename)) {
+            $found_files = self::find_file_by_name_in_context($filename, $questionid);
+            
+            if (!empty($found_files)) {
+                foreach ($found_files as $file_info) {
+                    $file = $file_info['file'];
+                    
+                    // Déterminer le bon itemid selon le champ
+                    $itemid = $questionid; // Par défaut
+                    
+                    // Pour les fileareas spécifiques, utiliser l'itemid approprié
+                    if (strpos($field, 'answer_') === 0 || strpos($field, 'feedback_') === 0) {
+                        // Pour les réponses, l'itemid peut être 0 ou questionid
+                        $itemid = $file_info['itemid'] > 0 ? $file_info['itemid'] : $questionid;
+                    } else {
+                        // Pour les champs de question, utiliser l'itemid du fichier trouvé ou questionid
+                        $itemid = $file_info['itemid'] > 0 ? $file_info['itemid'] : $questionid;
+                    }
+                    
+                    // Générer l'URL correcte
+                    $replacement_url = self::generate_pluginfile_url(
+                        $file,
+                        $file_info['contextid'],
+                        $file_info['component'],
+                        $file_info['filearea'],
+                        $itemid
+                    );
+                    
+                    // Vérifier que l'URL générée est valide
+                    if (self::pluginfile_url_exists_in_files($replacement_url)) {
+                        $priority_label = [
+                            1 => 'même contexte',
+                            2 => 'contexte parent',
+                            3 => 'autre contexte'
+                        ];
+                        
+                        $suggestions[] = [
+                            'type' => 'file_found_in_context',
+                            'confidence' => 90 - ($file_info['priority'] * 10), // 90%, 80%, 70%
+                            'sourcequestionid' => null,
+                            'sourcequestionname' => null,
+                            'replacement_url' => $replacement_url,
+                            'description' => 'Fichier trouvé dans le ' . ($priority_label[$file_info['priority']] ?? 'contexte') . 
+                                           ' (priorité: ' . $file_info['priority'] . ')',
+                            'file_info' => [
+                                'contextid' => $file_info['contextid'],
+                                'filearea' => $file_info['filearea'],
+                                'itemid' => $itemid
+                            ]
+                        ];
+                    }
+                }
             }
         }
+
+        // Heuristique complémentaire: chercher un doublon strict (même qtype + même questiontext),
+        // puis récupérer une URL pluginfile valide pointant vers la même ressource (même filename).
+        $duplicates = self::find_strict_duplicates($question, 10);
+        if (!empty($duplicates)) {
+            foreach ($duplicates as $dup) {
+                $replacement = self::find_replacement_url_in_duplicate((int)$dup->id, $field, $broken_url);
+                if (!$replacement) {
+                    continue;
+                }
+
+                $suggestions[] = [
+                    'type' => 'strict_duplicate',
+                    'confidence' => 85,
+                    'sourcequestionid' => (int)$dup->id,
+                    'sourcequestionname' => (string)($dup->name ?? ''),
+                    'replacement_url' => $replacement,
+                    'description' => 'Doublon strict détecté : lien valide trouvé dans la question #' . (int)$dup->id
+                ];
+
+                // On propose au max quelques suggestions de doublons.
+                if (count($suggestions) >= 5) {
+                    break;
+                }
+            }
+        }
+
+        // Trier les suggestions par confiance décroissante
+        usort($suggestions, function($a, $b) {
+            return $b['confidence'] <=> $a['confidence'];
+        });
 
         if (empty($suggestions)) {
-            $result['message'] = 'Doublon(s) strict(s) trouvé(s), mais aucun lien valide correspondant n’a été détecté.';
+            $result['message'] = 'Aucun fichier correspondant trouvé dans le contexte ni via doublon strict.';
             return $result;
         }
 
         $result['success'] = true;
-        $result['message'] = count($suggestions) . ' suggestion(s) trouvée(s) via doublon strict.';
-        $result['suggestions'] = $suggestions;
+        $result['message'] = count($suggestions) . ' suggestion(s) trouvée(s).';
+        $result['suggestions'] = array_slice($suggestions, 0, 5); // Limiter à 5 suggestions max
         return $result;
     }
 
