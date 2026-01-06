@@ -69,7 +69,7 @@
             "component": "local_question_diagnostic",
             "release": "v1.14.0",
             "maturity": "MATURITY_STABLE",
-            "requires": "2026010100",
+            "requires": "2025100100",
             "supported": [
                 "510"
             ]
