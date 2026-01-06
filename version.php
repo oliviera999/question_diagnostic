@@ -9,8 +9,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'local_question_diagnostic';
-$plugin->version = 2025121903;  // YYYYMMDDXX format (v1.12.4 - Recherche fichiers similaires dans toute la base)
+$plugin->version = 2025121904;  // YYYYMMDDXX format (v1.12.5 - Affichage nom fichier dans tableau liens cassés)
 $plugin->requires = 2022041900; // Moodle 4.0+ (architecture question_bank_entries requise)
 $plugin->maturity = MATURITY_STABLE;
-$plugin->release = 'v1.12.4';
+$plugin->release = 'v1.12.5';
 

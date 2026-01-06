@@ -479,8 +479,30 @@ if (empty($broken_questions)) {
         echo html_writer::start_tag('td');
         echo html_writer::start_tag('div', ['class' => 'qd-broken-links-details']);
         foreach ($broken_links as $link) {
+            // Extraire le nom de fichier de l'URL
+            $filename = '';
+            $url_clean = $link->url;
+            // Retirer querystring si présent
+            $qpos = strpos($url_clean, '?');
+            if ($qpos !== false) {
+                $url_clean = substr($url_clean, 0, $qpos);
+            }
+            // Extraire le filename
+            $parsed = @parse_url($url_clean);
+            if (is_array($parsed) && !empty($parsed['path'])) {
+                $path = str_replace('\\', '/', $parsed['path']);
+                $filename = basename($path);
+            } else {
+                // Fallback : prendre le dernier segment après /
+                $path = str_replace('\\', '/', $url_clean);
+                $filename = basename($path);
+            }
+            
             echo html_writer::start_tag('div', ['class' => 'qd-broken-link-item', 'style' => 'margin-bottom: 8px; padding: 8px; background: #f9f9f9; border-left: 3px solid #d9534f;']);
             echo html_writer::tag('div', '📍 Champ: ' . htmlspecialchars($link->field), ['style' => 'font-size: 11px; color: #666; font-weight: bold;']);
+            if (!empty($filename) && $filename !== '.' && $filename !== 'pluginfile.php') {
+                echo html_writer::tag('div', '📄 Fichier: <strong>' . htmlspecialchars($filename) . '</strong>', ['style' => 'font-size: 11px; color: #0f6cbf; font-weight: bold; margin: 4px 0;']);
+            }
             echo html_writer::tag('div', '🔗 URL: ' . htmlspecialchars(substr($link->url, 0, 80)) . (strlen($link->url) > 80 ? '...' : ''), ['style' => 'font-size: 10px; color: #666; word-break: break-all;']);
             echo html_writer::tag('div', '⚠️ ' . htmlspecialchars($link->reason), ['style' => 'font-size: 11px; color: #d9534f; margin-top: 4px;']);
             echo html_writer::end_tag('div');
