@@ -522,6 +522,160 @@ class question_link_checker {
     }
 
     /**
+     * Cherche des fichiers avec des noms similaires dans toute la table files
+     * 
+     * 🔧 NOUVEAU v1.12.3 : Recherche de fichiers similaires dans toute la base
+     * 
+     * @param string $filename Nom du fichier recherché
+     * @param int $limit Limite de résultats (défaut: 20)
+     * @return array Tableau de fichiers trouvés avec score de similarité
+     */
+    private static function find_similar_files_in_database($filename, $limit = 20) {
+        global $DB;
+        
+        $fs = get_file_storage();
+        $found_files = [];
+        
+        if (empty($filename) || $filename === '.') {
+            return [];
+        }
+        
+        // Nettoyer le filename pour la recherche
+        $filename_clean = trim($filename);
+        $filename_base = pathinfo($filename_clean, PATHINFO_FILENAME); // Sans extension
+        $filename_ext = pathinfo($filename_clean, PATHINFO_EXTENSION); // Extension
+        
+        try {
+            $limit_exact = min(10, $limit);
+            $limit_base = min(10, $limit);
+            $limit_ext = min(10, $limit);
+            $limit_partial = min(10, $limit);
+            
+            // 1. Recherche exacte d'abord (priorité maximale)
+            $sql_exact = "SELECT f.*, 100 as similarity_score
+                         FROM {files} f
+                         WHERE f.filename = :filename_exact
+                           AND f.filename != '.'
+                           AND f.component = 'question'
+                         ORDER BY f.timemodified DESC";
+            
+            $exact_results = $DB->get_records_sql($sql_exact, [
+                'filename_exact' => $filename_clean
+            ], 0, $limit_exact);
+            
+            // 2. Recherche par nom de base (sans extension) - fichiers avec même nom mais extension différente
+            $filename_base_pattern = $DB->sql_like_escape($filename_base) . '.%';
+            $sql_base = "SELECT f.*, 90 as similarity_score
+                        FROM {files} f
+                        WHERE " . $DB->sql_like('f.filename', ':filename_base_pattern', false, false) . "
+                          AND f.filename != '.'
+                          AND f.component = 'question'
+                          AND f.filename != :filename_exact
+                        ORDER BY f.timemodified DESC";
+            
+            $base_results = $DB->get_records_sql($sql_base, [
+                'filename_base_pattern' => $filename_base_pattern,
+                'filename_exact' => $filename_clean
+            ], 0, $limit_base);
+            
+            // 3. Recherche par extension (même extension, nom similaire)
+            if (!empty($filename_ext)) {
+                $ext_pattern = '%.' . $DB->sql_like_escape($filename_ext);
+                $base_pattern = $DB->sql_like_escape($filename_base) . '.%';
+                $sql_ext = "SELECT f.*, 70 as similarity_score
+                           FROM {files} f
+                           WHERE " . $DB->sql_like('f.filename', ':ext_pattern', false, false) . "
+                             AND f.filename != '.'
+                             AND f.component = 'question'
+                             AND f.filename != :filename_exact
+                             AND NOT " . $DB->sql_like('f.filename', ':base_pattern', false, false) . "
+                           ORDER BY f.timemodified DESC";
+                
+                $ext_results = $DB->get_records_sql($sql_ext, [
+                    'ext_pattern' => $ext_pattern,
+                    'filename_exact' => $filename_clean,
+                    'base_pattern' => $base_pattern
+                ], 0, $limit_ext);
+            } else {
+                $ext_results = [];
+            }
+            
+            // 4. Recherche partielle (contient le nom de base)
+            $partial_pattern = '%' . $DB->sql_like_escape($filename_base) . '%';
+            $base_pattern = $DB->sql_like_escape($filename_base) . '.%';
+            $sql_partial = "SELECT f.*, 50 as similarity_score
+                          FROM {files} f
+                          WHERE " . $DB->sql_like('f.filename', ':partial_pattern', false, false) . "
+                            AND f.filename != '.'
+                            AND f.component = 'question'
+                            AND f.filename != :filename_exact
+                            AND NOT " . $DB->sql_like('f.filename', ':base_pattern', false, false) . "
+                          ORDER BY f.timemodified DESC";
+            
+            $partial_results = $DB->get_records_sql($sql_partial, [
+                'partial_pattern' => $partial_pattern,
+                'filename_exact' => $filename_clean,
+                'base_pattern' => $base_pattern
+            ], 0, $limit_partial);
+            
+            // Combiner tous les résultats
+            $all_results = array_merge(
+                array_values($exact_results),
+                array_values($base_results),
+                array_values($ext_results),
+                array_values($partial_results)
+            );
+            
+            // Dédupliquer par ID de fichier
+            $seen_ids = [];
+            foreach ($all_results as $file_record) {
+                if (isset($seen_ids[$file_record->id])) {
+                    continue;
+                }
+                $seen_ids[$file_record->id] = true;
+                
+                try {
+                    $file = $fs->get_file(
+                        $file_record->contextid,
+                        $file_record->component,
+                        $file_record->filearea,
+                        $file_record->itemid,
+                        $file_record->filepath,
+                        $file_record->filename
+                    );
+                    
+                    if ($file) {
+                        $found_files[] = [
+                            'file' => $file,
+                            'file_record' => $file_record,
+                            'similarity_score' => (int)($file_record->similarity_score ?? 50),
+                            'contextid' => $file_record->contextid,
+                            'component' => $file_record->component,
+                            'filearea' => $file_record->filearea,
+                            'itemid' => $file_record->itemid
+                        ];
+                    }
+                } catch (\Exception $e) {
+                    // Ignorer les erreurs de récupération de fichier
+                    continue;
+                }
+            }
+            
+            // Trier par score de similarité décroissant
+            usort($found_files, function($a, $b) {
+                return $b['similarity_score'] <=> $a['similarity_score'];
+            });
+            
+            // Limiter le nombre de résultats
+            return array_slice($found_files, 0, $limit);
+            
+        } catch (\Exception $e) {
+            debugging('Erreur lors de la recherche de fichiers similaires : ' . $e->getMessage(), DEBUG_DEVELOPER);
+            return [];
+        }
+    }
+
+    /**
      * Cherche un fichier par son nom dans le contexte de la question et ses parents
      * 
      * 🔧 NOUVEAU v1.11.28 : Recherche multi-niveaux pour trouver les fichiers existants
@@ -747,26 +901,39 @@ class question_link_checker {
 
         $suggestions = [];
 
-        // 🔧 NOUVEAU v1.11.28 : Chercher le fichier par nom dans le contexte (priorité haute)
+        // 🔧 AMÉLIORÉ v1.12.3 : Chercher des fichiers similaires dans toute la table files (PRIORITÉ HAUTE)
         $filename = self::extract_filename_from_url($broken_url);
         
         if (!empty($filename)) {
-            $found_files = self::find_file_by_name_in_context($filename, $questionid);
+            // Recherche de fichiers similaires dans toute la base (nouvelle stratégie principale)
+            $similar_files = self::find_similar_files_in_database($filename, 15);
             
-            if (!empty($found_files)) {
-                foreach ($found_files as $file_info) {
+            if (!empty($similar_files)) {
+                foreach ($similar_files as $file_info) {
                     $file = $file_info['file'];
+                    $similarity_score = $file_info['similarity_score'];
                     
                     // Déterminer le bon itemid selon le champ
-                    $itemid = $questionid; // Par défaut
+                    // Pour les fichiers trouvés dans la base, on utilise l'itemid du fichier trouvé
+                    // mais on peut aussi essayer avec questionid si le fichier est dans le bon contexte
+                    $itemid = $file_info['itemid'];
                     
-                    // Pour les fileareas spécifiques, utiliser l'itemid approprié
-                    if (strpos($field, 'answer_') === 0 || strpos($field, 'feedback_') === 0) {
-                        // Pour les réponses, l'itemid peut être 0 ou questionid
-                        $itemid = $file_info['itemid'] > 0 ? $file_info['itemid'] : $questionid;
-                    } else {
-                        // Pour les champs de question, utiliser l'itemid du fichier trouvé ou questionid
-                        $itemid = $file_info['itemid'] > 0 ? $file_info['itemid'] : $questionid;
+                    // Si le fichier est dans le contexte de la question, utiliser questionid
+                    try {
+                        $category_sql = "SELECT qc.* 
+                                        FROM {question_categories} qc
+                                        INNER JOIN {question_bank_entries} qbe ON qbe.questioncategoryid = qc.id
+                                        INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+                                        WHERE qv.questionid = :questionid
+                                        LIMIT 1";
+                        $category = $DB->get_record_sql($category_sql, ['questionid' => $questionid]);
+                        
+                        if ($category && $file_info['contextid'] == $category->contextid) {
+                            // Fichier dans le même contexte, utiliser questionid
+                            $itemid = $questionid;
+                        }
+                    } catch (\Exception $e) {
+                        // En cas d'erreur, garder l'itemid original
                     }
                     
                     // Générer l'URL correcte
@@ -780,26 +947,86 @@ class question_link_checker {
                     
                     // Vérifier que l'URL générée est valide
                     if (self::pluginfile_url_exists_in_files($replacement_url)) {
-                        $priority_label = [
-                            1 => 'même contexte',
-                            2 => 'contexte parent',
-                            3 => 'autre contexte'
+                        $similarity_label = [
+                            100 => 'nom exact',
+                            90 => 'même nom de base',
+                            70 => 'même extension',
+                            50 => 'nom partiel'
                         ];
                         
                         $suggestions[] = [
-                            'type' => 'file_found_in_context',
-                            'confidence' => 90 - ($file_info['priority'] * 10), // 90%, 80%, 70%
+                            'type' => 'similar_file_in_database',
+                            'confidence' => min(95, $similarity_score + 5), // 95% max pour nom exact, 55% min pour partiel
                             'sourcequestionid' => null,
                             'sourcequestionname' => null,
                             'replacement_url' => $replacement_url,
-                            'description' => 'Fichier trouvé dans le ' . ($priority_label[$file_info['priority']] ?? 'contexte') . 
-                                           ' (priorité: ' . $file_info['priority'] . ')',
+                            'description' => 'Fichier similaire trouvé dans la base : ' . 
+                                           ($similarity_label[$similarity_score] ?? 'similarité ' . $similarity_score . '%') . 
+                                           ' (score: ' . $similarity_score . '%)',
                             'file_info' => [
                                 'contextid' => $file_info['contextid'],
                                 'filearea' => $file_info['filearea'],
-                                'itemid' => $itemid
+                                'itemid' => $itemid,
+                                'similarity_score' => $similarity_score,
+                                'original_filename' => $file->get_filename()
                             ]
                         ];
+                    }
+                }
+            }
+            
+            // Recherche complémentaire dans le contexte (si rien trouvé ou pour plus d'options)
+            if (count($suggestions) < 3) {
+                $found_files = self::find_file_by_name_in_context($filename, $questionid);
+                
+                if (!empty($found_files)) {
+                    foreach ($found_files as $file_info) {
+                        $file = $file_info['file'];
+                        
+                        // Déterminer le bon itemid selon le champ
+                        $itemid = $questionid; // Par défaut
+                        
+                        // Pour les fileareas spécifiques, utiliser l'itemid approprié
+                        if (strpos($field, 'answer_') === 0 || strpos($field, 'feedback_') === 0) {
+                            // Pour les réponses, l'itemid peut être 0 ou questionid
+                            $itemid = $file_info['itemid'] > 0 ? $file_info['itemid'] : $questionid;
+                        } else {
+                            // Pour les champs de question, utiliser l'itemid du fichier trouvé ou questionid
+                            $itemid = $file_info['itemid'] > 0 ? $file_info['itemid'] : $questionid;
+                        }
+                        
+                        // Générer l'URL correcte
+                        $replacement_url = self::generate_pluginfile_url(
+                            $file,
+                            $file_info['contextid'],
+                            $file_info['component'],
+                            $file_info['filearea'],
+                            $itemid
+                        );
+                        
+                        // Vérifier que l'URL générée est valide
+                        if (self::pluginfile_url_exists_in_files($replacement_url)) {
+                            $priority_label = [
+                                1 => 'même contexte',
+                                2 => 'contexte parent',
+                                3 => 'autre contexte'
+                            ];
+                            
+                            $suggestions[] = [
+                                'type' => 'file_found_in_context',
+                                'confidence' => 90 - ($file_info['priority'] * 10), // 90%, 80%, 70%
+                                'sourcequestionid' => null,
+                                'sourcequestionname' => null,
+                                'replacement_url' => $replacement_url,
+                                'description' => 'Fichier trouvé dans le ' . ($priority_label[$file_info['priority']] ?? 'contexte') . 
+                                               ' (priorité: ' . $file_info['priority'] . ')',
+                                'file_info' => [
+                                    'contextid' => $file_info['contextid'],
+                                    'filearea' => $file_info['filearea'],
+                                    'itemid' => $itemid
+                                ]
+                            ];
+                        }
                     }
                 }
             }

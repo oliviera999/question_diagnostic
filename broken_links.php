@@ -155,6 +155,22 @@ if ($show_repair_confirm && is_array($repair_result)) {
             $source_info = '';
             if ($srcid > 0) {
                 $source_info = html_writer::tag('div', '<strong>Source:</strong> Question #' . $srcid, ['style' => 'font-size: 12px; color: #666;']);
+            } else if ($sugg_type === 'similar_file_in_database') {
+                $file_info = is_array($sugg) && isset($sugg['file_info']) ? $sugg['file_info'] : null;
+                if ($file_info) {
+                    $original_filename = isset($file_info['original_filename']) ? s($file_info['original_filename']) : 'N/A';
+                    $similarity_score = isset($file_info['similarity_score']) ? (int)$file_info['similarity_score'] : 0;
+                    $source_info = html_writer::tag('div', 
+                        '<strong>Fichier trouvé:</strong> ' . $original_filename . 
+                        ' | <strong>Contexte:</strong> ID ' . (int)($file_info['contextid'] ?? 0) . 
+                        ' | <strong>Zone:</strong> ' . s($file_info['filearea'] ?? '') . 
+                        ' | <strong>Similarité:</strong> ' . $similarity_score . '%' .
+                        ' | <strong>Confiance:</strong> ' . (int)$confidence . '%',
+                        ['style' => 'font-size: 12px; color: #666;']
+                    );
+                } else {
+                    $source_info = html_writer::tag('div', '<strong>Type:</strong> Fichier similaire trouvé dans la base | <strong>Confiance:</strong> ' . (int)$confidence . '%', ['style' => 'font-size: 12px; color: #666;']);
+                }
             } else if ($sugg_type === 'file_found_in_context') {
                 $file_info = is_array($sugg) && isset($sugg['file_info']) ? $sugg['file_info'] : null;
                 if ($file_info) {
@@ -169,9 +185,14 @@ if ($show_repair_confirm && is_array($repair_result)) {
                 }
             }
 
-            $confirm_text = $sugg_type === 'file_found_in_context' 
-                ? 'Confirmer le remplacement du lien cassé par le fichier trouvé dans le contexte ?'
-                : 'Confirmer le remplacement du lien cassé par celui du doublon ?';
+            $confirm_text = '';
+            if ($sugg_type === 'similar_file_in_database') {
+                $confirm_text = 'Confirmer le remplacement du lien cassé par le fichier similaire trouvé dans la base ?';
+            } else if ($sugg_type === 'file_found_in_context') {
+                $confirm_text = 'Confirmer le remplacement du lien cassé par le fichier trouvé dans le contexte ?';
+            } else {
+                $confirm_text = 'Confirmer le remplacement du lien cassé par celui du doublon ?';
+            }
 
             echo html_writer::tag('li',
                 html_writer::tag('div', s($desc)) .
