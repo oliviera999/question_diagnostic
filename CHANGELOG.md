@@ -5,6 +5,103 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.14.3] - 2025-12-19
+
+### 🔒 Sécurité : Renforcement de la détection des doublons pour éviter les suppressions par erreur
+
+**Problème résolu** : La logique de détection des doublons pouvait créer des faux positifs, risquant de supprimer des questions par erreur.
+
+#### Modifications principales
+
+- **Vérification croisée stricte** :
+  - ✅ Ajout de `verify_duplicates_strict()` pour vérifier que toutes les questions sont vraiment identiques
+  - ✅ Comparaison de tous les champs pertinents (qtype, questiontextformat, questiontext)
+  - ✅ Rejet des groupes si une seule question ne correspond pas exactement
+
+- **Fallback désactivé** :
+  - ❌ Le fallback permissif (`name + qtype`) est désactivé pour éviter les faux positifs
+  - ✅ Mieux vaut ne pas détecter de doublons que de risquer de supprimer des questions par erreur
+  - ✅ Seule la définition stricte (`qtype + questiontextformat + questiontext`) est utilisée
+
+- **Logs de débogage améliorés** :
+  - ✅ Messages détaillés pour traçabilité
+  - ✅ Indication claire quand une vérification stricte échoue
+
+#### Règles de détection mises à jour
+
+**Avant (v1.14.2)** :
+- Définition stricte : `qtype + questiontextformat + questiontext`
+- Fallback : `name + qtype` (TROP permissif)
+- Pas de vérification croisée après détection SQL
+
+**Maintenant (v1.14.3)** :
+- Définition stricte : `qtype + questiontextformat + questiontext` (obligatoire)
+- Fallback : **DÉSACTIVÉ** (retourne vide pour éviter faux positifs)
+- Vérification croisée : Toutes les questions doivent être identiques
+
+#### Fichiers modifiés
+
+- `classes/question_analyzer.php` :
+  - Modification de `get_duplicate_group_question_ids_for_question()` : Ajout vérification croisée stricte
+  - Modification de `are_duplicates()` : Désactivation du fallback permissif
+  - Ajout de `verify_duplicates_strict()` : Nouvelle méthode de vérification croisée
+- `version.php` : Version incrémentée vers v1.14.3
+
+#### Notes techniques
+
+- La vérification croisée compare tous les champs pertinents en PHP pour garantir l'exactitude
+- Si la définition stricte n'est pas disponible (colonnes manquantes), aucun doublon n'est détecté (sécurité maximale)
+- Les logs de débogage permettent de comprendre pourquoi un groupe est rejeté
+
+#### Impact sécurité
+
+**Avant (v1.14.2)** :
+- Risque de faux positifs avec le fallback `name + qtype`
+- Deux questions avec même nom mais contenu différent = doublons détectés ❌
+
+**Maintenant (v1.14.3)** :
+- Aucun risque de faux positifs ✅
+- Seules les questions strictement identiques sont détectées comme doublons ✅
+- Protection maximale contre les suppressions par erreur ✅
+
+## [1.14.2] - 2025-12-19
+
+### 🐛 Bugfix : Correction de la fonction de rendu visible des questions cachées
+
+**Problème résolu** : La fonction permettant de rendre les questions cachées visibles ne fonctionnait pas correctement.
+
+#### Corrections apportées
+
+- **Méthode `unhide_question()` améliorée** :
+  - ✅ Utilisation de `update_record()` au lieu d'une requête SQL directe pour garantir la mise à jour
+  - ✅ Mise à jour individuelle de chaque version pour un meilleur contrôle
+  - ✅ Gestion correcte des transactions SQL
+  - ✅ Vérifications améliorées avant et après la mise à jour
+
+#### Modifications techniques
+
+**Avant (v1.14.1)** :
+- Utilisation d'une requête SQL `UPDATE` directe qui pouvait échouer silencieusement
+- Pas de transaction SQL
+- Vérification limitée du résultat
+
+**Maintenant (v1.14.2)** :
+- Utilisation de `update_record()` pour chaque version individuellement
+- Transaction SQL pour garantir l'intégrité
+- Vérifications avant de démarrer la transaction (question existe, versions cachées trouvées)
+- Comptage précis des versions mises à jour
+
+#### Fichiers modifiés
+
+- `classes/question_analyzer.php` : Refactorisation complète de `unhide_question()`
+- `version.php` : Version incrémentée vers v1.14.2
+
+#### Notes techniques
+
+- La transaction SQL est démarrée uniquement si des versions cachées sont trouvées
+- Chaque version est mise à jour individuellement avec `update_record()` pour garantir la fiabilité
+- Le cache est automatiquement purgé après la mise à jour (via `purge_all_caches()` appelé dans `unhide_questions_batch()`)
+
 ## [1.14.1] - 2025-12-19
 
 ### ✨ Feature : Suppression et fusion des questions cachées

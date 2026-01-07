@@ -220,7 +220,8 @@ class question_analyzer {
             $statusfilter = " AND v.status <> 'draft' ";
         }
 
-        // Définition "doublons certains" : qtype + questiontextformat + questiontext strictement identiques.
+        // 🔒 v1.14.3 : Définition "doublons certains" STRICTE : qtype + questiontextformat + questiontext strictement identiques.
+        // Cette définition est la plus stricte possible pour éviter les faux positifs.
         if (self::can_use_certain_duplicates_definition()) {
             $qtext = $DB->sql_compare_text('q.questiontext');
             $sql = "SELECT q.id
@@ -244,38 +245,100 @@ class question_analyzer {
                     'qtext' => (string)($rep->questiontext ?? ''),
                 ]);
                 $ids = array_values(array_unique(array_map('intval', $ids)));
-                return count($ids) >= 2 ? $ids : [];
+                
+                // 🔒 v1.14.3 : Vérification croisée STRICTE pour éviter les faux positifs
+                // Vérifier que toutes les questions trouvées sont vraiment identiques
+                if (count($ids) >= 2) {
+                    $verified_ids = self::verify_duplicates_strict($ids, $rep);
+                    if (count($verified_ids) >= 2) {
+                        debugging('get_duplicate_group_question_ids_for_question: Found ' . count($verified_ids) . ' verified duplicates (strict check)', DEBUG_DEVELOPER);
+                        return $verified_ids;
+                    } else {
+                        debugging('get_duplicate_group_question_ids_for_question: SQL found ' . count($ids) . ' but strict verification reduced to ' . count($verified_ids) . ' - NOT returning as duplicates', DEBUG_DEVELOPER);
+                        return [];
+                    }
+                }
+                return [];
             } catch (\Throwable $e) {
                 debugging('Error in get_duplicate_group_question_ids_for_question (certain/entry): ' . $e->getMessage(), DEBUG_DEVELOPER);
-                // Fallback ci-dessous.
+                // ⚠️ v1.14.3 : Ne PAS utiliser le fallback permissif si la définition stricte échoue
+                // Mieux vaut ne pas détecter de doublons que de risquer des faux positifs
+                return [];
             }
         }
 
-        // Fallback entry-centric : name + qtype.
+        // ⚠️ v1.14.3 : Fallback DÉSACTIVÉ pour sécurité
+        // Le fallback (name + qtype) est TROP permissif et peut créer des faux positifs.
+        // Deux questions avec le même nom mais un contenu différent seraient considérées comme doublons.
+        // Mieux vaut ne pas détecter de doublons que de risquer de supprimer des questions par erreur.
+        debugging('get_duplicate_group_question_ids_for_question: Cannot use strict definition (columns missing) - returning empty to avoid false positives', DEBUG_DEVELOPER);
+        return [];
+    }
+
+    /**
+     * 🔒 v1.14.3 : Vérification stricte croisée des doublons pour éviter les faux positifs
+     * 
+     * Vérifie que toutes les questions dans le groupe sont vraiment identiques
+     * en comparant tous les champs pertinents (qtype, questiontextformat, questiontext).
+     * 
+     * @param array $questionids Tableau d'IDs de questions à vérifier
+     * @param object $reference Question de référence pour comparaison
+     * @return array IDs des questions vraiment identiques (au moins 2)
+     */
+    private static function verify_duplicates_strict(array $questionids, $reference): array {
+        global $DB;
+        
+        if (count($questionids) < 2) {
+            return [];
+        }
+        
+        if (!self::can_use_certain_duplicates_definition()) {
+            // Si on ne peut pas utiliser la définition stricte, on ne peut pas vérifier
+            // Mieux vaut retourner vide pour éviter les faux positifs
+            return [];
+        }
+        
         try {
-            $sql = "SELECT q.id
-                      FROM {question_versions} qv
-                      INNER JOIN (
-                            SELECT v.questionbankentryid, MAX(v.version) AS maxversion
-                              FROM {question_versions} v
-                             WHERE v.questionbankentryid IS NOT NULL {$statusfilter}
-                          GROUP BY v.questionbankentryid
-                      ) mv ON mv.questionbankentryid = qv.questionbankentryid AND mv.maxversion = qv.version
-                      INNER JOIN {question} q ON q.id = qv.questionid
-                     WHERE q.name = :name AND q.qtype = :qtype
-                  ORDER BY q.id ASC";
-            $ids = $DB->get_fieldset_sql($sql, [
-                'name' => (string)($rep->name ?? ''),
-                'qtype' => (string)($rep->qtype ?? ''),
-            ]);
-            $ids = array_values(array_unique(array_map('intval', $ids)));
-            return count($ids) >= 2 ? $ids : [];
-        } catch (\Throwable $e) {
-            debugging('Error in get_duplicate_group_question_ids_for_question (fallback/entry): ' . $e->getMessage(), DEBUG_DEVELOPER);
+            // Charger toutes les questions pour comparaison
+            list($insql, $params) = $DB->get_in_or_equal($questionids);
+            $questions = $DB->get_records_select('question', "id $insql", $params, '', 'id,qtype,questiontext,questiontextformat');
+            
+            if (count($questions) < 2) {
+                return [];
+            }
+            
+            // Critères de référence
+            $ref_qtype = (string)($reference->qtype ?? '');
+            $ref_format = (int)($reference->questiontextformat ?? 0);
+            $ref_text = (string)($reference->questiontext ?? '');
+            
+            // Vérifier chaque question contre la référence
+            $verified_ids = [];
+            foreach ($questions as $q) {
+                $q_qtype = (string)($q->qtype ?? '');
+                $q_format = (int)($q->questiontextformat ?? 0);
+                $q_text = (string)($q->questiontext ?? '');
+                
+                // Vérification stricte : tous les champs doivent être identiques
+                if ($q_qtype === $ref_qtype && 
+                    $q_format === $ref_format && 
+                    $q_text === $ref_text) {
+                    $verified_ids[] = (int)$q->id;
+                } else {
+                    debugging('verify_duplicates_strict: Question ID ' . $q->id . ' does not match reference (qtype: ' . $q_qtype . ' vs ' . $ref_qtype . ', format: ' . $q_format . ' vs ' . $ref_format . ', text length: ' . strlen($q_text) . ' vs ' . strlen($ref_text) . ')', DEBUG_DEVELOPER);
+                }
+            }
+            
+            // Retourner uniquement si on a au moins 2 questions identiques
+            return count($verified_ids) >= 2 ? $verified_ids : [];
+            
+        } catch (\Exception $e) {
+            debugging('Error in verify_duplicates_strict: ' . $e->getMessage(), DEBUG_DEVELOPER);
+            // En cas d'erreur, retourner vide pour éviter les faux positifs
             return [];
         }
     }
-
+    
     /**
      * Retourne les IDs de toutes les questions du groupe de doublons associé à un representative_id.
      *
@@ -1104,8 +1167,8 @@ class question_analyzer {
             return false;
         }
 
-        // Définition "doublons certains" : qtype + questiontextformat + questiontext strictement identiques.
-        // Fallback (si colonnes manquantes) : name + qtype (ancien comportement).
+        // 🔒 v1.14.3 : Définition "doublons certains" STRICTE : qtype + questiontextformat + questiontext strictement identiques.
+        // Cette définition est la plus stricte possible pour éviter les faux positifs.
         if (self::can_use_certain_duplicates_definition()) {
             if ((string)($q1->qtype ?? '') !== (string)($q2->qtype ?? '')) {
                 return false;
@@ -1119,14 +1182,12 @@ class question_analyzer {
             return true;
         }
 
-        // Fallback : même nom + même type.
-        if ((string)($q1->name ?? '') !== (string)($q2->name ?? '')) {
-            return false;
-        }
-        if ((string)($q1->qtype ?? '') !== (string)($q2->qtype ?? '')) {
-            return false;
-        }
-        return true;
+        // ⚠️ v1.14.3 : Fallback DÉSACTIVÉ pour sécurité
+        // Le fallback (name + qtype) est TROP permissif et peut créer des faux positifs.
+        // Deux questions avec le même nom mais un contenu différent seraient considérées comme doublons.
+        // Mieux vaut retourner false (pas de doublon) que de risquer des faux positifs.
+        debugging('are_duplicates: Cannot use strict definition (columns missing) - returning false to avoid false positives', DEBUG_DEVELOPER);
+        return false;
     }
     
     /**
@@ -1969,6 +2030,7 @@ class question_analyzer {
      * Rend une question visible (change status de 'hidden' à 'ready')
      * 
      * 🆕 v1.9.58 : Nouvelle méthode pour rendre une question visible
+     * 🔧 v1.14.2 : Correction pour Moodle 5.1 - Utilisation de transaction et vérification améliorée
      * 
      * @param int $questionid ID de la question
      * @return bool|string True si succès, message d'erreur sinon
@@ -1977,32 +2039,42 @@ class question_analyzer {
         global $DB;
         
         try {
-            // Vérifier que la question existe
+            // Vérifier que la question existe (avant de démarrer la transaction)
             $question = $DB->get_record('question', ['id' => $questionid]);
             if (!$question) {
                 debugging('unhide_question: Question not found (ID: ' . $questionid . ')', DEBUG_DEVELOPER);
                 return 'Question non trouvée (ID: ' . $questionid . ')';
             }
             
-            // 🔧 v1.9.60 : Vérifier d'abord si la question est cachée
-            $versions_hidden = $DB->count_records('question_versions', [
+            // 🔧 v1.14.2 : Vérifier d'abord si la question est cachée (avant transaction)
+            $hidden_versions = $DB->get_records('question_versions', [
                 'questionid' => $questionid,
                 'status' => 'hidden'
             ]);
             
+            $versions_hidden = count($hidden_versions);
             debugging('unhide_question ID ' . $questionid . ': Found ' . $versions_hidden . ' hidden version(s)', DEBUG_DEVELOPER);
             
             if ($versions_hidden == 0) {
                 return 'Question non cachée (ID: ' . $questionid . ')';
             }
             
-            // Mettre à jour TOUTES les versions cachées de cette question
-            $sql = "UPDATE {question_versions}
-                    SET status = 'ready'
-                    WHERE questionid = :questionid
-                    AND status = 'hidden'";
+            // Démarrer la transaction seulement si on a des versions à mettre à jour
+            $transaction = $DB->start_delegated_transaction();
             
-            $DB->execute($sql, ['questionid' => $questionid]);
+            // 🔧 v1.14.2 : Mettre à jour chaque version individuellement pour garantir la mise à jour
+            $updated_count = 0;
+            foreach ($hidden_versions as $version) {
+                $version->status = 'ready';
+                if ($DB->update_record('question_versions', $version)) {
+                    $updated_count++;
+                } else {
+                    debugging('unhide_question ID ' . $questionid . ': Failed to update version ID ' . $version->id, DEBUG_DEVELOPER);
+                }
+            }
+            
+            // Valider la transaction
+            $transaction->allow_commit();
             
             // Vérifier si la mise à jour a fonctionné
             $still_hidden = $DB->count_records('question_versions', [
@@ -2010,12 +2082,13 @@ class question_analyzer {
                 'status' => 'hidden'
             ]);
             
-            if ($still_hidden == 0) {
-                debugging('unhide_question ID ' . $questionid . ': SUCCESS - ' . $versions_hidden . ' version(s) made visible', DEBUG_DEVELOPER);
+            if ($still_hidden == 0 && $updated_count == $versions_hidden) {
+                debugging('unhide_question ID ' . $questionid . ': SUCCESS - ' . $updated_count . ' version(s) made visible', DEBUG_DEVELOPER);
+                // Purger le cache (la méthode purge_all_caches() est suffisante)
                 return true;
             } else {
-                debugging('unhide_question ID ' . $questionid . ': FAILED - Still ' . $still_hidden . ' hidden version(s)', DEBUG_DEVELOPER);
-                return 'Échec partiel : ' . $still_hidden . ' version(s) encore cachée(s)';
+                debugging('unhide_question ID ' . $questionid . ': PARTIAL - Updated ' . $updated_count . ' of ' . $versions_hidden . ', still ' . $still_hidden . ' hidden', DEBUG_DEVELOPER);
+                return 'Échec partiel : ' . $still_hidden . ' version(s) encore cachée(s) sur ' . $versions_hidden . ' trouvée(s)';
             }
             
         } catch (\Exception $e) {
