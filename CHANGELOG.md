@@ -5,6 +5,45 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.14.1] - 2025-12-19
+
+### ✨ Feature : Suppression et fusion des questions cachées
+
+**Nouvelle fonctionnalité** : Les questions cachées peuvent maintenant être supprimées et/ou fusionnées.
+
+#### Modifications principales
+
+- **Suppression des questions cachées** :
+  - ✅ Questions cachées uniques inutilisées → **SUPPRIMABLES**
+  - ✅ Questions cachées en doublon inutilisées → **SUPPRIMABLES** (déjà possible depuis v1.9.61)
+  - ❌ Questions cachées utilisées → **PROTÉGÉES** (toujours)
+
+- **Fusion des questions cachées** :
+  - ✅ Les questions cachées peuvent être fusionnées avec d'autres questions (déjà fonctionnel)
+  - ✅ Pas de restriction basée sur le statut caché dans le processus de fusion
+
+#### Règles de suppression mises à jour
+
+**Avant (v1.14.0)** :
+- Question cachée unique inutilisée → ❌ PROTÉGÉE (raison : "Question unique")
+- Question cachée en doublon inutilisée → ✅ SUPPRIMABLE
+
+**Maintenant (v1.14.1)** :
+- Question cachée unique inutilisée → ✅ **SUPPRIMABLE** (raison : "Question cachée unique inutilisée")
+- Question cachée en doublon inutilisée → ✅ SUPPRIMABLE (raison : "Question cachée en doublon inutilisée")
+- Question visible unique inutilisée → ❌ PROTÉGÉE (raison : "Question unique")
+
+#### Fichiers modifiés
+
+- `classes/question_analyzer.php` : Modification de `can_delete_questions_batch()` pour permettre la suppression des questions cachées uniques inutilisées
+- `version.php` : Version incrémentée vers v1.14.1
+
+#### Notes techniques
+
+- La vérification du statut caché se fait via `get_questions_version_info_batch()` pour optimiser les performances
+- Les questions cachées utilisées restent protégées (règle de protection #1 : question utilisée)
+- Les questions visibles uniques restent protégées (règle de protection #2 : question unique)
+
 ## [1.14.0] - 2025-12-19
 
 ### 🚀 Évolution majeure : Migration vers l'API Moodle standard pour création de questions

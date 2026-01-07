@@ -1680,10 +1680,8 @@ class question_analyzer {
             // ÉTAPE 2 : Vérifier l'usage de TOUTES les questions en une seule requête
             $usage_map = self::get_questions_usage_by_ids($questionids);
             
-            // 🗑️ REMOVED v1.9.61 : Chargement de hidden_map supprimé
-            // Anciennement : On chargeait le statut caché pour protéger ces questions
-            // Nouveau comportement : Les questions cachées peuvent être supprimées si doublons inutilisés
-            // Performance : Économise 1 requête SQL inutile
+            // 🆕 v1.14.1 : Charger les statuts cachés en batch pour toutes les questions
+            $version_info_map = self::get_questions_version_info_batch($questionids);
             
             // ÉTAPE 3 : Analyser chaque question
             foreach ($questions as $q) {
@@ -1701,8 +1699,8 @@ class question_analyzer {
                     }
                 }
                 
-                // 🗑️ REMOVED v1.9.61 : Protection "Question cachée" RETIRÉE
-                // L'utilisateur peut maintenant supprimer les questions cachées si elles sont des doublons inutilisés
+                // 🆕 v1.14.1 : Vérifier si la question est cachée (chargé en batch)
+                $is_hidden = isset($version_info_map[$qid]) && $version_info_map[$qid]->is_hidden;
                 
                 // Vérification 2 : Question a des doublons ?
                 // 🔧 v1.9.51 FIX CRITIQUE : Chercher TOUTES les questions avec ce nom+type dans la BASE
@@ -1721,7 +1719,22 @@ class question_analyzer {
                     $duplicate_ids[] = $otherid;
                 }
                 
+                // 🆕 v1.14.1 : Questions cachées uniques inutilisées peuvent être supprimées
                 if ($duplicate_count == 0) {
+                    // Si la question est cachée ET inutilisée, elle peut être supprimée
+                    if ($is_hidden) {
+                        $results[$qid]->can_delete = true;
+                        $results[$qid]->reason = 'Question cachée unique inutilisée';
+                        $results[$qid]->details['is_unique'] = true;
+                        $results[$qid]->details['is_hidden'] = true;
+                        $results[$qid]->details['debug_signature'] = self::can_use_certain_duplicates_definition()
+                            ? self::build_certain_duplicate_signature($q)
+                            : ((string)($q->name ?? '') . '|||' . (string)($q->qtype ?? ''));
+                        $results[$qid]->details['debug_name'] = (string)($q->name ?? '');
+                        $results[$qid]->details['debug_type'] = (string)($q->qtype ?? '');
+                        continue;
+                    }
+                    // Question visible unique → PROTÉGÉE
                     $results[$qid]->reason = 'Question unique (pas de doublon)';
                     $results[$qid]->details['is_unique'] = true;
                     $results[$qid]->details['debug_signature'] = self::can_use_certain_duplicates_definition()
@@ -1734,9 +1747,10 @@ class question_analyzer {
                 
                 // Si on arrive ici : question inutilisée ET en doublon → SUPPRIMABLE
                 $results[$qid]->can_delete = true;
-                $results[$qid]->reason = 'Doublon inutilisé';
+                $results[$qid]->reason = $is_hidden ? 'Question cachée en doublon inutilisée' : 'Doublon inutilisé';
                 $results[$qid]->details['duplicate_count'] = $duplicate_count;
                 $results[$qid]->details['duplicate_ids'] = $duplicate_ids;
+                $results[$qid]->details['is_hidden'] = $is_hidden;
                 $results[$qid]->details['debug_signature'] = self::can_use_certain_duplicates_definition()
                     ? self::build_certain_duplicate_signature($q)
                     : ((string)($q->name ?? '') . '|||' . (string)($q->qtype ?? ''));
