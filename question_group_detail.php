@@ -28,13 +28,8 @@ require_once(__DIR__ . '/classes/question_analyzer.php');
 
 use local_question_diagnostic\question_analyzer;
 
-// Charger les bibliothèques Moodle nécessaires.
-require_login();
-
-// Vérification stricte : seuls les administrateurs du site peuvent accéder à cette page.
-if (!is_siteadmin()) {
-    throw new \moodle_exception('accessdenied', 'admin', '', 'Vous devez être administrateur du site pour accéder à cet outil.');
-}
+// Contrôle d'accès : capacité du plugin (consultation).
+local_question_diagnostic_require_access('viewquestions');
 
 // Récupérer les paramètres
 $representative_id = optional_param('id', 0, PARAM_INT);
@@ -153,7 +148,7 @@ foreach ($all_questions as $q) {
 echo html_writer::start_tag('div', ['class' => 'alert alert-info', 'style' => 'margin: 20px 0;']);
 echo html_writer::tag('h3', '📋 ' . get_string('group_summary', 'local_question_diagnostic'), ['style' => 'margin-top: 0;']);
 echo html_writer::tag('p', '<strong>' . get_string('duplicate_group_name', 'local_question_diagnostic') . ' :</strong> ' . format_string($question_name));
-echo html_writer::tag('p', '<strong>' . get_string('type', 'local_question_diagnostic') . ' :</strong> ' . $qtype);
+echo html_writer::tag('p', '<strong>' . get_string('type', 'local_question_diagnostic') . ' :</strong> ' . s($qtype));
 echo html_writer::tag('p', '<strong>' . get_string('duplicate_instances_count', 'local_question_diagnostic') . ' :</strong> ' . count($all_questions) . ' question(s)');
 echo html_writer::tag('p', '<strong>' . get_string('used_instances', 'local_question_diagnostic') . ' :</strong> ' . $used_count_preview);
 echo html_writer::tag('p', '<strong>' . get_string('unused_instances', 'local_question_diagnostic') . ' :</strong> ' . $unused_count_preview);
@@ -168,7 +163,7 @@ if (!empty($protected_reasons)) {
     echo html_writer::tag('strong', '⚠️ Raisons de protection :');
     echo html_writer::start_tag('ul', ['style' => 'margin: 5px 0 0 0; padding-left: 20px;']);
     foreach ($protected_reasons as $reason => $count) {
-        echo html_writer::tag('li', $reason . ' : ' . $count . ' question(s)');
+        echo html_writer::tag('li', s($reason) . ' : ' . (int)$count . ' question(s)');
     }
     echo html_writer::end_tag('ul');
     echo html_writer::end_tag('div');
@@ -177,13 +172,17 @@ if (!empty($protected_reasons)) {
 echo html_writer::end_tag('div');
 
 // 🆕 v1.9.23 : Bouton de suppression en masse (au-dessus du tableau)
+// Écritures réservées aux administrateurs du site.
+$qdisadmin = is_siteadmin();
 echo html_writer::start_tag('div', ['id' => 'bulk-actions-container', 'style' => 'margin-bottom: 15px; display: none;']);
-echo html_writer::tag('button', '🗑️ Supprimer la sélection', [
-    'id' => 'bulk-delete-btn',
-    'class' => 'btn btn-danger',
-    'onclick' => 'bulkDeleteQuestions()',
-    'style' => 'margin-right: 10px;'
-]);
+if ($qdisadmin) {
+    echo html_writer::tag('button', '🗑️ Supprimer la sélection', [
+        'id' => 'bulk-delete-btn',
+        'class' => 'btn btn-danger',
+        'onclick' => 'bulkDeleteQuestions()',
+        'style' => 'margin-right: 10px;'
+    ]);
+}
 echo html_writer::tag('span', '0 question(s) sélectionnée(s)', [
     'id' => 'selection-count',
     'style' => 'font-weight: bold; color: #666;'
@@ -287,7 +286,7 @@ foreach ($all_questions as $q) {
     
     echo html_writer::tag('td', $q->id . ($representative_id && $q->id == $representative_id ? ' 🎯' : ''));
     echo html_writer::tag('td', format_string($q->name));
-    echo html_writer::tag('td', $q->qtype);
+    echo html_writer::tag('td', s($q->qtype));
     
     // 🆕 v1.9.57 : Colonne Visibilité (visible/cachée/supprimée)
     $visibility_status = question_analyzer::get_question_visibility_status($q->id, $version_info, $group_usage_map);
@@ -397,16 +396,17 @@ foreach ($all_questions as $q) {
     
     // Bouton Supprimer avec protection
     if ($can_delete_check && $can_delete_check->can_delete) {
-        // Question supprimable
-        $delete_url = new moodle_url('/local/question_diagnostic/actions/delete_question.php', [
-            'id' => $q->id,
-            'sesskey' => sesskey()
-        ]);
-        echo html_writer::link($delete_url, '🗑️', [
-            'class' => 'btn btn-sm btn-danger',
-            'title' => 'Supprimer ce doublon inutilisé',
-            'style' => 'background: #d9534f; color: white; padding: 3px 8px; margin-right: 5px;'
-        ]);
+        // Question supprimable : lien vers la confirmation (aucun sesskey dans l'URL), administrateurs uniquement
+        if ($qdisadmin) {
+            $delete_url = new moodle_url('/local/question_diagnostic/actions/delete_question.php', [
+                'id' => $q->id,
+            ]);
+            echo html_writer::link($delete_url, '🗑️', [
+                'class' => 'btn btn-sm btn-danger',
+                'title' => 'Supprimer ce doublon inutilisé',
+                'style' => 'background: #d9534f; color: white; padding: 3px 8px; margin-right: 5px;'
+            ]);
+        }
     } else {
         // Question protégée - Afficher la raison COMPLÈTE avec détails
         $reason = $can_delete_check ? $can_delete_check->reason : 'Vérification impossible';
@@ -483,9 +483,10 @@ function bulkDeleteQuestions() {
     message += 'Questions à supprimer : ' + ids.join(', ');
     
     if (confirm(message)) {
-        // Rediriger vers l'action de suppression en masse
-        var url = '" . (new \moodle_url('/local/question_diagnostic/actions/delete_questions_bulk.php'))->out(false) . "';
-        url += '?ids=' + ids.join(',') + '&sesskey=" . sesskey() . "';
+        // Rediriger vers la page de confirmation (aucun sesskey dans l'URL : la suppression se fait en POST)
+        var url = " . json_encode((new \moodle_url('/local/question_diagnostic/actions/delete_questions_bulk.php'))->out(false),
+            JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) . ";
+        url += '?ids=' + encodeURIComponent(ids.join(','));
         window.location.href = url;
     }
 }

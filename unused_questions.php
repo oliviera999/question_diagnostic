@@ -10,14 +10,8 @@ require_once(__DIR__ . '/classes/question_analyzer.php');
 
 use local_question_diagnostic\question_analyzer;
 
-// Charger les bibliothèques Moodle nécessaires.
-require_login();
-
-// Vérification stricte : seuls les administrateurs du site peuvent accéder à cette page.
-if (!is_siteadmin()) {
-    throw new \moodle_exception('accessdenied', 'admin', '', 'Vous devez être administrateur du site pour accéder à cet outil.');
-    exit;
-}
+// Contrôle d'accès : capacité du plugin (consultation).
+local_question_diagnostic_require_access('viewquestions');
 
 // Définir le contexte de la page (système).
 $context = context_system::instance();
@@ -46,23 +40,23 @@ echo local_question_diagnostic_render_version_badge();
 echo html_writer::start_tag('div', ['style' => 'margin-bottom: 20px; display: flex; gap: 10px; align-items: center;']);
 echo local_question_diagnostic_render_back_link('unused_questions.php');
 
-// Traiter la purge de cache si demandée
+// Traiter la purge du cache d'analyse du plugin si demandée (aucune donnée modifiée : POST + sesskey suffisent).
 $purgecache = optional_param('purgecache', 0, PARAM_INT);
-if ($purgecache && confirm_sesskey()) {
+if ($purgecache && data_submitted()) {
+    require_sesskey();
     question_analyzer::purge_all_caches();
     redirect($PAGE->url, '✅ Cache purgé avec succès.', null, \core\output\notification::NOTIFY_SUCCESS);
 }
 
-// Bouton de purge de cache
-$purgecache_url = new moodle_url($PAGE->url, ['purgecache' => 1, 'sesskey' => sesskey()]);
-echo html_writer::link(
-    $purgecache_url,
-    '🔄 Purger le cache',
-    [
-        'class' => 'btn btn-warning',
-        'title' => 'Vider le cache pour forcer le recalcul des statistiques'
-    ]
-);
+// Bouton de purge du cache d'analyse (formulaire POST : le sesskey n'apparaît jamais dans l'URL).
+$purgecache_url = new moodle_url($PAGE->url, ['purgecache' => 1]);
+echo $OUTPUT->single_button($purgecache_url, '🔄 Purger le cache', 'post', [
+    'type' => single_button::BUTTON_WARNING,
+    'title' => 'Vider le cache pour forcer le recalcul des statistiques',
+]);
+
+// Écritures et export : réservés aux administrateurs du site.
+$qdisadmin = is_siteadmin();
 
 // Lien vers le centre d'aide
 echo html_writer::link(
@@ -97,7 +91,7 @@ try {
     echo html_writer::start_tag('div', ['class' => 'alert alert-danger']);
     echo html_writer::tag('strong', '⚠️ Erreur : ');
     echo 'Impossible de charger les statistiques globales. ';
-    echo html_writer::tag('p', 'Détails : ' . $e->getMessage(), ['style' => 'margin-top: 10px; font-size: 12px;']);
+    echo html_writer::tag('p', 'Détails : ' . s($e->getMessage()), ['style' => 'margin-top: 10px; font-size: 12px;']);
     echo html_writer::end_tag('div');
     echo $OUTPUT->footer();
     exit;
@@ -134,11 +128,12 @@ echo html_writer::end_tag('div'); // fin dashboard
 
 echo html_writer::start_tag('div', ['style' => 'margin: 30px 0 20px 0; display: flex; gap: 10px; flex-wrap: wrap;']);
 
-$exporturl = new moodle_url('/local/question_diagnostic/actions/export.php', [
-    'type' => 'unused_questions_csv',
-    'sesskey' => sesskey()
-]);
-echo html_writer::link($exporturl, '📥 ' . get_string('export_unused_csv', 'local_question_diagnostic'), ['class' => 'btn btn-success']);
+// Export CSV : formulaire POST (le sesskey n'apparaît jamais dans une URL), administrateurs uniquement.
+if ($qdisadmin) {
+    $exporturl = new moodle_url('/local/question_diagnostic/actions/export.php', ['type' => 'unused_questions_csv']);
+    echo $OUTPUT->single_button($exporturl, '📥 ' . get_string('export_unused_csv', 'local_question_diagnostic'), 'post',
+        ['type' => single_button::BUTTON_PRIMARY]);
+}
 
 echo html_writer::tag('button', '⚙️ ' . get_string('toggle_columns', 'local_question_diagnostic'), [
     'id' => 'toggle-columns-btn',
@@ -217,7 +212,7 @@ echo html_writer::tag('option', 'Tous', ['value' => 'all']);
 $types_list = [];
 if (isset($globalstats->by_type)) {
     foreach ($globalstats->by_type as $qtype => $count) {
-        $types_list[$qtype] = $qtype . ' (' . $count . ')';
+        $types_list[$qtype] = s($qtype) . ' (' . (int)$count . ')';
     }
     asort($types_list);
     foreach ($types_list as $qtype => $label) {
@@ -306,7 +301,7 @@ try {
     echo html_writer::start_tag('div', ['class' => 'alert alert-danger']);
     echo html_writer::tag('strong', '⚠️ Erreur : ');
     echo 'Impossible de charger les questions inutilisées. ';
-    echo html_writer::tag('p', 'Détails : ' . $e->getMessage(), ['style' => 'margin-top: 10px; font-size: 12px;']);
+    echo html_writer::tag('p', 'Détails : ' . s($e->getMessage()), ['style' => 'margin-top: 10px; font-size: 12px;']);
     echo html_writer::end_tag('div');
     echo $OUTPUT->footer();
     exit;
@@ -342,12 +337,14 @@ echo html_writer::end_tag('div');
 
 // Bouton de suppression en masse (au-dessus du tableau)
 echo html_writer::start_tag('div', ['id' => 'bulk-actions-container-unused', 'style' => 'margin-bottom: 15px; display: none;']);
-echo html_writer::tag('button', '🗑️ Supprimer la sélection', [
-    'id' => 'bulk-delete-unused-btn',
-    'class' => 'btn btn-danger',
-    'onclick' => 'bulkDeleteUnusedQuestions()',
-    'style' => 'margin-right: 10px;'
-]);
+if ($qdisadmin) {
+    echo html_writer::tag('button', '🗑️ Supprimer la sélection', [
+        'id' => 'bulk-delete-unused-btn',
+        'class' => 'btn btn-danger',
+        'onclick' => 'bulkDeleteUnusedQuestions()',
+        'style' => 'margin-right: 10px;'
+    ]);
+}
 echo html_writer::tag('span', '0 question(s) sélectionnée(s)', [
     'id' => 'selection-count-unused',
     'style' => 'font-weight: bold; color: #666;'
@@ -452,7 +449,7 @@ foreach ($unused_questions as $question) {
     
     echo html_writer::tag('td', $question->id, ['class' => 'col-id']);
     echo html_writer::tag('td', format_string($question->name), ['class' => 'col-name']);
-    echo html_writer::tag('td', $question->qtype, ['class' => 'col-type']);
+    echo html_writer::tag('td', s($question->qtype), ['class' => 'col-type']);
     
     switch ($visibility_status) {
         case 'deleted':
@@ -493,12 +490,11 @@ foreach ($unused_questions as $question) {
     // Catégorie cliquable
     echo html_writer::start_tag('td', ['class' => 'col-category']);
     if (isset($stats->category_id) && $stats->category_id > 0 && isset($stats->context_id)) {
-        $courseid = isset($stats->course_id) && $stats->course_id ? (int)$stats->course_id : (defined('SITEID') ? SITEID : 1);
-        $cat_url = new moodle_url('/question/edit.php', [
-            'courseid' => $courseid,
-            'cat' => $stats->category_id . ',' . $stats->context_id
-        ]);
-        $category_display = html_writer::link($cat_url, format_string($stats->category_name), ['target' => '_blank', 'title' => 'Ouvrir la catégorie dans la banque de questions']);
+        $cat_url = local_question_diagnostic_get_question_bank_url(
+            (object)['id' => (int)$stats->category_id, 'contextid' => (int)$stats->context_id]);
+        $category_display = $cat_url
+            ? html_writer::link($cat_url, format_string($stats->category_name), ['target' => '_blank', 'title' => 'Ouvrir la catégorie dans la banque de questions'])
+            : format_string($stats->category_name);
         $category_display .= ' <span style="color: #666; font-size: 11px;">(ID: ' . $stats->category_id . ')</span>';
         echo $category_display;
     } else {
@@ -514,11 +510,11 @@ foreach ($unused_questions as $question) {
     }
     echo html_writer::tag('td', $context_display, ['class' => 'col-context', 'style' => 'font-size: 12px; display: none;']);
     
-    echo html_writer::tag('td', $creator_name, ['class' => 'col-creator', 'style' => 'display: none;']);
+    echo html_writer::tag('td', s($creator_name), ['class' => 'col-creator', 'style' => 'display: none;']);
     echo html_writer::tag('td', userdate($question->timecreated, '%d/%m/%Y %H:%M'), ['class' => 'col-created']);
     echo html_writer::tag('td', userdate($question->timemodified, '%d/%m/%Y %H:%M'), ['class' => 'col-modified', 'style' => 'display: none;']);
     echo html_writer::tag('td', $visible_text, ['class' => 'col-visible', 'style' => 'display: none;']);
-    echo html_writer::tag('td', $excerpt, ['class' => 'col-excerpt', 'style' => 'font-size: 12px; color: #666; display: none;']);
+    echo html_writer::tag('td', s($excerpt), ['class' => 'col-excerpt', 'style' => 'font-size: 12px; color: #666; display: none;']);
     
     // Actions
     echo html_writer::start_tag('td', ['class' => 'col-actions', 'style' => 'white-space: nowrap;']);
@@ -536,16 +532,17 @@ foreach ($unused_questions as $question) {
     
     // Bouton Supprimer avec protection
     if ($can_delete_check && $can_delete_check->can_delete) {
-        // Question supprimable
-        $delete_url = new moodle_url('/local/question_diagnostic/actions/delete_question.php', [
-            'id' => $question->id,
-            'sesskey' => sesskey()
-        ]);
-        echo html_writer::link($delete_url, '🗑️', [
-            'class' => 'btn btn-sm btn-danger',
-            'title' => 'Supprimer cette question inutilisée',
-            'style' => 'background: #d9534f; color: white; padding: 3px 8px;'
-        ]);
+        // Question supprimable : lien vers la confirmation (aucun sesskey dans l'URL), administrateurs uniquement
+        if ($qdisadmin) {
+            $delete_url = new moodle_url('/local/question_diagnostic/actions/delete_question.php', [
+                'id' => $question->id,
+            ]);
+            echo html_writer::link($delete_url, '🗑️', [
+                'class' => 'btn btn-sm btn-danger',
+                'title' => 'Supprimer cette question inutilisée',
+                'style' => 'background: #d9534f; color: white; padding: 3px 8px;'
+            ]);
+        }
     } else {
         // Question protégée
         $reason = $can_delete_check ? $can_delete_check->reason : 'Vérification impossible';
@@ -636,9 +633,10 @@ function bulkDeleteUnusedQuestions() {
     message += 'Questions à supprimer : ' + ids.join(', ');
     
     if (confirm(message)) {
-        // Rediriger vers l'action de suppression en masse
-        var url = '<?php echo (new \moodle_url('/local/question_diagnostic/actions/delete_questions_bulk.php'))->out(false); ?>';
-        url += '?ids=' + encodeURIComponent(ids.join(',')) + '&sesskey=<?php echo sesskey(); ?>';
+        // Rediriger vers la page de confirmation (aucun sesskey dans l'URL : la suppression se fait en POST)
+        var url = <?php echo json_encode((new \moodle_url('/local/question_diagnostic/actions/delete_questions_bulk.php'))->out(false),
+            JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+        url += '?ids=' + encodeURIComponent(ids.join(','));
         window.location.href = url;
     }
 }

@@ -21,6 +21,9 @@ require_once($CFG->dirroot . '/question/editlib.php');
  */
 class question_analyzer {
 
+    /** Nombre maximal de questions rendues visibles en une opération. */
+    const UNHIDE_MAX = 200;
+
     /**
      * Cache des colonnes de la table {question} (runtime).
      *
@@ -148,8 +151,9 @@ class question_analyzer {
             $statusfilter = " AND v.status <> 'draft' ";
         }
 
-        $sql = "SELECT q.id, q.name, q.qtype, q.questiontext, q.questiontextformat
+        $sql = "SELECT q.id, q.name, q.qtype, q.questiontext, q.questiontextformat, qbe.questioncategoryid
                   FROM {question_versions} qv
+                  INNER JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
                   INNER JOIN (
                         SELECT v.questionbankentryid, MAX(v.version) AS maxversion
                           FROM {question_versions} v
@@ -186,7 +190,10 @@ class question_analyzer {
         // Hash court pour éviter de stocker/afficher un texte potentiellement très long.
         $texthash = sha1($qtext);
 
-        return $qtype . '|||' . $fmt . '|||' . $texthash;
+        // v1.15.0 : un doublon est toujours dans la même catégorie.
+        $catid = (int)($q->questioncategoryid ?? 0);
+
+        return $catid . '|||' . $qtype . '|||' . $fmt . '|||' . $texthash;
     }
 
     /**
@@ -214,6 +221,15 @@ class question_analyzer {
         if (!$rep) {
             return [];
         }
+        // v1.15.0 : un doublon est toujours dans la MÊME catégorie que la question représentative.
+        $repcategoryid = (int)$DB->get_field_sql(
+            'SELECT qbe.questioncategoryid
+               FROM {question_versions} qv
+               JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
+              WHERE qv.questionid = ?', [(int)$rep->id]);
+        if ($repcategoryid <= 0) {
+            return [];
+        }
 
         $statusfilter = '';
         if (self::question_versions_has_status()) {
@@ -233,8 +249,10 @@ class question_analyzer {
                           GROUP BY v.questionbankentryid
                       ) mv ON mv.questionbankentryid = qv.questionbankentryid AND mv.maxversion = qv.version
                       INNER JOIN {question} q ON q.id = qv.questionid
+                      INNER JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
                      WHERE q.qtype = :qtype
                        AND q.questiontextformat = :fmt
+                       AND qbe.questioncategoryid = :catid
                        AND {$qtext} = " . $DB->sql_compare_text(':qtext') . "
                   ORDER BY q.id ASC";
 
@@ -242,6 +260,7 @@ class question_analyzer {
                 $ids = $DB->get_fieldset_sql($sql, [
                     'qtype' => (string)($rep->qtype ?? ''),
                     'fmt' => (int)($rep->questiontextformat ?? 0),
+                    'catid' => $repcategoryid,
                     'qtext' => (string)($rep->questiontext ?? ''),
                 ]);
                 $ids = array_values(array_unique(array_map('intval', $ids)));
@@ -250,13 +269,7 @@ class question_analyzer {
                 // Vérifier que toutes les questions trouvées sont vraiment identiques
                 if (count($ids) >= 2) {
                     $verified_ids = self::verify_duplicates_strict($ids, $rep);
-                    if (count($verified_ids) >= 2) {
-                        debugging('get_duplicate_group_question_ids_for_question: Found ' . count($verified_ids) . ' verified duplicates (strict check)', DEBUG_DEVELOPER);
-                        return $verified_ids;
-                    } else {
-                        debugging('get_duplicate_group_question_ids_for_question: SQL found ' . count($ids) . ' but strict verification reduced to ' . count($verified_ids) . ' - NOT returning as duplicates', DEBUG_DEVELOPER);
-                        return [];
-                    }
+                    return count($verified_ids) >= 2 ? $verified_ids : [];
                 }
                 return [];
             } catch (\Throwable $e) {
@@ -324,13 +337,16 @@ class question_analyzer {
                     $q_format === $ref_format && 
                     $q_text === $ref_text) {
                     $verified_ids[] = (int)$q->id;
-                } else {
-                    debugging('verify_duplicates_strict: Question ID ' . $q->id . ' does not match reference (qtype: ' . $q_qtype . ' vs ' . $ref_qtype . ', format: ' . $q_format . ' vs ' . $ref_format . ', text length: ' . strlen($q_text) . ' vs ' . strlen($ref_text) . ')', DEBUG_DEVELOPER);
                 }
             }
             
-            // Retourner uniquement si on a au moins 2 questions identiques
-            return count($verified_ids) >= 2 ? $verified_ids : [];
+            if (count($verified_ids) < 2) {
+                return [];
+            }
+            // v1.15.0 : l'énoncé ne suffit pas. Réponses, options, sous-questions, indices, note et CONTENU
+            // des fichiers doivent être identiques (empreinte de l'export XML de Moodle).
+            return \local_question_diagnostic\local\question_fingerprint::filter_identical(
+                $verified_ids, (int)$reference->id);
             
         } catch (\Exception $e) {
             debugging('Error in verify_duplicates_strict: ' . $e->getMessage(), DEBUG_DEVELOPER);
@@ -697,93 +713,55 @@ class question_analyzer {
             // Construire la clause IN pour filtrer uniquement les questions demandées
             list($insql, $params) = $DB->get_in_or_equal($question_ids, SQL_PARAMS_NAMED);
             
-            // Quiz usage - UNIQUEMENT pour les IDs demandés
-            // ⚠️ v1.6.4 : Vérifier quelle colonne existe dans quiz_slots
+            // Usage dans les tests (Moodle 4.0+ : question_references).
+            // Une référence vise une ENTRÉE : soit une version figée (qr.version), soit « toujours la dernière
+            // version utilisable » (qr.version NULL : dernière version non brouillon). On rattache la référence
+            // à la version qu'elle sert réellement, comme question_reference_manager::questions_with_references().
+            [$linsql, $lparams] = $DB->get_in_or_equal($question_ids, SQL_PARAMS_NAMED, 'lq');
+            $quiz_usage_sql = "
+                SELECT qr.id AS refid, qv.questionid, qu.id AS quiz_id, qu.name AS quiz_name, qu.course
+                  FROM {question_versions} qv
+             LEFT JOIN (
+                       SELECT lqv.questionbankentryid, MAX(lv.version) AS latestusable
+                         FROM {question_versions} lqv
+                         JOIN {question_versions} lv ON lv.questionbankentryid = lqv.questionbankentryid
+                        WHERE lqv.questionid $linsql
+                          AND lv.status <> :draft
+                     GROUP BY lqv.questionbankentryid
+                       ) latest ON latest.questionbankentryid = qv.questionbankentryid
+                  JOIN {question_references} qr ON qr.questionbankentryid = qv.questionbankentryid
+                       AND (qr.version = qv.version OR (qr.version IS NULL AND qv.version = latest.latestusable))
+                  JOIN {quiz_slots} qs ON qs.id = qr.itemid AND qr.component = 'mod_quiz' AND qr.questionarea = 'slot'
+                  JOIN {quiz} qu ON qu.id = qs.quizid
+                 WHERE qv.questionid $insql
+              ORDER BY qv.questionid, qu.id";
+            $quiz_usage_rs = $DB->get_recordset_sql($quiz_usage_sql,
+                array_merge($params, $lparams, ['draft' => 'draft']));
             try {
-                // Vérifier si questionbankentryid existe (Moodle 4.1+)
-                $columns = $DB->get_columns('quiz_slots');
-                $quiz_usage_sql = null;
-                
-                if (isset($columns['questionbankentryid'])) {
-                    // Moodle 4.1-4.4 : utilise questionbankentryid
-                    $quiz_usage_sql = "
-                        SELECT qv.questionid, qu.id as quiz_id, qu.name as quiz_name, qu.course
-                        FROM {quiz_slots} qs
-                        INNER JOIN {quiz} qu ON qu.id = qs.quizid
-                        INNER JOIN {question_bank_entries} qbe ON qbe.id = qs.questionbankentryid
-                        INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
-                        WHERE qv.questionid $insql
-                        ORDER BY qv.questionid, qu.id
-                    ";
-                } else if (isset($columns['questionid'])) {
-                    // Moodle 4.0 uniquement : utilise questionid directement
-                    // ⚠️ Note : Moodle 3.x NON supporté (architecture incompatible)
-                    $quiz_usage_sql = "
-                        SELECT qs.questionid, qu.id as quiz_id, qu.name as quiz_name, qu.course
-                        FROM {quiz_slots} qs
-                        INNER JOIN {quiz} qu ON qu.id = qs.quizid
-                        WHERE qs.questionid $insql
-                        ORDER BY qs.questionid, qu.id
-                    ";
-                } else {
-                    // 🔧 v1.9.22 FIX : Moodle 4.5+ utilise question_references
-                    $quiz_usage_sql = "
-                        SELECT qv.questionid, qu.id as quiz_id, qu.name as quiz_name, qu.course
-                        FROM {quiz_slots} qs
-                        INNER JOIN {quiz} qu ON qu.id = qs.quizid
-                        INNER JOIN {question_references} qr ON qr.itemid = qs.id 
-                            AND qr.component = 'mod_quiz' 
-                            AND qr.questionarea = 'slot'
-                        INNER JOIN {question_bank_entries} qbe ON qbe.id = qr.questionbankentryid
-                        INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
-                        WHERE qv.questionid $insql
-                        ORDER BY qv.questionid, qu.id
-                    ";
-                }
-                
-                if (!empty($quiz_usage_sql)) {
-                    // get_recordset_sql() ne nécessite pas de 1ère colonne unique (contrairement à get_records_sql()).
-                    $quiz_usage_rs = null;
-                    try {
-                        $quiz_usage_rs = $DB->get_recordset_sql($quiz_usage_sql, $params);
-                        foreach ($quiz_usage_rs as $record) {
-                            $qid = $record->questionid;
-                            
-                            if (!isset($usage_map[$qid])) {
-                                $usage_map[$qid] = [
-                                    'quiz_count' => 0,
-                                    'quiz_list' => [],
-                                    'attempt_count' => 0,
-                                    'is_used' => true
-                                ];
-                            }
-                            
-                            // Vérifier si ce quiz n'est pas déjà dans la liste
-                            $already_added = false;
-                            foreach ($usage_map[$qid]['quiz_list'] as $existing_quiz) {
-                                if ($existing_quiz->id == $record->quiz_id) {
-                                    $already_added = true;
-                                    break;
-                                }
-                            }
-                            
-                            if (!$already_added) {
-                                $usage_map[$qid]['quiz_list'][] = (object)[
-                                    'id' => $record->quiz_id,
-                                    'name' => $record->quiz_name,
-                                    'course' => $record->course
-                                ];
-                                $usage_map[$qid]['quiz_count']++;
-                            }
-                        }
-                    } finally {
-                        if ($quiz_usage_rs) {
-                            $quiz_usage_rs->close();
-                        }
+                foreach ($quiz_usage_rs as $record) {
+                    $qid = (int)$record->questionid;
+                    if (!isset($usage_map[$qid])) {
+                        $usage_map[$qid] = [
+                            'quiz_count' => 0,
+                            'quiz_list' => [],
+                            'attempt_count' => 0,
+                            'is_used' => true
+                        ];
+                    }
+                    if (!isset($usage_map[$qid]['quiz_list'][(int)$record->quiz_id])) {
+                        $usage_map[$qid]['quiz_list'][(int)$record->quiz_id] = (object)[
+                            'id' => $record->quiz_id,
+                            'name' => $record->quiz_name,
+                            'course' => $record->course
+                        ];
+                        $usage_map[$qid]['quiz_count']++;
                     }
                 }
-            } catch (\Exception $e) {
-                debugging('Error in get_questions_usage_by_ids: ' . $e->getMessage(), DEBUG_DEVELOPER);
+            } finally {
+                $quiz_usage_rs->close();
+            }
+            foreach ($usage_map as $qid => $info) {
+                $usage_map[$qid]['quiz_list'] = array_values($info['quiz_list']);
             }
 
             // Attempts - UNIQUEMENT pour les IDs demandés
@@ -819,8 +797,18 @@ class question_analyzer {
                 }
             }
 
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             debugging('Error in get_questions_usage_by_ids: ' . $e->getMessage(), DEBUG_DEVELOPER);
+            // v1.15.0 : en cas d'erreur, tout est considéré comme utilisé (le contrôle bloque, il n'autorise jamais).
+            foreach ($question_ids as $qid) {
+                $usage_map[$qid] = [
+                    'quiz_count' => 0,
+                    'quiz_list' => [],
+                    'attempt_count' => 0,
+                    'is_used' => true,
+                    'check_failed' => true,
+                ];
+            }
         }
 
         return $usage_map;
@@ -1154,6 +1142,7 @@ class question_analyzer {
      * @return bool True si doublons, false sinon
      */
     public static function are_duplicates($q1, $q2) {
+        global $DB;
         // Même entry (donc versions d'une même question) = jamais un doublon.
         if (isset($q1->id) && isset($q2->id)) {
             $e1 = self::get_entryid_for_questionid((int)$q1->id);
@@ -1179,7 +1168,20 @@ class question_analyzer {
             if ((string)($q1->questiontext ?? '') !== (string)($q2->questiontext ?? '')) {
                 return false;
             }
-            return true;
+            if (empty($q1->id) || empty($q2->id)) {
+                // Sans identifiant, impossible de comparer le contenu complet : pas un doublon.
+                return false;
+            }
+            // v1.15.0 : même catégorie et contenu complet identique (réponses, options, fichiers…).
+            $cat1 = (int)$DB->get_field_sql('SELECT qbe.questioncategoryid FROM {question_versions} qv
+                JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid WHERE qv.questionid = ?', [(int)$q1->id]);
+            $cat2 = (int)$DB->get_field_sql('SELECT qbe.questioncategoryid FROM {question_versions} qv
+                JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid WHERE qv.questionid = ?', [(int)$q2->id]);
+            if ($cat1 <= 0 || $cat1 !== $cat2) {
+                return false;
+            }
+            $fp1 = \local_question_diagnostic\local\question_fingerprint::compute((int)$q1->id);
+            return $fp1 !== null && $fp1 === \local_question_diagnostic\local\question_fingerprint::compute((int)$q2->id);
         }
 
         // ⚠️ v1.14.3 : Fallback DÉSACTIVÉ pour sécurité
@@ -1738,26 +1740,28 @@ class question_analyzer {
             }
             $questions = $DB->get_records_select('question', "id $insql", $params, '', $fields);
             
-            // ÉTAPE 2 : Vérifier l'usage de TOUTES les questions en une seule requête
+            // ÉTAPE 2 : usage au sens du cœur (toutes versions de l'entrée : tentatives, références,
+            // plugins) et réservoirs de tirage aléatoire. v1.15.0 : un seul contrôle, partagé avec la suppression.
+            $checks = \local_question_diagnostic\local\question_deleter::check($questionids);
             $usage_map = self::get_questions_usage_by_ids($questionids);
-            
+
             // 🆕 v1.14.1 : Charger les statuts cachés en batch pour toutes les questions
             $version_info_map = self::get_questions_version_info_batch($questionids);
-            
+
             // ÉTAPE 3 : Analyser chaque question
             foreach ($questions as $q) {
                 $qid = $q->id;
-                
-                // Vérification 1 : Question utilisée ?
-                // 🔧 v1.9.43 FIX CRITIQUE : Utiliser la clé 'quiz_count' directement au lieu d'itérer sur l'array
-                if (isset($usage_map[$qid]) && is_array($usage_map[$qid])) {
-                    $quiz_count = isset($usage_map[$qid]['quiz_count']) ? $usage_map[$qid]['quiz_count'] : 0;
-                    
-                    if ($quiz_count > 0) {
-                        $results[$qid]->reason = 'Question utilisée dans ' . $quiz_count . ' quiz';
-                        $results[$qid]->details['quiz_count'] = $quiz_count;
-                        continue;
-                    }
+
+                // Vérification 1 : question (ou une autre version de son entrée) utilisée, ou dans un réservoir aléatoire ?
+                // Attention : une valeur null (supprimable) doit être distinguée d'une clé absente.
+                $skip = array_key_exists((int)$qid, $checks) ? $checks[(int)$qid]
+                    : \local_question_diagnostic\local\question_deleter::SKIP_ERROR;
+                if ($skip !== null) {
+                    $results[$qid]->reason = \local_question_diagnostic\local\question_deleter::skip_label($skip);
+                    $results[$qid]->details['skip'] = $skip;
+                    $results[$qid]->details['quiz_count'] = (int)($usage_map[$qid]['quiz_count'] ?? 0);
+                    $results[$qid]->details['attempt_count'] = (int)($usage_map[$qid]['attempt_count'] ?? 0);
+                    continue;
                 }
                 
                 // 🆕 v1.14.1 : Vérifier si la question est cachée (chargé en batch)
@@ -1819,11 +1823,11 @@ class question_analyzer {
                 $results[$qid]->details['debug_type'] = (string)($q->qtype ?? '');
             }
             
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             debugging('Error in can_delete_questions_batch: ' . $e->getMessage(), DEBUG_DEVELOPER);
             // En cas d'erreur, marquer toutes comme non supprimables
             foreach ($questionids as $qid) {
-                if (!isset($results[$qid])) {
+                if (!isset($results[$qid]) || $results[$qid]->can_delete) {
                     $results[$qid] = (object)[
                         'can_delete' => false,
                         'reason' => 'Erreur de vérification',
@@ -2036,64 +2040,44 @@ class question_analyzer {
      * @return bool|string True si succès, message d'erreur sinon
      */
     public static function unhide_question($questionid) {
-        global $DB;
-        
+        global $CFG, $DB;
+        require_once($CFG->dirroot . '/question/engine/bank.php');
+
+        $questionid = (int)$questionid;
         try {
-            // Vérifier que la question existe (avant de démarrer la transaction)
             $question = $DB->get_record('question', ['id' => $questionid]);
             if (!$question) {
-                debugging('unhide_question: Question not found (ID: ' . $questionid . ')', DEBUG_DEVELOPER);
-                return 'Question non trouvée (ID: ' . $questionid . ')';
+                return get_string('unhide_error_notfound', 'local_question_diagnostic', $questionid);
             }
-            
-            // 🔧 v1.14.2 : Vérifier d'abord si la question est cachée (avant transaction)
-            $hidden_versions = $DB->get_records('question_versions', [
+            $version = $DB->get_record('question_versions', ['questionid' => $questionid]);
+            if (!$version || $version->status !== 'hidden') {
+                return get_string('unhide_error_nothidden', 'local_question_diagnostic', $questionid);
+            }
+
+            // v1.15.0 : statut modifié comme le fait le cœur (qbank_editquestion), avec cache, événement et
+            // trace de l'état précédent (pour pouvoir revenir en arrière).
+            $DB->set_field('question_versions', 'status', 'ready', ['id' => $version->id]);
+            \question_bank::notify_question_edited($questionid);
+            $contextid = (int)$DB->get_field_sql('SELECT qc.contextid
+                  FROM {question_bank_entries} qbe
+                  JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
+                 WHERE qbe.id = ?', [$version->questionbankentryid]);
+            if ($contextid) {
+                $question->contextid = $contextid;
+                $question->category = (int)$DB->get_field('question_bank_entries', 'questioncategoryid',
+                    ['id' => $version->questionbankentryid]);
+                $event = \core\event\question_updated::create_from_question_instance($question,
+                    \context::instance_by_id($contextid));
+                $event->trigger();
+            }
+            audit_logger::log_action('question_unhidden', [
                 'questionid' => $questionid,
-                'status' => 'hidden'
-            ]);
-            
-            $versions_hidden = count($hidden_versions);
-            debugging('unhide_question ID ' . $questionid . ': Found ' . $versions_hidden . ' hidden version(s)', DEBUG_DEVELOPER);
-            
-            if ($versions_hidden == 0) {
-                return 'Question non cachée (ID: ' . $questionid . ')';
-            }
-            
-            // Démarrer la transaction seulement si on a des versions à mettre à jour
-            $transaction = $DB->start_delegated_transaction();
-            
-            // 🔧 v1.14.2 : Mettre à jour chaque version individuellement pour garantir la mise à jour
-            $updated_count = 0;
-            foreach ($hidden_versions as $version) {
-                $version->status = 'ready';
-                if ($DB->update_record('question_versions', $version)) {
-                    $updated_count++;
-                } else {
-                    debugging('unhide_question ID ' . $questionid . ': Failed to update version ID ' . $version->id, DEBUG_DEVELOPER);
-                }
-            }
-            
-            // Valider la transaction
-            $transaction->allow_commit();
-            
-            // Vérifier si la mise à jour a fonctionné
-            $still_hidden = $DB->count_records('question_versions', [
-                'questionid' => $questionid,
-                'status' => 'hidden'
-            ]);
-            
-            if ($still_hidden == 0 && $updated_count == $versions_hidden) {
-                debugging('unhide_question ID ' . $questionid . ': SUCCESS - ' . $updated_count . ' version(s) made visible', DEBUG_DEVELOPER);
-                // Purger le cache (la méthode purge_all_caches() est suffisante)
-                return true;
-            } else {
-                debugging('unhide_question ID ' . $questionid . ': PARTIAL - Updated ' . $updated_count . ' of ' . $versions_hidden . ', still ' . $still_hidden . ' hidden', DEBUG_DEVELOPER);
-                return 'Échec partiel : ' . $still_hidden . ' version(s) encore cachée(s) sur ' . $versions_hidden . ' trouvée(s)';
-            }
-            
-        } catch (\Exception $e) {
-            debugging('unhide_question ID ' . $questionid . ': ERROR - ' . $e->getMessage(), DEBUG_DEVELOPER);
-            return 'Erreur lors du changement de statut : ' . $e->getMessage();
+                'versionid' => (int)$version->id,
+                'previousstatus' => 'hidden',
+            ], $questionid);
+            return true;
+        } catch (\Throwable $e) {
+            return get_string('unhide_error', 'local_question_diagnostic', $e->getMessage());
         }
     }
 
@@ -2112,8 +2096,9 @@ class question_analyzer {
         $protected = 0;
         $errors = [];
 
-        // Normaliser / dédupliquer
+        // Normaliser / dédupliquer. v1.15.0 : une sélection explicite, bornée (plus de « tout rendre visible »).
         $ids = array_values(array_unique(array_filter(array_map('intval', (array)$questionids))));
+        $ids = array_slice($ids, 0, self::UNHIDE_MAX);
         if (empty($ids)) {
             return [
                 'success' => 0,
@@ -2149,47 +2134,103 @@ class question_analyzer {
      * @return bool|string True si succès, message d'erreur sinon
      */
     public static function delete_question_safe($questionid) {
-        global $DB, $CFG;
-        
-        require_once($CFG->dirroot . '/question/editlib.php');
-        
-        // Vérifier si la suppression est autorisée
+        // Vérifier si la suppression est autorisée (usage, réservoir aléatoire, doublon ou cachée).
         $check = self::can_delete_question($questionid);
-        
         if (!$check->can_delete) {
-            return 'Suppression interdite : ' . $check->reason;
+            return get_string('delete_refused', 'local_question_diagnostic', $check->reason);
         }
-        
         try {
-            // Récupérer la question et sa catégorie
-            $question = $DB->get_record('question', ['id' => $questionid], '*', MUST_EXIST);
-            
-            // Récupérer la catégorie via question_bank_entries (Moodle 4.x)
-            $category_sql = "SELECT qc.* 
-                            FROM {question_categories} qc
-                            INNER JOIN {question_bank_entries} qbe ON qbe.questioncategoryid = qc.id
-                            INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
-                            WHERE qv.questionid = :questionid
-                            LIMIT 1";
-            $category = $DB->get_record_sql($category_sql, ['questionid' => $questionid]);
-            
-            if (!$category) {
-                return 'Catégorie de la question introuvable';
+            // v1.15.0 : export XML préalable, toute l'entrée supprimée, résultat vérifié en base.
+            $result = \local_question_diagnostic\local\question_deleter::delete_entries([(int)$questionid], 'delete-question');
+            if (in_array((int)$questionid, $result->deleted, true)) {
+                return true;
             }
-            
-            // Utiliser l'API Moodle pour supprimer proprement la question
-            // Cela gère automatiquement :
-            // - Les entrées dans question_bank_entries
-            // - Les versions dans question_versions
-            // - Les fichiers associés
-            // - Les données spécifiques au type de question
-            question_delete_question($questionid);
-            
-            return true;
-            
-        } catch (\Exception $e) {
-            return 'Erreur lors de la suppression : ' . $e->getMessage();
+            $skip = $result->skipped[(int)$questionid] ?? \local_question_diagnostic\local\question_deleter::SKIP_ERROR;
+            return get_string('delete_refused', 'local_question_diagnostic',
+                \local_question_diagnostic\local\question_deleter::skip_label($skip));
+        } catch (\Throwable $e) {
+            return get_string('delete_error', 'local_question_diagnostic', $e->getMessage());
         }
+    }
+
+    /**
+     * Supprime plusieurs questions en une seule opération (un seul export XML préalable).
+     *
+     * @param int[] $questionids
+     * @param string $reason libellé de l'opération
+     * @return array<int,bool|string> questionid => true si supprimée, sinon le motif du refus
+     */
+    public static function delete_questions_safe(array $questionids, string $reason = 'delete-questions'): array {
+        $out = [];
+        $checks = self::can_delete_questions_batch($questionids);
+        $allowed = [];
+        foreach ($questionids as $qid) {
+            $qid = (int)$qid;
+            $check = $checks[$qid] ?? null;
+            if ($check && $check->can_delete) {
+                $allowed[] = $qid;
+            } else {
+                $out[$qid] = get_string('delete_refused', 'local_question_diagnostic',
+                    $check ? $check->reason : get_string('deleter_skip_error', 'local_question_diagnostic'));
+            }
+        }
+        if (!$allowed) {
+            return $out;
+        }
+        try {
+            $result = \local_question_diagnostic\local\question_deleter::delete_entries($allowed, $reason);
+        } catch (\Throwable $e) {
+            foreach ($allowed as $qid) {
+                $out[$qid] = get_string('delete_error', 'local_question_diagnostic', $e->getMessage());
+            }
+            return $out;
+        }
+        foreach ($result->deleted as $qid) {
+            $out[$qid] = true;
+        }
+        foreach ($result->skipped as $qid => $skip) {
+            $out[$qid] = get_string('delete_refused', 'local_question_diagnostic',
+                \local_question_diagnostic\local\question_deleter::skip_label($skip));
+        }
+        return $out;
+    }
+
+    /**
+     * Nettoie un groupe de doublons : garde les questions utilisées (ou, à défaut, la meilleure) et supprime les autres.
+     *
+     * Le groupe est recalculé ici (même catégorie, empreinte complète identique) : on ne fait jamais confiance
+     * à une liste venue de la requête. La suppression passe par question_deleter (contrôle d'usage, réservoirs
+     * aléatoires, export XML préalable, vérification).
+     *
+     * @param int $representativeid question représentative du groupe
+     * @param string $reason libellé de l'opération (export, journal)
+     * @return \stdClass {groupsize, kept: int[], deleted: int[], skipped: array<int,string>, exportfile: ?string}
+     */
+    public static function cleanup_duplicate_group(int $representativeid, string $reason = 'cleanup-duplicates'): \stdClass {
+        $out = (object)['groupsize' => 0, 'kept' => [], 'deleted' => [], 'skipped' => [], 'exportfile' => null];
+        $ids = self::get_duplicate_group_question_ids_by_representative_id($representativeid);
+        $out->groupsize = count($ids);
+        if (count($ids) < 2) {
+            return $out;
+        }
+        $inuse = \local_question_diagnostic\local\usage_checker::entries_in_use($ids);
+        $keep = array_keys(array_filter($inuse));
+        if (!$keep) {
+            global $DB;
+            $questions = $DB->get_records_list('question', 'id', $ids, 'id ASC');
+            $best = self::select_best_question_to_keep(array_values($questions));
+            $keep = [$best ? (int)$best->question->id : (int)min($ids)];
+        }
+        $out->kept = array_map('intval', $keep);
+        $todelete = array_values(array_diff($ids, $out->kept));
+        if (!$todelete) {
+            return $out;
+        }
+        $result = \local_question_diagnostic\local\question_deleter::delete_entries($todelete, $reason);
+        $out->deleted = $result->deleted;
+        $out->skipped = $result->skipped;
+        $out->exportfile = $result->exportfile;
+        return $out;
     }
 
     /**
@@ -2205,22 +2246,21 @@ class question_analyzer {
             $q = $item->question;
             $s = $item->stats;
             
-            $csv .= sprintf(
-                "%d,\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",%d,%d,%d\n",
-                $q->id,
-                str_replace('"', '""', $q->name),
+            $csv .= implode(',', array_map('local_question_diagnostic_csv_cell', [
+                (int)$q->id,
+                $q->name,
                 $q->qtype,
-                str_replace('"', '""', $s->category_name),
-                str_replace('"', '""', $s->context_name),
-                str_replace('"', '""', $s->creator_name),
+                $s->category_name,
+                $s->context_name,
+                $s->creator_name,
                 $s->created_formatted,
                 $s->modified_formatted,
                 $s->is_hidden ? 'Non' : 'Oui',
                 $s->is_used ? 'Oui' : 'Non',
-                $s->used_in_quizzes,
-                $s->attempt_count,
-                $s->duplicate_count
-            );
+                (int)$s->used_in_quizzes,
+                (int)$s->attempt_count,
+                (int)$s->duplicate_count,
+            ])) . "\n";
         }
         
         return $csv;
@@ -2266,7 +2306,8 @@ class question_analyzer {
                           GROUP BY v.questionbankentryid
                       ) mv ON mv.questionbankentryid = qv.questionbankentryid AND mv.maxversion = qv.version
                       INNER JOIN {question} q ON q.id = qv.questionid
-                  GROUP BY q.qtype, q.questiontextformat, {$qtext}
+                      INNER JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
+                  GROUP BY qbe.questioncategoryid, q.qtype, q.questiontextformat, {$qtext}
                     HAVING COUNT(*) > 1
                   ORDER BY dup_count DESC";
         } else {
@@ -2440,7 +2481,8 @@ class question_analyzer {
                           GROUP BY v.questionbankentryid
                       ) mv ON mv.questionbankentryid = qv.questionbankentryid AND mv.maxversion = qv.version
                       INNER JOIN {question} q ON q.id = qv.questionid
-                  GROUP BY q.qtype, q.questiontextformat, {$qtext}
+                      INNER JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
+                  GROUP BY qbe.questioncategoryid, q.qtype, q.questiontextformat, {$qtext}
                     HAVING COUNT(*) > 1 AND MIN(q.id) > :after
                   ORDER BY MIN(q.id) ASC";
         } else {
@@ -2544,7 +2586,8 @@ class question_analyzer {
                           GROUP BY v.questionbankentryid
                       ) mv ON mv.questionbankentryid = qv.questionbankentryid AND mv.maxversion = qv.version
                       INNER JOIN {question} q ON q.id = qv.questionid
-                  GROUP BY q.qtype, q.questiontextformat, {$qtext}
+                      INNER JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
+                  GROUP BY qbe.questioncategoryid, q.qtype, q.questiontextformat, {$qtext}
                     HAVING COUNT(*) > 1";
         } else {
             $sql = "SELECT q.name, q.qtype, COUNT(*) as dup_count, MIN(q.id) as representative_id
@@ -2793,19 +2836,17 @@ class question_analyzer {
                 continue;
             }
             
-            $usage_map = self::get_questions_usage_by_ids($question_ids);
-            
+            // v1.15.0 : mêmes règles que la suppression réelle (usage au sens du cœur).
+            $inuse = \local_question_diagnostic\local\usage_checker::entries_in_use($question_ids);
+
             // Récupérer les questions complètes pour détails
             $questions = $DB->get_records_list('question', 'id', $question_ids, 'id ASC');
-            
+
             $unused = [];
             $used = [];
-            
+
             foreach ($questions as $q) {
-                $quiz_count = isset($usage_map[$q->id]['quiz_count']) ? 
-                             $usage_map[$q->id]['quiz_count'] : 0;
-                
-                if ($quiz_count > 0) {
+                if (!empty($inuse[$q->id])) {
                     $used[] = $q;
                 } else {
                     $unused[] = $q;
@@ -2828,6 +2869,16 @@ class question_analyzer {
                 }
             }
             
+            // Réservoirs de tirage aléatoire : conservés.
+            $checks = \local_question_diagnostic\local\question_deleter::check(array_map(fn($q) => (int)$q->id, $unused));
+            foreach ($unused as $k => $q) {
+                if (!array_key_exists((int)$q->id, $checks) || $checks[(int)$q->id] !== null) {
+                    $used[] = $q;
+                    unset($unused[$k]);
+                }
+            }
+            $unused = array_values($unused);
+
             $group_to_delete = count($unused);
             $group_to_keep = count($used);
             

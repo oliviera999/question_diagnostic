@@ -19,7 +19,7 @@
  *
  * ⚠️ Sécurité :
  * - Admin uniquement
- * - sesskey obligatoire
+ * - sesskey et POST obligatoires pour appliquer (l'aperçu est en GET)
  * - confirmation obligatoire avant toute modification
  *
  * Corrections (ciblées, lecture/écriture minimales) :
@@ -39,12 +39,9 @@ require_once(__DIR__ . '/../classes/question_analyzer.php');
 
 use local_question_diagnostic\question_analyzer;
 
-require_login();
-require_sesskey();
-
-if (!is_siteadmin()) {
-    throw new \moodle_exception('accessdenied', 'admin');
-}
+// Contrôle d'accès : capacité du plugin + administrateur du site (écriture).
+local_question_diagnostic_require_access('deletequestions', true);
+// Le sesskey n'est exigé qu'à l'application (POST) : l'aperçu s'affiche depuis un simple lien GET.
 
 $confirm = optional_param('confirm', 0, PARAM_INT);
 $returnurlraw = optional_param('returnurl', '', PARAM_LOCALURL);
@@ -182,7 +179,7 @@ $build_plan = function(int $samplelimit = 50): \stdClass {
 
 $plan = $build_plan(50);
 
-if (!$confirm) {
+if (!$confirm || !data_submitted()) {
     $PAGE->set_title(get_string('questions_integrity_fix_confirm_title', 'local_question_diagnostic'));
     $PAGE->set_heading(get_string('questions_integrity_fix_confirm_title', 'local_question_diagnostic'));
 
@@ -213,7 +210,8 @@ if (!$confirm) {
 
     echo html_writer::start_tag('ul');
     echo html_writer::tag('li', 'Supprimer ' . (int)$plan->summary->orphan_qv_missing_question . ' version(s) orpheline(s) (question_versions → question manquante).');
-    echo html_writer::tag('li', 'Corriger ' . (int)$plan->summary->duplicate_latest_versions . ' entrée(s) avec plusieurs dernières versions (garder 1, supprimer le reste).');
+    echo html_writer::tag('li', get_string('questions_integrity_duplicate_versions_report', 'local_question_diagnostic',
+        (int)$plan->summary->duplicate_latest_versions));
     echo html_writer::tag('li', 'Supprimer ' . (int)$plan->summary->entries_without_versions_deletable . ' entrée(s) sans versions (question_bank_entries) non référencée(s).');
     echo html_writer::end_tag('ul');
 
@@ -259,12 +257,11 @@ if (!$confirm) {
 
     $confirmurl = new moodle_url('/local/question_diagnostic/actions/fix_questions_integrity.php', [
         'confirm' => 1,
-        'sesskey' => sesskey(),
         'returnurl' => $returnurl->out(false),
     ]);
 
     echo html_writer::start_div('mt-3', ['style' => 'margin-top: 20px;']);
-    echo html_writer::link($confirmurl, get_string('confirm', 'core'), ['class' => 'btn btn-danger']);
+    echo $OUTPUT->single_button($confirmurl, get_string('confirm', 'core'), 'post', ['type' => single_button::BUTTON_DANGER]);
     echo ' ';
     echo html_writer::link($returnurl, get_string('cancel', 'core'), ['class' => 'btn btn-secondary']);
     echo html_writer::end_div();
@@ -273,186 +270,75 @@ if (!$confirm) {
     exit;
 }
 
-// Confirmé : appliquer les corrections.
+// Confirmé : appliquer les corrections (POST uniquement).
+if (!data_submitted()) {
+    throw new \moodle_exception('invalidrequest');
+}
+require_sesskey();
 $success = 0;
 $failed = 0;
 $errors = [];
 
+// v1.15.0 :
+// - les entrées qui ont plusieurs « dernières versions » ne sont plus corrigées automatiquement : supprimer une ligne
+//   question_versions d'une question existante rendait la question (et ses tentatives) illisible. Elles sont
+//   seulement signalées, pour une correction manuelle ;
+// - tout se fait dans UNE transaction, annulée en entier à la moindre erreur (plus de validation partielle).
+$transaction = $DB->start_delegated_transaction();
 try {
-    global $DB;
-    $dbman = $DB->get_manager();
-
-    if ($dbman->table_exists('question_versions') && $dbman->table_exists('question_bank_entries')) {
-        $transaction = $DB->start_delegated_transaction();
-
-        // 1) Corriger les doublons de maxversion : garder 1 qv, supprimer les autres.
-        try {
-            $basesql = "
-                SELECT qv.questionbankentryid AS entryid,
-                       mv.maxversion AS maxversion,
-                       COUNT(1) AS cnt
-                  FROM {question_versions} qv
-                  JOIN (
-                        SELECT questionbankentryid, MAX(version) AS maxversion
-                          FROM {question_versions}
-                      GROUP BY questionbankentryid
-                       ) mv
-                    ON mv.questionbankentryid = qv.questionbankentryid
-                   AND mv.maxversion = qv.version
-              GROUP BY qv.questionbankentryid, mv.maxversion
-                HAVING COUNT(1) > 1";
-
-            $groups = $DB->get_records_sql($basesql);
-            foreach ($groups as $g) {
-                $entryid = (int)($g->entryid ?? 0);
-                $maxversion = (int)($g->maxversion ?? 0);
-                if ($entryid <= 0 || $maxversion <= 0) {
-                    continue;
-                }
-
-                $qvcols = $DB->get_columns('question_versions');
-                $hasstatus = isset($qvcols['status']);
-
-                $fields = "qv.id, qv.questionid, qv.questionbankentryid, qv.version";
-                if ($hasstatus) {
-                    $fields .= ", qv.status";
-                }
-
-                $rows = array_values($DB->get_records_sql("
-                    SELECT $fields
-                      FROM {question_versions} qv
-                     WHERE qv.questionbankentryid = :entryid
-                       AND qv.version = :v
-                  ORDER BY qv.id ASC
-                ", ['entryid' => $entryid, 'v' => $maxversion]));
-
-                if (count($rows) <= 1) {
-                    continue;
-                }
-
-                // Choisir la ligne à conserver.
-                $keepid = 0;
-                $bestscore = -1;
-                foreach ($rows as $row) {
-                    $qid = (int)($row->questionid ?? 0);
-                    $exists = $qid > 0 && $DB->record_exists('question', ['id' => $qid]);
-                    $score = $exists ? 100 : 0;
-                    if ($hasstatus) {
-                        // Priorité à "ready" (puis le reste).
-                        $status = (string)($row->status ?? '');
-                        if ($status === 'ready') {
-                            $score += 10;
-                        } else if ($status === 'hidden') {
-                            $score += 1;
-                        }
-                    }
-                    // Départager avec l'id le plus petit (déterministe).
-                    if ($score > $bestscore || ($score === $bestscore && (int)$row->id < $keepid) || $keepid === 0) {
-                        $bestscore = $score;
-                        $keepid = (int)$row->id;
-                    }
-                }
-
-                foreach ($rows as $row) {
-                    $id = (int)($row->id ?? 0);
-                    if ($id > 0 && $id !== $keepid) {
-                        if ($DB->delete_records('question_versions', ['id' => $id])) {
-                            $success++;
-                        } else {
-                            $failed++;
-                            $errors[] = 'delete qv.id=' . $id . ' failed';
-                        }
-                    }
-                }
-            }
-        } catch (\Exception $e) {
-            $failed++;
-            $errors[] = 'duplicate_latest_versions: ' . $e->getMessage();
+    // 1) Versions orphelines (question absente), si aucune référence ne fige cette version.
+    $rs = $DB->get_recordset_sql("
+        SELECT qv.id, qv.questionbankentryid, qv.version
+          FROM {question_versions} qv
+     LEFT JOIN {question} q ON q.id = qv.questionid
+         WHERE q.id IS NULL
+      ORDER BY qv.id ASC");
+    $todelete = [];
+    foreach ($rs as $rec) {
+        $pinned = $DB->record_exists('question_references',
+            ['questionbankentryid' => (int)$rec->questionbankentryid, 'version' => (int)$rec->version]);
+        if (!$pinned) {
+            $todelete[] = (int)$rec->id;
         }
-
-        // 2) Supprimer question_versions orphelines (question manquante).
-        try {
-            $rs = $DB->get_recordset_sql("
-                SELECT qv.id
-                  FROM {question_versions} qv
-             LEFT JOIN {question} q ON q.id = qv.questionid
-                 WHERE q.id IS NULL
-              ORDER BY qv.id ASC
-            ");
-
-            $batch = [];
-            $batchsize = 500;
-            foreach ($rs as $rec) {
-                $batch[] = (int)$rec->id;
-                if (count($batch) >= $batchsize) {
-                    $DB->delete_records_list('question_versions', 'id', $batch);
-                    $success += count($batch);
-                    $batch = [];
-                }
-            }
-            $rs->close();
-            if (!empty($batch)) {
-                $DB->delete_records_list('question_versions', 'id', $batch);
-                $success += count($batch);
-            }
-        } catch (\Exception $e) {
-            $failed++;
-            $errors[] = 'orphan_qv_missing_question: ' . $e->getMessage();
-        }
-
-        // 3) Supprimer les entrées sans versions si non référencées.
-        try {
-            $hasrefs = $dbman->table_exists('question_references') && isset($DB->get_columns('question_references')['questionbankentryid']);
-
-            $rs = $DB->get_recordset_sql("
-                SELECT qbe.id
-                  FROM {question_bank_entries} qbe
-             LEFT JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
-                 WHERE qv.questionbankentryid IS NULL
-              ORDER BY qbe.id ASC
-            ");
-
-            $batch = [];
-            $batchsize = 500;
-            foreach ($rs as $rec) {
-                $entryid = (int)$rec->id;
-                if ($entryid <= 0) {
-                    continue;
-                }
-                if ($hasrefs && $DB->record_exists('question_references', ['questionbankentryid' => $entryid])) {
-                    continue; // Ne jamais supprimer une entrée référencée.
-                }
-                $batch[] = $entryid;
-                if (count($batch) >= $batchsize) {
-                    $DB->delete_records_list('question_bank_entries', 'id', $batch);
-                    $success += count($batch);
-                    $batch = [];
-                }
-            }
-            $rs->close();
-            if (!empty($batch)) {
-                $DB->delete_records_list('question_bank_entries', 'id', $batch);
-                $success += count($batch);
-            }
-        } catch (\Exception $e) {
-            $failed++;
-            $errors[] = 'entries_without_versions: ' . $e->getMessage();
-        }
-
-        $transaction->allow_commit();
+    }
+    $rs->close();
+    foreach (array_chunk($todelete, 500) as $batch) {
+        $DB->delete_records_list('question_versions', 'id', $batch);
+        $success += count($batch);
     }
 
-    // Purger caches du plugin (important pour la banque de questions).
+    // 2) Entrées sans aucune version, jamais référencées.
+    $rs = $DB->get_recordset_sql("
+        SELECT qbe.id
+          FROM {question_bank_entries} qbe
+     LEFT JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+     LEFT JOIN {question_references} qr ON qr.questionbankentryid = qbe.id
+         WHERE qv.id IS NULL AND qr.id IS NULL
+      ORDER BY qbe.id ASC");
+    $todelete = [];
+    foreach ($rs as $rec) {
+        $todelete[] = (int)$rec->id;
+    }
+    $rs->close();
+    foreach (array_chunk($todelete, 500) as $batch) {
+        $DB->delete_records_list('question_bank_entries', 'id', $batch);
+        $success += count($batch);
+    }
+
+    $transaction->allow_commit();
+    \local_question_diagnostic\audit_logger::log_action('questions_integrity_fixed', ['rows' => $success]);
+} catch (\Throwable $e) {
     try {
-        question_analyzer::purge_all_caches();
-    } catch (\Exception $e) {
-        // Ignore.
+        $transaction->rollback($e);
+    } catch (\Throwable $rethrown) {
+        unset($rethrown);
     }
-
-} catch (\Exception $e) {
+    $success = 0;
     $failed++;
     $errors[] = $e->getMessage();
 }
+
+question_analyzer::purge_all_caches();
 
 // Notifications.
 if ($success > 0) {

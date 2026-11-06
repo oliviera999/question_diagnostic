@@ -14,26 +14,31 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_question_diagnostic\task;
+
 /**
- * Suppression de catégories (version refactorisée)
- * 
- * 🆕 v1.9.33 : Utilise delete_category_action (factorisation TODO #12)
- * 
- * Avant : ~140 lignes de code
- * Après : ~30 lignes de code
- * Réduction : ~78% de code en moins !
+ * Purge des fichiers du plugin dans dataroot (exports XML, archives, anciens journaux) après la durée de conservation.
  *
  * @package    local_question_diagnostic
- * @copyright  2025
+ * @copyright  2026
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+class purge_retention extends \core\task\scheduled_task {
 
-require_once(__DIR__ . '/../../../config.php');
-require_once(__DIR__ . '/../classes/actions/delete_category_action.php');
+    /**
+     * Nom de la tâche.
+     *
+     * @return string
+     */
+    public function get_name() {
+        return get_string('task_purge_retention', 'local_question_diagnostic');
+    }
 
-use local_question_diagnostic\actions\delete_category_action;
-
-// Créer et exécuter l'action
-$action = new delete_category_action();
-$action->execute();
-
+    /**
+     * Exécution.
+     */
+    public function execute() {
+        $count = \local_question_diagnostic\audit_logger::cleanup_old_logs();
+        mtrace('local_question_diagnostic : ' . $count . ' fichier(s) supprimé(s).');
+    }
+}

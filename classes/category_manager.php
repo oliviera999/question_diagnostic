@@ -10,8 +10,12 @@ namespace local_question_diagnostic;
 
 defined('MOODLE_INTERNAL') || die();
 
+global $CFG;
 require_once($CFG->dirroot . '/question/editlib.php');
+require_once($CFG->libdir . '/questionlib.php');
+require_once(__DIR__ . '/../lib.php');
 require_once(__DIR__ . '/audit_logger.php');
+require_once(__DIR__ . '/cache_manager.php');
 
 /**
  * Gestionnaire de catégories de questions
@@ -21,6 +25,9 @@ require_once(__DIR__ . '/audit_logger.php');
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class category_manager {
+
+    /** Raison de protection : la catégorie a un idnumber (usage intentionnel). */
+    const PROTECTION_IDNUMBER = 'A un idnumber';
 
     /**
      * Récupère toutes les catégories avec leurs statistiques
@@ -181,6 +188,11 @@ class category_manager {
                     } else {
                         $protection_reason = 'Catégorie racine (top-level)';
                     }
+                }
+                // Protection 4 : catégorie avec idnumber (usage intentionnel : imports, références)
+                else if (isset($cat->idnumber) && trim((string)$cat->idnumber) !== '') {
+                    $is_protected = true;
+                    $protection_reason = self::PROTECTION_IDNUMBER;
                 }
                 
                 // Vérifier si c'est un doublon
@@ -356,6 +368,11 @@ class category_manager {
                     // Ignorer : on garde le libellé générique.
                 }
             }
+            // Protection 4 : catégorie avec idnumber (usage intentionnel : imports, références)
+            else if (self::has_idnumber($category)) {
+                $stats->is_protected = true;
+                $stats->protection_reason = self::PROTECTION_IDNUMBER;
+            }
             
         } catch (\Exception $e) {
             // En cas d'erreur, retourner des stats par défaut
@@ -364,8 +381,11 @@ class category_manager {
             $stats->subcategories = 0;
             $stats->context_name = 'Erreur';
             $stats->context_valid = false;
-            $stats->is_empty = true;
+            $stats->is_empty = false;
             $stats->is_orphan = true;
+            // Échec fermé : une catégorie illisible est traitée comme protégée.
+            $stats->is_protected = true;
+            $stats->protection_reason = 'Erreur de lecture des statistiques';
         }
 
         return $stats;
@@ -491,16 +511,25 @@ class category_manager {
             // Déterminer quelles catégories supprimer :
             // - garder celle choisie par Moodle
             // - supprimer uniquement les doublons VIDES (0 questions, 0 sous-cats)
+            // Seules les catégories qui passent TOUS les contrôles de suppression sont proposées
+            // (vides, sans description/idnumber, non visées par une question aléatoire, pas « top »...).
             $keep = null;
             $delete = [];
+            $blocked = [];
             foreach ($cats as $cat) {
                 if ((int)$cat->id === (int)$keepid) {
                     $keep = $cat;
                     continue;
                 }
                 $stats = self::get_category_stats($cat);
-                if (!empty($stats->is_empty)) {
+                if (empty($stats->is_empty)) {
+                    continue;
+                }
+                $refusal = self::get_deletion_refusal($cat, true);
+                if ($refusal === null) {
                     $delete[] = $cat;
+                } else {
+                    $blocked[] = (object)['category' => $cat, 'reason' => $refusal];
                 }
             }
             
@@ -523,6 +552,7 @@ class category_manager {
                 'context_name' => $context_info,
                 'keep' => $keep,
                 'delete' => $delete,
+                'blocked' => $blocked,
                 'count' => count($delete),
                 'total_in_context' => count($cats),
                 'keep_reason' => $keep_reason,
@@ -533,435 +563,681 @@ class category_manager {
     }
 
     /**
-     * Supprime une catégorie vide (VERSION AVANCÉE avec bypass sécurité conditionnel)
+     * Le nom ressemble-t-il à une catégorie « par défaut » créée par Moodle ?
+     *
+     * @param string|null $name
+     * @return bool
+     */
+    private static function is_default_name(?string $name): bool {
+        $name = (string)$name;
+        return stripos($name, 'Default for') !== false
+            || stripos($name, 'Par défaut pour') !== false
+            || stripos($name, 'Defaut pour') !== false;
+    }
+
+    /**
+     * La catégorie a-t-elle un idnumber renseigné ?
+     *
+     * @param \stdClass $category
+     * @return bool
+     */
+    private static function has_idnumber(\stdClass $category): bool {
+        return isset($category->idnumber) && trim((string)$category->idnumber) !== '';
+    }
+
+    /**
+     * Construit une exception de refus dont le message est affiché tel quel.
+     *
+     * @param string $message
+     * @return \moodle_exception
+     */
+    private static function refusal(string $message): \moodle_exception {
+        return new \moodle_exception('generalexceptionmessage', 'error', '', $message);
+    }
+
+    /**
+     * Message lisible d'une exception (refus du plugin ou erreur Moodle).
+     *
+     * @param \Throwable $e
+     * @return string
+     */
+    private static function exception_message(\Throwable $e): string {
+        if ($e instanceof \moodle_exception && $e->errorcode === 'generalexceptionmessage' && is_string($e->a)) {
+            return $e->a;
+        }
+        return $e->getMessage();
+    }
+
+    /**
+     * Annule une transaction déléguée sans relancer l'exception.
+     *
+     * moodle_transaction::rollback() relance toujours l'exception reçue : on l'absorbe ici, car l'appelant
+     * renvoie un message d'erreur. Sans ce rollback explicite, la transaction resterait ouverte et toutes les
+     * écritures suivantes de la requête y seraient imbriquées, puis annulées en fin de requête.
+     *
+     * @param \moodle_transaction $transaction
+     * @param \Throwable $e
+     */
+    private static function rollback_quietly(\moodle_transaction $transaction, \Throwable $e): void {
+        if ($transaction->is_disposed()) {
+            return;
+        }
+        try {
+            $transaction->rollback($e);
+        } catch (\Throwable $rethrown) {
+            // Attendu : rollback() relance $e.
+            unset($rethrown);
+        }
+    }
+
+    /**
+     * Gestionnaire de catégories du cœur de Moodle.
+     *
+     * @return \core_question\category_manager
+     */
+    private static function core_manager(): \core_question\category_manager {
+        global $CFG;
+        require_once($CFG->libdir . '/questionlib.php');
+        return new \core_question\category_manager();
+    }
+
+    /**
+     * Purge les caches du plugin sans jamais faire échouer l'opération déjà validée.
+     */
+    private static function purge_plugin_caches(): void {
+        try {
+            cache_manager::purge_all_caches();
+        } catch (\Throwable $e) {
+            debugging('category_manager : purge des caches impossible : ' . $e->getMessage(), DEBUG_DEVELOPER);
+        }
+    }
+
+    /**
+     * Indique pourquoi une catégorie ne peut pas être supprimée, ou null si elle peut l'être.
+     *
+     * Règles (toutes obligatoires) :
+     * - contexte existant (le cœur ne sait pas supprimer une catégorie orpheline : script admin/cli dédié) ;
+     * - jamais la catégorie « top » (parent = 0) ni la seule sous-catégorie de « top » ;
+     * - jamais une catégorie « par défaut » (sauf nettoyage des doublons, et jamais celle que Moodle utilise) ;
+     * - jamais une catégorie avec description ou idnumber (usage intentionnel) ;
+     * - uniquement une catégorie VIDE : 0 question et 0 sous-catégorie ;
+     * - jamais une catégorie visée par une question aléatoire (question_set_references).
+     *
+     * @param \stdClass $category enregistrement question_categories
+     * @param bool $bypassdefault autorise une catégorie « par défaut » redondante (nettoyage des doublons)
+     * @return string|null
+     */
+    public static function get_deletion_refusal(\stdClass $category, bool $bypassdefault = false): ?string {
+        global $DB, $CFG;
+        require_once($CFG->libdir . '/questionlib.php');
+
+        $categoryid = (int)$category->id;
+        $context = \context::instance_by_id((int)$category->contextid, IGNORE_MISSING);
+        if (!$context) {
+            return "❌ IMPOSSIBLE : le contexte de cette catégorie n'existe plus (catégorie orpheline). "
+                . "Utilisez le script Moodle admin/cli/fix_orphaned_question_categories.php.";
+        }
+
+        if ((int)$category->parent === 0) {
+            return "❌ PROTÉGÉE : Cette catégorie est la catégorie racine (« top », parent=0) de son contexte. "
+                . "Elle ne doit jamais être supprimée.";
+        }
+
+        if (self::is_default_name($category->name)) {
+            if (!$bypassdefault) {
+                return "❌ PROTÉGÉE : Cette catégorie par défaut est liée à un contexte actif (cours, banque, etc.) "
+                    . "et ne doit pas être supprimée.";
+            }
+            $defaultcat = question_get_default_category((int)$category->contextid, false);
+            if (!$defaultcat || empty($defaultcat->id)) {
+                return "❌ PROTÉGÉE : Impossible d'identifier la catégorie par défaut utilisée par Moodle pour ce contexte. "
+                    . "Par sécurité, la suppression est bloquée.";
+            }
+            if ((int)$defaultcat->id === $categoryid) {
+                return "❌ PROTÉGÉE : Cette catégorie est la catégorie par défaut utilisée par Moodle pour ce contexte.";
+            }
+        }
+
+        if (!empty($category->info)) {
+            return "❌ PROTÉGÉE : Cette catégorie a une description, indiquant un usage intentionnel. "
+                . "Supprimez d'abord la description si vous êtes certain de vouloir la supprimer.";
+        }
+
+        if (self::has_idnumber($category)) {
+            return "❌ PROTÉGÉE : Cette catégorie a un idnumber, indiquant un usage intentionnel. "
+                . "Videz d'abord l'idnumber si vous êtes certain de vouloir la supprimer.";
+        }
+
+        if (self::core_manager()->is_only_child_of_top_category_in_context($categoryid)) {
+            return "❌ PROTÉGÉE : C'est la seule catégorie sous la catégorie racine de ce contexte. "
+                . "Moodle exige qu'il en reste au moins une.";
+        }
+
+        $questioncount = (int)$DB->count_records('question_bank_entries', ['questioncategoryid' => $categoryid]);
+        if ($questioncount > 0) {
+            return "❌ IMPOSSIBLE : La catégorie contient $questioncount question(s). "
+                . "AUCUNE catégorie contenant des questions ne peut être supprimée.";
+        }
+
+        $subcatcount = (int)$DB->count_records('question_categories', ['parent' => $categoryid]);
+        if ($subcatcount > 0) {
+            return "❌ IMPOSSIBLE : La catégorie contient $subcatcount sous-catégorie(s).";
+        }
+
+        if (\local_question_diagnostic\local\usage_checker::category_used_by_random($categoryid, true)) {
+            return "❌ PROTÉGÉE : Cette catégorie est utilisée par une question aléatoire d'un test "
+                . "(directement ou via « inclure les sous-catégories »). La supprimer casserait ce tirage.";
+        }
+
+        return null;
+    }
+
+    /**
+     * Supprime une catégorie VIDE, via l'API du cœur (\core_question\category_manager).
+     *
+     * Toutes les règles de get_deletion_refusal() sont vérifiées, puis re-vérifiées dans la transaction juste
+     * avant l'appel au cœur (qui, sinon, supprimerait les questions restantes et remonterait les sous-catégories).
      *
      * @param int $categoryid ID de la catégorie
-     * @param bool $bypass_default_protection Si true, autorise la suppression d'une "Default for" (pour nettoyage redondance)
-     * @return bool|string true si succès, message d'erreur sinon
+     * @param bool $bypass_default_protection autorise une catégorie « par défaut » REDONDANTE (nettoyage des doublons)
+     * @return bool|string true si succès (ou catégorie déjà absente), message d'erreur sinon
      */
-    public static function delete_category($categoryid, $bypass_default_protection = false, $bypass_info_protection = false) {
-        global $DB, $CFG;
+    public static function delete_category($categoryid, $bypass_default_protection = false) {
+        global $DB;
 
+        $categoryid = (int)$categoryid;
         try {
-            // ⚠️ Idempotence : si la catégorie n'existe plus, considérer l'opération comme déjà faite.
-            // Cas typique : suppression concurrente (autre onglet/admin) pendant un nettoyage par lots.
+            // Idempotence : si la catégorie n'existe plus, l'opération est déjà faite.
             $category = $DB->get_record('question_categories', ['id' => $categoryid], '*', IGNORE_MISSING);
             if (!$category) {
                 return true;
             }
-            
-            // 🛡️ PROTECTION 1 : Catégories "Default for..." AVEC contexte valide
-            // 🔧 v1.10.3 : Protection conditionnelle - protéger SEULEMENT si contexte actif
-            // Les catégories "Default for" orphelines (contexte supprimé) peuvent être supprimées
-            if (!$bypass_default_protection && (stripos($category->name, 'Default for') !== false || stripos($category->name, 'Par défaut pour') !== false)) {
-                // Vérifier si le contexte est valide
-                try {
-                    $context = \context::instance_by_id($category->contextid, IGNORE_MISSING);
-                    if ($context) {
-                        // Contexte valide → PROTÉGÉE
-                        return "❌ PROTÉGÉE : Cette catégorie par défaut est liée à un contexte actif (cours, quiz, etc.) et ne doit pas être supprimée. Si vous devez vraiment la supprimer, supprimez d'abord le cours/contexte associé.";
-                    }
-                    // Sinon : contexte invalide/orphelin → SUPPRIMABLE (continuer les autres vérifications)
-                } catch (\Exception $e) {
-                    // Erreur de contexte → considéré comme orphelin → SUPPRIMABLE (continuer)
-                }
-            }
-            
-            // 🛡️ PROTECTION 2 : Catégories avec description (usage intentionnel)
-            // Exception contrôlée : certains nettoyages automatisés peuvent contourner cette protection
-            // (ex: suppression de doublons "Default for" vides), avec confirmation admin.
-            if (!$bypass_info_protection && !empty($category->info)) {
-                return "❌ PROTÉGÉE : Cette catégorie a une description, indiquant un usage intentionnel. Supprimez d'abord la description si vous êtes certain de vouloir la supprimer.";
-            }
-            
-            // 🛡️ PROTECTION 3 : TOUTES les catégories TOP (parent = 0)
-            // 🔧 v1.9.29 : Protection renforcée - Toutes les catégories racine sont protégées
-            if ($category->parent == 0) {
-                try {
-                    $context = \context::instance_by_id($category->contextid, IGNORE_MISSING);
-                    if ($context) {
-                        // Exception TRÈS contrôlée : suppression d'une racine "Default for..." redondante,
-                        // uniquement si on peut garantir qu'on ne supprime PAS la catégorie par défaut utilisée par Moodle.
-                        $isdefaultname = (stripos($category->name, 'Default for') !== false || stripos($category->name, 'Par défaut pour') !== false);
-                        if ($bypass_default_protection && $isdefaultname) {
-                            // Ne jamais supprimer la dernière racine d'un contexte.
-                            $rootcount = (int)$DB->count_records('question_categories', [
-                                'contextid' => (int)$category->contextid,
-                                'parent' => 0,
-                            ]);
-                            if ($rootcount <= 1) {
-                                return "❌ PROTÉGÉE : Cette catégorie est la SEULE catégorie racine (parent=0) de ce contexte. Par sécurité, elle ne peut pas être supprimée.";
-                            }
 
-                            // Identifier la catégorie par défaut réellement utilisée par Moodle pour ce contexte.
-                            $keepid = null;
-                            try {
-                                require_once($CFG->libdir . '/questionlib.php');
-                                if (function_exists('question_get_default_category')) {
-                                    $defaultcat = question_get_default_category((int)$category->contextid, false);
-                                    if ($defaultcat && !empty($defaultcat->id)) {
-                                        $keepid = (int)$defaultcat->id;
-                                    }
-                                }
-                            } catch (\Exception $e) {
-                                // On garde $keepid = null.
-                            }
-
-                            if (empty($keepid)) {
-                                return "❌ PROTÉGÉE : Impossible d'identifier la catégorie par défaut utilisée par Moodle pour ce contexte. Par sécurité, la suppression est bloquée.";
-                            }
-
-                            if ((int)$keepid === (int)$categoryid) {
-                                return "❌ PROTÉGÉE : Cette catégorie racine est la catégorie par défaut utilisée par Moodle pour ce contexte. Elle doit être conservée.";
-                            }
-
-                            // ✅ Autoriser la suppression : c'est une racine "Default for..." redondante, pas la catégorie par défaut Moodle,
-                            // et il reste au moins une autre racine dans le contexte.
-                        } else {
-                            // Protéger TOUTE autre catégorie racine avec contexte valide.
-                            // 🆕 v1.11.20 : message spécifique pour les racines de cours.
-                            if ((int)$context->contextlevel === CONTEXT_COURSE) {
-                                return "❌ PROTÉGÉE : Cette catégorie est une catégorie racine de cours (parent=0, contexte COURSE). Elle est critique pour la banque de questions du cours et ne doit jamais être supprimée.";
-                            }
-                            return "❌ PROTÉGÉE : Cette catégorie est une catégorie racine (parent=0, top-level). Les catégories racine sont critiques pour la structure de Moodle et ne doivent jamais être supprimées.";
-                        }
-                    }
-                } catch (\Exception $e) {
-                    // Si erreur de contexte, continuer (peut-être une catégorie orpheline)
-                }
+            $refusal = self::get_deletion_refusal($category, (bool)$bypass_default_protection);
+            if ($refusal !== null) {
+                return $refusal;
             }
-            
-            // ⚠️ SÉCURITÉ CRITIQUE : Comptage via question_bank_entries (Moodle 4.x)
-            // La table question n'a PAS de colonne 'category' dans Moodle 4.5+
-            $questioncount = (int)$DB->count_records('question_bank_entries', ['questioncategoryid' => $categoryid]);
-            
-            if ($questioncount > 0) {
-                debugging("Tentative de suppression catégorie $categoryid avec $questioncount questions", DEBUG_DEVELOPER);
-                return "❌ IMPOSSIBLE : La catégorie contient $questioncount question(s). AUCUNE catégorie contenant des questions ne peut être supprimée.";
-            }
-            
-            $subcatcount = $DB->count_records('question_categories', ['parent' => $categoryid]);
-            
-            if ($subcatcount > 0) {
-                debugging("Tentative de suppression catégorie $categoryid avec $subcatcount sous-catégories", DEBUG_DEVELOPER);
-                return "❌ IMPOSSIBLE : La catégorie contient $subcatcount sous-catégorie(s).";
-            }
-            
-            // 🆕 v1.11.5 : Transaction et API Native Moodle
+
+            $manager = self::core_manager();
             $transaction = $DB->start_delegated_transaction();
-            
             try {
-                // Utiliser l'API native si disponible (recommandé Moodle 4.5)
-                require_once($CFG->libdir . '/questionlib.php');
-                
-                if (function_exists('question_delete_category')) {
-                    question_delete_category($categoryid);
-                } else if (class_exists('\\core_question\\category_manager')) {
-                    // Moodle 4.5+ : API orientée objet (la fonction legacy peut être absente).
-                    if (is_callable(['\\core_question\\category_manager', 'delete_category'])) {
-                        // Supporte implémentation statique.
-                        \core_question\category_manager::delete_category((int)$categoryid);
-                    } else {
-                        // Supporte implémentation en méthode d'instance.
-                        $mgr = new \core_question\category_manager();
-                        if (method_exists($mgr, 'delete_category')) {
-                            $mgr->delete_category((int)$categoryid);
-                        } else {
-                            throw new \coding_exception('core_question\\category_manager::delete_category() not available in this Moodle installation.');
-                        }
-                    }
-                } else {
-                    // Sécurité : ne JAMAIS supprimer directement en base si l'API core n'est pas disponible.
-                    // Cela pourrait laisser des références orphelines et casser la banque de questions.
-                    // Important: ne pas utiliser moodle_exception ici (sinon Moodle tente de traduire le message
-                    // comme un identifiant de chaîne, et affiche "error/..." not available).
-                    throw new \coding_exception('Question category deletion API not available (question_delete_category / core_question\\category_manager::delete_category).');
+                // Re-vérification au plus près de l'écriture.
+                if ($DB->record_exists('question_bank_entries', ['questioncategoryid' => $categoryid])
+                        || $DB->record_exists('question_categories', ['parent' => $categoryid])) {
+                    throw self::refusal("❌ IMPOSSIBLE : la catégorie n'est plus vide.");
                 }
-                
+                $manager->require_can_delete_category($categoryid);
+                $manager->delete_category($categoryid);
                 $transaction->allow_commit();
-                
-            } catch (\Exception $e) {
-                $transaction->rollback($e);
+            } catch (\Throwable $e) {
+                self::rollback_quietly($transaction, $e);
                 throw $e;
             }
-            
-            // 🆕 v1.9.39 : Log d'audit pour traçabilité
+
+            \local_question_diagnostic\local\usage_checker::reset_caches();
             audit_logger::log_category_deletion($categoryid, $category->name, 0);
-            
             return true;
-            
-        } catch (\Exception $e) {
-            debugging("Exception suppression catégorie $categoryid: " . $e->getMessage(), DEBUG_DEVELOPER);
-            return "❌ Erreur : " . $e->getMessage() . " (Catégorie ID: $categoryid)";
+
+        } catch (\Throwable $e) {
+            return "❌ Erreur : " . self::exception_message($e) . " (Catégorie ID: $categoryid)";
         }
     }
 
     /**
-     * Supprime plusieurs catégories vides
+     * Supprime plusieurs catégories vides (chacune revérifiée par delete_category()).
      *
      * @param array $categoryids Tableau d'IDs
-     * @param bool $bypass_default_protection Si true, autorise suppression des "Default for..." (cas contrôlé)
-     * @param bool $bypass_info_protection Si true, autorise suppression des catégories avec description (cas contrôlé)
-     * @return array ['success' => count, 'errors' => []]
+     * @param bool $bypass_default_protection cf. delete_category()
+     * @return array ['success' => count, 'failed' => count, 'errors' => []]
      */
-    public static function delete_categories_bulk($categoryids, $bypass_default_protection = false, $bypass_info_protection = false) {
+    public static function delete_categories_bulk($categoryids, $bypass_default_protection = false) {
         $success = 0;
         $errors = [];
 
         foreach ($categoryids as $id) {
-            $result = self::delete_category($id, $bypass_default_protection, $bypass_info_protection);
+            $result = self::delete_category((int)$id, $bypass_default_protection);
             if ($result === true) {
                 $success++;
             } else {
-                $errors[] = "Catégorie $id : $result";
+                $errors[] = "Catégorie " . (int)$id . " : $result";
             }
         }
 
-        return ['success' => $success, 'errors' => $errors];
+        return ['success' => $success, 'failed' => count($errors), 'errors' => $errors];
     }
 
     /**
-     * Fusionne deux catégories (déplace les questions de source vers destination)
+     * Fige une liste de catégories à supprimer : ne garde que celles qui, MAINTENANT, sont supprimables
+     * (vides, sans sous-catégorie, non protégées, non utilisées par un tirage aléatoire).
      *
-     * @param int $sourceid ID de la catégorie source
-     * @param int $destid ID de la catégorie destination
-     * @return bool|string true si succès, message d'erreur sinon
+     * Une catégorie qui deviendrait vide pendant le traitement (parent d'une catégorie supprimée) n'est donc
+     * jamais ajoutée : pas de suppression en cascade.
+     *
+     * @param int[] $categoryids
+     * @return array{0:int[],1:array<int,string>} [identifiants retenus, refus (id => raison)]
      */
+    public static function freeze_deletable_ids(array $categoryids): array {
+        global $DB;
+        \local_question_diagnostic\local\usage_checker::reset_caches();
+        $eligible = [];
+        $refused = [];
+        $ids = array_values(array_unique(array_filter(array_map('intval', $categoryids), fn($id) => $id > 0)));
+        foreach ($ids as $id) {
+            $category = $DB->get_record('question_categories', ['id' => $id], '*', IGNORE_MISSING);
+            if (!$category) {
+                $refused[$id] = "Catégorie introuvable (déjà supprimée ?).";
+                continue;
+            }
+            $refusal = self::get_deletion_refusal($category);
+            if ($refusal !== null) {
+                $refused[$id] = $refusal;
+            } else {
+                $eligible[] = $id;
+            }
+        }
+        return [$eligible, $refused];
+    }
+
     /**
-     * Fusionne deux catégories en déplaçant questions et sous-catégories
-     * 
-     * 🆕 v1.9.30 : TRANSACTION SQL avec rollback automatique si erreur
-     * 
+     * Supprime une liste FIGÉE de catégories (calculée au lancement). Chaque catégorie est re-vérifiée
+     * au moment de sa suppression ; aucune autre catégorie n'est ajoutée en cours de route.
+     *
+     * @param int[] $categoryids
+     * @return \stdClass {deleted: int[], skipped: array<int,string>}
+     */
+    public static function delete_frozen_category_list(array $categoryids): \stdClass {
+        global $DB;
+        \local_question_diagnostic\local\usage_checker::reset_caches();
+        $result = (object)['deleted' => [], 'skipped' => []];
+        $ids = array_values(array_unique(array_filter(array_map('intval', $categoryids), fn($id) => $id > 0)));
+        foreach ($ids as $id) {
+            if (!$DB->record_exists('question_categories', ['id' => $id])) {
+                $result->skipped[$id] = "Catégorie introuvable (déjà supprimée ?).";
+                continue;
+            }
+            $res = self::delete_category($id);
+            if ($res === true) {
+                $result->deleted[] = $id;
+            } else {
+                $result->skipped[$id] = (string)$res;
+            }
+        }
+        return $result;
+    }
+
+    /**
+     * Liste des catégories supprimables par le nettoyage global, calculée UNE fois (au lancement).
+     *
+     * Ne retient que les catégories vides ET sans sous-catégorie à cet instant, non protégées (racine, par défaut,
+     * description, idnumber), dont le contexte existe, qui ne sont pas la seule sous-catégorie de « top » et
+     * qui ne sont visées par aucune question aléatoire.
+     *
+     * @return \stdClass {total, candidates: \stdClass[], kept, reasons: array<string,int>}
+     */
+    public static function get_cleanup_candidates(): \stdClass {
+        \local_question_diagnostic\local\usage_checker::reset_caches();
+        $all = self::get_all_categories_with_stats();
+
+        $parentof = [];
+        $childcount = [];
+        foreach ($all as $item) {
+            $id = (int)$item->category->id;
+            $parent = (int)$item->category->parent;
+            $parentof[$id] = $parent;
+            if ($parent > 0) {
+                $childcount[$parent] = ($childcount[$parent] ?? 0) + 1;
+            }
+        }
+
+        try {
+            $random = \local_question_diagnostic\local\usage_checker::get_random_categories();
+            $randomok = true;
+        } catch (\Throwable $e) {
+            // Lecture impossible : on ne supprime rien (échec fermé).
+            $random = [];
+            $randomok = false;
+        }
+
+        $result = (object)['total' => count($all), 'candidates' => [], 'kept' => 0, 'reasons' => []];
+        foreach ($all as $item) {
+            $cat = $item->category;
+            $stats = $item->stats;
+            $id = (int)$cat->id;
+            $parent = (int)$cat->parent;
+
+            $reason = null;
+            if (empty($stats->context_valid)) {
+                $reason = 'orphan';
+            } else if (!empty($stats->is_protected)) {
+                $reason = 'protected';
+            } else if ((int)$stats->total_questions > 0) {
+                $reason = 'questions';
+            } else if ((int)$stats->subcategories > 0) {
+                $reason = 'subcategories';
+            } else if ($parent > 0 && ($parentof[$parent] ?? -1) === 0 && ($childcount[$parent] ?? 0) <= 1) {
+                $reason = 'onlychild';
+            } else if (!$randomok || isset($random[$id])) {
+                $reason = 'random';
+            }
+
+            if ($reason !== null) {
+                $result->kept++;
+                $result->reasons[$reason] = ($result->reasons[$reason] ?? 0) + 1;
+                continue;
+            }
+            $result->candidates[] = (object)[
+                'id' => $id,
+                'name' => $cat->name,
+                'contextid' => (int)$cat->contextid,
+                'context_name' => $stats->context_name ?? '',
+                'parent' => $parent,
+            ];
+        }
+        return $result;
+    }
+
+    /**
+     * Identifiants de questions (idnumber) de la source déjà présents dans la destination.
+     *
+     * @param int $sourceid
+     * @param int $destid
+     * @return string[]
+     */
+    private static function get_idnumber_collisions(int $sourceid, int $destid): array {
+        global $DB;
+        $sql = "SELECT DISTINCT s.idnumber
+                  FROM {question_bank_entries} s
+                  JOIN {question_bank_entries} d ON d.idnumber = s.idnumber AND d.questioncategoryid = :destid
+                 WHERE s.questioncategoryid = :sourceid
+                   AND s.idnumber IS NOT NULL";
+        $values = $DB->get_fieldset_sql($sql, ['sourceid' => $sourceid, 'destid' => $destid]);
+        return array_values(array_filter(array_map('strval', $values), fn($v) => $v !== ''));
+    }
+
+    /**
+     * Indique pourquoi une fusion source → destination est refusée, ou null si elle est possible.
+     *
+     * @param \stdClass $source
+     * @param \stdClass $dest
+     * @return string|null
+     */
+    public static function get_merge_refusal(\stdClass $source, \stdClass $dest): ?string {
+        $sourceid = (int)$source->id;
+        $destid = (int)$dest->id;
+
+        if ($sourceid === $destid) {
+            return "Impossible de fusionner une catégorie avec elle-même.";
+        }
+        if ((int)$source->contextid !== (int)$dest->contextid) {
+            return "Les catégories doivent être dans le même contexte pour être fusionnées.";
+        }
+        if (!\context::instance_by_id((int)$source->contextid, IGNORE_MISSING)) {
+            return "❌ IMPOSSIBLE : le contexte de ces catégories n'existe plus (catégories orphelines).";
+        }
+        if ((int)$dest->parent === 0) {
+            return "❌ La destination est la catégorie racine (« top ») du contexte : choisissez une catégorie visible.";
+        }
+        if (self::is_ancestor($sourceid, $destid)) {
+            return "❌ Impossible de fusionner : la destination est une sous-catégorie de la source "
+                . "(cela créerait une boucle et détacherait l'arborescence).";
+        }
+        $sourcestats = self::get_category_stats($source);
+        if (!empty($sourcestats->is_protected)) {
+            return "❌ PROTÉGÉE : La catégorie source est protégée et ne peut pas être fusionnée. Raison : "
+                . $sourcestats->protection_reason;
+        }
+        if (self::core_manager()->is_only_child_of_top_category_in_context($sourceid)) {
+            return "❌ PROTÉGÉE : La source est la seule catégorie sous la catégorie racine de ce contexte ; "
+                . "Moodle ne permet pas de la supprimer.";
+        }
+        if (\local_question_diagnostic\local\usage_checker::category_used_by_random($sourceid, true)) {
+            return "❌ PROTÉGÉE : La catégorie source (ou l'une de ses sous-catégories) est utilisée par une question "
+                . "aléatoire d'un test. La fusion modifierait ou casserait ce tirage : elle est refusée.";
+        }
+        $collisions = self::get_idnumber_collisions($sourceid, $destid);
+        if ($collisions) {
+            return self::idnumber_collision_message($collisions);
+        }
+        return null;
+    }
+
+    /**
+     * Message de refus pour des idnumber en collision.
+     *
+     * @param string[] $collisions
+     * @return string
+     */
+    private static function idnumber_collision_message(array $collisions): string {
+        $shown = array_slice($collisions, 0, 10);
+        return "❌ IMPOSSIBLE : " . count($collisions) . " idnumber de questions existent déjà dans la destination ("
+            . implode(', ', $shown) . (count($collisions) > 10 ? ', …' : '') . "). "
+            . "Renommez-les avant de fusionner.";
+    }
+
+    /**
+     * Fusionne deux catégories du MÊME contexte : questions et sous-catégories de la source vont dans la
+     * destination, puis la source (vide) est supprimée.
+     *
+     * Tout passe par l'API du cœur (fichiers, idnumber, étiquettes, événements, caches) et dans une seule
+     * transaction annulée en cas d'erreur.
+     *
      * @param int $sourceid ID de la catégorie source (sera supprimée)
      * @param int $destid ID de la catégorie destination (recevra le contenu)
      * @return bool|string true si succès, message d'erreur sinon
      */
     public static function merge_categories($sourceid, $destid) {
-        global $DB, $CFG;
+        global $DB;
 
-        // 🛡️ v1.9.30 : Validation préalable (avant transaction)
-        if ($sourceid == $destid) {
+        $sourceid = (int)$sourceid;
+        $destid = (int)$destid;
+        if ($sourceid === $destid) {
             return "Impossible de fusionner une catégorie avec elle-même.";
         }
 
         try {
-            require_once($CFG->libdir . '/questionlib.php');
+            \local_question_diagnostic\local\usage_checker::reset_caches();
+            $source = $DB->get_record('question_categories', ['id' => $sourceid], '*', IGNORE_MISSING);
+            $dest = $DB->get_record('question_categories', ['id' => $destid], '*', IGNORE_MISSING);
+            if (!$source || !$dest) {
+                return "Catégorie introuvable.";
+            }
 
-            // Vérifier que les catégories existent
-            $source = $DB->get_record('question_categories', ['id' => $sourceid], '*', MUST_EXIST);
-            $dest = $DB->get_record('question_categories', ['id' => $destid], '*', MUST_EXIST);
-            
-            // Vérifier qu'elles sont dans le même contexte
-            if ($source->contextid != $dest->contextid) {
-                return "Les catégories doivent être dans le même contexte pour être fusionnées.";
+            $refusal = self::get_merge_refusal($source, $dest);
+            if ($refusal !== null) {
+                return $refusal;
             }
-            
-            // 🛡️ v1.9.30 : Vérifier que la source n'est pas protégée
-            $source_stats = self::get_category_stats($source);
-            if ($source_stats->is_protected) {
-                return "❌ PROTÉGÉE : La catégorie source est protégée et ne peut pas être fusionnée. Raison : " . $source_stats->protection_reason;
-            }
-            
-            // 🆕 v1.9.30 : DÉBUT DE LA TRANSACTION SQL
-            // Si une erreur survient, TOUT sera annulé automatiquement
+
+            $manager = self::core_manager();
+            $manager->require_can_delete_category($sourceid);
+            $questionids = $manager->get_real_question_ids_in_category($sourceid);
+            $subcats = $DB->get_records('question_categories', ['parent' => $sourceid], 'sortorder ASC, id ASC');
+
             $transaction = $DB->start_delegated_transaction();
-            
             try {
-                // Étape 1 : Récupérer les IDs des questions à déplacer pour les événements
-                // ⚠️ MOODLE 4.5 : Structure question -> question_versions -> question_bank_entries
-                $sql_q_ids = "SELECT DISTINCT q.id 
-                              FROM {question} q
-                              JOIN {question_versions} qv ON qv.questionid = q.id
-                              JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
-                              WHERE qbe.questioncategoryid = :sourceid";
-                $question_ids = $DB->get_fieldset_sql($sql_q_ids, ['sourceid' => $sourceid]);
-
-                // Étape 2 : Déplacer toutes les questions de source vers dest (SQL rapide)
-                // Compatible Moodle 4.x/5.1 (question_bank_entries)
-                // ⚠️ NOTE: Cette opération UPDATE directe est validée pour Moodle 5.1.
-                // Les événements sont déclenchés manuellement ci-dessous pour garantir l'intégrité.
-                $sql = "UPDATE {question_bank_entries} SET questioncategoryid = :destid WHERE questioncategoryid = :sourceid";
-                $moved_questions = $DB->execute($sql, ['destid' => $destid, 'sourceid' => $sourceid]);
-                
-                debugging('Fusion catégories v1.11.5 : ' . ($moved_questions ? 'Questions déplacées' : 'Aucune question') . ' de cat ' . $sourceid . ' vers ' . $destid, DEBUG_DEVELOPER);
-                
-                // Étape 3 : Déclencher les événements question_moved
-                if (!empty($question_ids)) {
-                    $context = \context::instance_by_id($source->contextid);
-                    foreach ($question_ids as $qid) {
-                        $event = \core\event\question_moved::create([
-                            'objectid' => $qid,
-                            'context' => $context,
-                            'other' => [
-                                'oldcategoryid' => $sourceid,
-                                'newcategoryid' => $destid
-                            ]
-                        ]);
-                        $event->trigger();
-                    }
-                }
-
-                // Étape 4 : Déplacer les sous-catégories
-                $subcats = $DB->get_records('question_categories', ['parent' => $sourceid]);
-                $moved_subcats = 0;
-                
+                // 1. Sous-catégories → destination (API du cœur, même contexte).
                 foreach ($subcats as $subcat) {
-                    $subcat->parent = $destid;
-                    $DB->update_record('question_categories', $subcat);
-                    $moved_subcats++;
-                    
-                    // Trigger event for category update
-                    $event = \core\event\question_category_updated::create([
-                        'objectid' => $subcat->id,
-                        'context' => \context::instance_by_id($subcat->contextid)
-                    ]);
-                    $event->trigger();
-                }
-                
-                debugging('Fusion catégories v1.11.5 : ' . $moved_subcats . ' sous-catégorie(s) déplacée(s)', DEBUG_DEVELOPER);
-                
-                // Étape 5 : Supprimer la catégorie source (maintenant vide) via API Moodle
-                require_once($CFG->libdir . '/questionlib.php');
-                if (function_exists('question_delete_category')) {
-                    question_delete_category($sourceid);
-                } else if (class_exists('\\core_question\\category_manager')) {
-                    if (is_callable(['\\core_question\\category_manager', 'delete_category'])) {
-                        \core_question\category_manager::delete_category((int)$sourceid);
-                    } else {
-                        $mgr = new \core_question\category_manager();
-                        if (method_exists($mgr, 'delete_category')) {
-                            $mgr->delete_category((int)$sourceid);
-                        } else {
-                            throw new \coding_exception('core_question\\category_manager::delete_category() not available in this Moodle installation.');
-                        }
+                    if (self::is_ancestor((int)$subcat->id, $destid)) {
+                        throw self::refusal("❌ Impossible de déplacer la sous-catégorie {$subcat->id} : cela créerait une boucle.");
                     }
-                } else {
-                    throw new \coding_exception('Question category deletion API not available (question_delete_category / core_question\\category_manager::delete_category).');
+                    $manager->update_category((int)$subcat->id, $destid . ',' . (int)$dest->contextid, (string)$subcat->name,
+                        $subcat->info, (string)($subcat->infoformat ?? FORMAT_HTML), $subcat->idnumber);
+                    if ((int)$DB->get_field('question_categories', 'parent', ['id' => $subcat->id]) !== $destid) {
+                        throw self::refusal("❌ Moodle a refusé de déplacer la sous-catégorie {$subcat->id}.");
+                    }
                 }
-                
-                debugging('Fusion catégories v1.11.5 : Catégorie source ' . $sourceid . ' supprimée', DEBUG_DEVELOPER);
-                
-                // ✅ TOUT S'EST BIEN PASSÉ : VALIDER LA TRANSACTION
+
+                // 2. idnumber : revérifiés dans la transaction (le cœur les renommerait en silence).
+                $collisions = self::get_idnumber_collisions($sourceid, $destid);
+                if ($collisions) {
+                    throw self::refusal(self::idnumber_collision_message($collisions));
+                }
+
+                // 3. Questions → destination (question_move_questions_to_category : fichiers, idnumber, événements).
+                if (!empty($questionids)) {
+                    $manager->move_questions($sourceid, $destid, $questionids);
+                }
+
+                // 4. La source doit être vide avant sa suppression (le cœur supprimerait sinon les questions restantes).
+                if ($DB->record_exists('question_bank_entries', ['questioncategoryid' => $sourceid])
+                        || $DB->record_exists('question_categories', ['parent' => $sourceid])) {
+                    throw self::refusal("❌ La catégorie source n'est pas vide après le déplacement : fusion annulée.");
+                }
+
+                // 5. Suppression de la source vide (API du cœur).
+                $manager->delete_category($sourceid);
+
                 $transaction->allow_commit();
-                
-                // 🧹 v1.9.30 : Purger les caches après fusion réussie
-                cache_manager::purge_all_caches();
-                
-                return true;
-                
-            } catch (\Exception $inner_e) {
-                // 🔄 ERREUR DANS LA TRANSACTION : ROLLBACK AUTOMATIQUE
-                // Toutes les modifications seront annulées
-                debugging('Erreur dans transaction merge_categories : ' . $inner_e->getMessage(), DEBUG_DEVELOPER);
-                throw $inner_e; // Re-lancer pour le catch externe
+            } catch (\Throwable $e) {
+                self::rollback_quietly($transaction, $e);
+                throw $e;
             }
-            
-        } catch (\Exception $e) {
-            // Le rollback a déjà été effectué automatiquement par Moodle
-            $error_msg = "Erreur lors de la fusion : " . $e->getMessage();
-            debugging($error_msg, DEBUG_DEVELOPER);
-            return $error_msg;
+
+            \local_question_diagnostic\local\usage_checker::reset_caches();
+            audit_logger::log_category_merge($sourceid, $destid, $source->name, $dest->name, count($questionids));
+            self::purge_plugin_caches();
+            return true;
+
+        } catch (\Throwable $e) {
+            return "Erreur lors de la fusion : " . self::exception_message($e);
         }
     }
 
     /**
-     * Déplace une catégorie vers un nouveau parent
-     * 
-     * 🆕 v1.9.30 : TRANSACTION SQL avec rollback automatique si erreur
+     * Indique pourquoi un déplacement est refusé, ou null s'il est possible.
+     *
+     * @param \stdClass $category
+     * @param int $newparentid
+     * @return string|null
+     */
+    public static function get_move_refusal(\stdClass $category, int $newparentid): ?string {
+        global $DB;
+
+        $categoryid = (int)$category->id;
+        if ($newparentid <= 0) {
+            return "❌ Déplacement vers la racine (parent = 0) interdit : chaque contexte n'a qu'une seule "
+                . "catégorie « top », une seconde serait invisible dans la banque de questions.";
+        }
+        if ($categoryid === $newparentid) {
+            return "Une catégorie ne peut pas être son propre parent.";
+        }
+        if ((int)$category->parent === 0) {
+            return "❌ PROTÉGÉE : La catégorie racine (« top ») d'un contexte ne peut pas être déplacée.";
+        }
+        $parent = $DB->get_record('question_categories', ['id' => $newparentid], '*', IGNORE_MISSING);
+        if (!$parent) {
+            return "Catégorie parente introuvable.";
+        }
+        if ((int)$parent->contextid !== (int)$category->contextid) {
+            return "Le parent doit être dans le même contexte.";
+        }
+        if (!\context::instance_by_id((int)$category->contextid, IGNORE_MISSING)) {
+            return "❌ IMPOSSIBLE : le contexte de cette catégorie n'existe plus (catégorie orpheline).";
+        }
+        if (self::is_ancestor($categoryid, $newparentid)) {
+            return "Impossible de déplacer : cela créerait une boucle.";
+        }
+        if ((int)$category->parent === $newparentid) {
+            return "La catégorie est déjà rangée sous ce parent.";
+        }
+        $stats = self::get_category_stats($category);
+        // Un idnumber n'empêche pas un déplacement dans le même contexte.
+        if (!empty($stats->is_protected) && $stats->protection_reason !== self::PROTECTION_IDNUMBER) {
+            return "❌ PROTÉGÉE : Cette catégorie est protégée et ne peut pas être déplacée. Raison : "
+                . $stats->protection_reason;
+        }
+        if (self::core_manager()->is_only_child_of_top_category_in_context($categoryid)) {
+            return "❌ PROTÉGÉE : C'est la seule catégorie sous la catégorie racine de ce contexte ; "
+                . "Moodle ne permet pas de la déplacer.";
+        }
+        if (\local_question_diagnostic\local\usage_checker::category_used_by_random($categoryid, true)) {
+            return "❌ PROTÉGÉE : Cette catégorie (ou l'une de ses sous-catégories) fait partie du réservoir d'une question "
+                . "aléatoire d'un test. La déplacer modifierait ce tirage : déplacement refusé.";
+        }
+        return null;
+    }
+
+    /**
+     * Déplace une catégorie sous un autre parent du MÊME contexte, via l'API du cœur (update_category).
+     *
+     * Interdit : parent 0 (seconde racine invisible), déplacement d'une racine, changement de contexte,
+     * boucle, catégorie protégée ou utilisée par une question aléatoire.
      *
      * @param int $categoryid ID de la catégorie à déplacer
-     * @param int $newparentid ID du nouveau parent (0 pour racine)
+     * @param int $newparentid ID du nouveau parent (> 0, même contexte)
      * @return bool|string true si succès, message d'erreur sinon
      */
     public static function move_category($categoryid, $newparentid) {
-        global $DB, $CFG;
+        global $DB;
 
-        // 🛡️ v1.9.30 : Validation préalable (avant transaction)
-        if ($categoryid == $newparentid) {
-            return "Une catégorie ne peut pas être son propre parent.";
-        }
+        $categoryid = (int)$categoryid;
+        $newparentid = (int)$newparentid;
 
         try {
-            $category = $DB->get_record('question_categories', ['id' => $categoryid], '*', MUST_EXIST);
-            
-            // Vérifier que le nouveau parent existe (sauf si 0)
-            if ($newparentid != 0) {
-                $parent = $DB->get_record('question_categories', ['id' => $newparentid], '*', MUST_EXIST);
-                
-                // Vérifier que le parent est dans le même contexte
-                if ($parent->contextid != $category->contextid) {
-                    return "Le parent doit être dans le même contexte.";
-                }
-                
-                // Vérifier qu'on ne crée pas de boucle
-                if (self::is_ancestor($categoryid, $newparentid)) {
-                    return "Impossible de déplacer : cela créerait une boucle.";
-                }
+            \local_question_diagnostic\local\usage_checker::reset_caches();
+            $category = $DB->get_record('question_categories', ['id' => $categoryid], '*', IGNORE_MISSING);
+            if (!$category) {
+                return "Catégorie introuvable.";
             }
-            
-            // 🛡️ v1.9.30 : Vérifier que la catégorie n'est pas protégée
-            $category_stats = self::get_category_stats($category);
-            if ($category_stats->is_protected) {
-                return "❌ PROTÉGÉE : Cette catégorie est protégée et ne peut pas être déplacée. Raison : " . $category_stats->protection_reason;
+            $refusal = self::get_move_refusal($category, $newparentid);
+            if ($refusal !== null) {
+                return $refusal;
             }
-            
-            // 🆕 v1.9.30 : TRANSACTION SQL (même si une seule opération, pour cohérence)
-            $transaction = $DB->start_delegated_transaction();
-            
-            try {
-                $category->parent = $newparentid;
-                $DB->update_record('question_categories', $category);
-                
-                // 🆕 v1.11.5 : Trigger event for Moodle consistency
-                $event = \core\event\question_category_updated::create([
-                    'objectid' => $category->id,
-                    'context' => \context::instance_by_id($category->contextid)
-                ]);
-                $event->trigger();
-                
-                debugging('Déplacement catégorie v1.9.30 : Cat ' . $categoryid . ' déplacée vers parent ' . $newparentid, DEBUG_DEVELOPER);
-                
-                // ✅ Valider la transaction
-                $transaction->allow_commit();
-                
-                // 🧹 Purger les caches
-                cache_manager::purge_all_caches();
-                
-                return true;
-                
-            } catch (\Exception $inner_e) {
-                // 🔄 ROLLBACK AUTOMATIQUE
-                debugging('Erreur dans transaction move_category : ' . $inner_e->getMessage(), DEBUG_DEVELOPER);
-                throw $inner_e;
-            }
-            
-        } catch (\Exception $e) {
-            $error_msg = "Erreur lors du déplacement : " . $e->getMessage();
-            debugging($error_msg, DEBUG_DEVELOPER);
-            return $error_msg;
+
+            $oldparentid = (int)$category->parent;
+            self::core_update_parent($category, $newparentid);
+
+            \local_question_diagnostic\local\usage_checker::reset_caches();
+            audit_logger::log_category_move($categoryid, $oldparentid, $newparentid, $category->name);
+            self::purge_plugin_caches();
+            return true;
+
+        } catch (\Throwable $e) {
+            return "Erreur lors du déplacement : " . self::exception_message($e);
         }
     }
 
     /**
-     * Ré-attache une catégorie racine (parent=0) sous une autre racine du même contexte.
+     * Change le parent d'une catégorie dans son contexte, par l'API du cœur, dans une transaction.
      *
-     * Objectif : corriger les anomalies "Plusieurs catégories racine par contexte".
+     * @param \stdClass $category enregistrement question_categories
+     * @param int $newparentid nouveau parent (même contexte)
+     * @throws \Throwable si le cœur refuse ou ignore le changement (transaction annulée)
+     */
+    private static function core_update_parent(\stdClass $category, int $newparentid): void {
+        global $DB;
+        $manager = self::core_manager();
+        $transaction = $DB->start_delegated_transaction();
+        try {
+            $manager->update_category((int)$category->id, $newparentid . ',' . (int)$category->contextid,
+                (string)$category->name, $category->info, (string)($category->infoformat ?? FORMAT_HTML),
+                $category->idnumber ?? null);
+            // update_category() ignore le nouveau parent dans certains cas (seule sous-catégorie de « top ») : vérifier.
+            if ((int)$DB->get_field('question_categories', 'parent', ['id' => $category->id]) !== $newparentid) {
+                throw self::refusal("❌ Moodle a refusé ce changement de parent.");
+            }
+            $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            self::rollback_quietly($transaction, $e);
+            throw $e;
+        }
+    }
+
+    /**
+     * Ré-attache une racine en trop (parent=0) sous la racine conservée du même contexte.
      *
-     * ⚠️ Cette méthode contourne volontairement la protection "parent=0" utilisée par l'UI,
-     * mais elle applique des garde-fous stricts :
-     * - la catégorie à déplacer DOIT être parent=0
-     * - le nouveau parent DOIT exister, être parent=0, et être dans le même contexte
-     * - aucune boucle ne doit être créée
+     * Objectif : corriger l'anomalie « Plusieurs catégories racine par contexte » (un contexte Moodle 5.x n'a
+     * qu'une seule catégorie « top »). Garde-fous :
+     * - la catégorie à déplacer et la cible sont toutes deux des racines du même contexte (existant) ;
+     * - aucune boucle ;
+     * - la racine déplacée (et son arborescence) n'est visée par aucune question aléatoire ;
+     * - écriture par l'API du cœur (update_category), dans une transaction.
      *
-     * @param int $categoryid ID de la catégorie racine à ré-attacher
+     * @param int $categoryid ID de la racine à ré-attacher
      * @param int $newparentid ID de la racine à conserver
      * @return bool|string true si succès, message d'erreur sinon
      */
     public static function force_reparent_root_category(int $categoryid, int $newparentid) {
         global $DB;
-
-        $categoryid = (int)$categoryid;
-        $newparentid = (int)$newparentid;
 
         if ($categoryid <= 0 || $newparentid <= 0) {
             return 'Paramètres invalides.';
@@ -971,91 +1247,119 @@ class category_manager {
         }
 
         try {
-            $category = $DB->get_record('question_categories', ['id' => $categoryid], '*', MUST_EXIST);
-            $newparent = $DB->get_record('question_categories', ['id' => $newparentid], '*', MUST_EXIST);
-
-            // La catégorie à corriger doit être une racine.
+            \local_question_diagnostic\local\usage_checker::reset_caches();
+            $category = $DB->get_record('question_categories', ['id' => $categoryid], '*', IGNORE_MISSING);
+            $newparent = $DB->get_record('question_categories', ['id' => $newparentid], '*', IGNORE_MISSING);
+            if (!$category || !$newparent) {
+                return 'Catégorie introuvable.';
+            }
             if ((int)$category->parent !== 0) {
                 return 'La catégorie à ré-attacher n\'est pas une racine (parent != 0).';
             }
-            // Le parent cible doit être une racine.
             if ((int)$newparent->parent !== 0) {
                 return 'Le parent cible n\'est pas une racine (parent != 0).';
             }
-            // Cohérence de contexte.
             if ((int)$category->contextid !== (int)$newparent->contextid) {
                 return 'Le parent doit être dans le même contexte.';
             }
-
-            // Vérifier qu'on ne crée pas de boucle (par sécurité).
+            if (!\context::instance_by_id((int)$category->contextid, IGNORE_MISSING)) {
+                return 'Contexte inexistant : correction impossible par l\'API Moodle.';
+            }
             if (self::is_ancestor($categoryid, $newparentid)) {
                 return 'Impossible de déplacer : cela créerait une boucle.';
             }
-
-            $transaction = $DB->start_delegated_transaction();
-            try {
-                $category->parent = $newparentid;
-                $DB->update_record('question_categories', $category);
-
-                // Event Moodle : cohérence.
-                $event = \core\event\question_category_updated::create([
-                    'objectid' => $category->id,
-                    'context' => \context::instance_by_id($category->contextid),
-                ]);
-                $event->trigger();
-
-                $transaction->allow_commit();
-            } catch (\Exception $inner) {
-                $transaction->rollback($inner);
-                throw $inner;
+            if (\local_question_diagnostic\local\usage_checker::category_used_by_random($categoryid, true)) {
+                return 'Cette racine (ou l\'une de ses sous-catégories) est utilisée par une question aléatoire : '
+                    . 'correction refusée, à faire à la main.';
             }
 
-            // Purger les caches (important pour la banque de questions).
-            try {
-                if (class_exists('\\local_question_diagnostic\\cache_manager')) {
-                    cache_manager::purge_all_caches();
-                }
-            } catch (\Exception $e) {
-                // Ignorer : la correction est déjà appliquée.
-            }
-
+            self::core_update_parent($category, $newparentid);
+            \local_question_diagnostic\local\usage_checker::reset_caches();
+            audit_logger::log_category_move($categoryid, 0, $newparentid, $category->name);
+            self::purge_plugin_caches();
             return true;
-        } catch (\Exception $e) {
-            return 'Erreur lors de la correction : ' . $e->getMessage();
+        } catch (\Throwable $e) {
+            return 'Erreur lors de la correction : ' . self::exception_message($e);
         }
     }
 
     /**
-     * Vérifie si une catégorie est ancêtre d'une autre
+     * Ré-attache une catégorie dont le parent est dans un AUTRE contexte sous la racine de son propre contexte
+     * (même correction que \core_question\category_manager::fix_restored_category_parents(), une catégorie à la fois
+     * et par l'API update_category).
+     *
+     * @param int $categoryid catégorie à corriger
+     * @param int $rootid racine (parent=0) du contexte de la catégorie
+     * @return bool|string true si succès, message d'erreur sinon
+     */
+    public static function reattach_to_context_root(int $categoryid, int $rootid) {
+        global $DB;
+
+        try {
+            \local_question_diagnostic\local\usage_checker::reset_caches();
+            $category = $DB->get_record('question_categories', ['id' => $categoryid], '*', IGNORE_MISSING);
+            $root = $DB->get_record('question_categories', ['id' => $rootid], '*', IGNORE_MISSING);
+            if (!$category || !$root) {
+                return 'Catégorie introuvable.';
+            }
+            if ((int)$root->parent !== 0 || (int)$root->contextid !== (int)$category->contextid) {
+                return 'La cible n\'est pas la racine du contexte de la catégorie.';
+            }
+            if ((int)$DB->count_records('question_categories', ['contextid' => $category->contextid, 'parent' => 0]) !== 1) {
+                return 'Le contexte n\'a pas exactement une racine : corrigez d\'abord les racines multiples.';
+            }
+            $currentparent = $DB->get_record('question_categories', ['id' => $category->parent], 'id, contextid',
+                IGNORE_MISSING);
+            if (!$currentparent || (int)$currentparent->contextid === (int)$category->contextid) {
+                return 'Plus d\'incohérence de contexte pour cette catégorie : rien à faire.';
+            }
+            if (!\context::instance_by_id((int)$category->contextid, IGNORE_MISSING)) {
+                return 'Contexte inexistant : correction impossible par l\'API Moodle.';
+            }
+            if (\local_question_diagnostic\local\usage_checker::category_used_by_random($categoryid, true)) {
+                return 'Cette catégorie (ou l\'une de ses sous-catégories) est utilisée par une question aléatoire : '
+                    . 'correction refusée, à faire à la main.';
+            }
+
+            $oldparentid = (int)$category->parent;
+            self::core_update_parent($category, $rootid);
+            \local_question_diagnostic\local\usage_checker::reset_caches();
+            audit_logger::log_category_move($categoryid, $oldparentid, $rootid, $category->name);
+            self::purge_plugin_caches();
+            return true;
+        } catch (\Throwable $e) {
+            return 'Erreur lors de la correction : ' . self::exception_message($e);
+        }
+    }
+
+    /**
+     * Vérifie si une catégorie est ancêtre d'une autre (ou la même).
      *
      * @param int $ancestorid ID de l'ancêtre potentiel
      * @param int $childid ID de l'enfant
-     * @return bool
+     * @return bool true aussi si une boucle est rencontrée (prudence)
      */
     private static function is_ancestor($ancestorid, $childid) {
         global $DB;
 
-        $current = $childid;
+        $ancestorid = (int)$ancestorid;
+        $current = (int)$childid;
         $visited = [];
 
-        while ($current != 0) {
-            if ($current == $ancestorid) {
+        while ($current > 0) {
+            if ($current === $ancestorid) {
                 return true;
             }
-            
-            if (in_array($current, $visited)) {
-                // Boucle détectée
-                return false;
+            if (isset($visited[$current])) {
+                // Boucle existante : on refuse par prudence.
+                return true;
             }
-            
-            $visited[] = $current;
-            $category = $DB->get_record('question_categories', ['id' => $current]);
-            
-            if (!$category) {
+            $visited[$current] = true;
+            $parent = $DB->get_field('question_categories', 'parent', ['id' => $current]);
+            if ($parent === false) {
                 break;
             }
-            
-            $current = $category->parent;
+            $current = (int)$parent;
         }
 
         return false;
@@ -1079,17 +1383,16 @@ class category_manager {
             if ($stats->is_orphan) $status[] = 'Orpheline';
             $statusstr = empty($status) ? 'OK' : implode(', ', $status);
             
-            $csv .= sprintf(
-                "%d,\"%s\",\"%s\",%d,%d,%d,%d,\"%s\"\n",
-                $cat->id,
-                str_replace('"', '""', $cat->name),
-                str_replace('"', '""', $stats->context_name),
-                $cat->parent,
-                $stats->visible_questions,
-                $stats->total_questions,
-                $stats->subcategories,
-                $statusstr
-            );
+            $csv .= implode(',', array_map('local_question_diagnostic_csv_cell', [
+                (int)$cat->id,
+                $cat->name,
+                $stats->context_name,
+                (int)$cat->parent,
+                (int)$stats->visible_questions,
+                (int)$stats->total_questions,
+                (int)$stats->subcategories,
+                $statusstr,
+            ])) . "\n";
         }
         
         return $csv;

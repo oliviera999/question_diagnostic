@@ -5,235 +5,141 @@
 // it under the terms of the GNU General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
+//
+// Moodle is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
+
+/**
+ * « Réparation » d'un fichier orphelin : copie vers une question choisie explicitement par l'administrateur.
+ *
+ * Étape 1 (GET) : saisie de l'id de la question cible.
+ * Étape 2 (GET) : aperçu de la cible et boutons de confirmation (POST).
+ * Étape 3 (POST + sesskey + confirm=1) : copie via l'API de fichiers ; l'original reste intact.
+ *
+ * @package    local_question_diagnostic
+ * @copyright  2025
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ */
 
 require_once(__DIR__ . '/../../../config.php');
+require_once(__DIR__ . '/../lib.php');
 require_once(__DIR__ . '/../classes/orphan_file_detector.php');
 require_once(__DIR__ . '/../classes/orphan_file_repairer.php');
 
 use local_question_diagnostic\orphan_file_detector;
 use local_question_diagnostic\orphan_file_repairer;
 
-require_login();
+// Contrôle d'accès : capacité du plugin + administrateur du site (écriture).
+local_question_diagnostic_require_access('configureplugin', true);
 
-// Vérification stricte : seuls les administrateurs du site peuvent accéder à cette page.
-if (!is_siteadmin()) {
-    throw new \moodle_exception('accessdenied', 'admin');
-}
-
-require_sesskey();
+$fileid = required_param('id', PARAM_INT);
+$questionid = optional_param('questionid', 0, PARAM_INT);
+$confirm = optional_param('confirm', 0, PARAM_BOOL);
+$dryrun = optional_param('dryrun', 0, PARAM_BOOL);
 
 $context = context_system::instance();
 $PAGE->set_context($context);
-$PAGE->set_url(new moodle_url('/local/question_diagnostic/actions/orphan_repair.php'));
+$PAGE->set_url(new moodle_url('/local/question_diagnostic/actions/orphan_repair.php', ['id' => $fileid]));
 $PAGE->set_title(get_string('repair_orphan', 'local_question_diagnostic'));
+$PAGE->set_heading(get_string('orphan_files_heading', 'local_question_diagnostic'));
 $PAGE->set_pagelayout('admin');
 
-// Récupérer les paramètres
-$file_id = required_param('id', PARAM_INT);
-$repair_type = optional_param('type', '', PARAM_ALPHA);
-$target_id = optional_param('target_id', 0, PARAM_INT);
-$confirm = optional_param('confirm', 0, PARAM_INT);
-$dry_run = optional_param('dryrun', 0, PARAM_INT);
+$returnurl = new moodle_url('/local/question_diagnostic/orphan_files.php');
 
-// Récupérer le fichier orphelin
-$file_record = $DB->get_record('files', ['id' => $file_id]);
-if (!$file_record) {
-    redirect(
-        new moodle_url('/local/question_diagnostic/orphan_files.php'),
-        get_string('repair_file_not_found', 'local_question_diagnostic'),
-        null,
-        \core\output\notification::NOTIFY_ERROR
-    );
+$filerecord = $DB->get_record('files', ['id' => $fileid]);
+if (!$filerecord) {
+    redirect($returnurl, get_string('repair_file_not_found', 'local_question_diagnostic'), null,
+        \core\output\notification::NOTIFY_ERROR);
 }
-
-// Analyser les options de réparation
-$repair_options = orphan_file_repairer::analyze_repair_options($file_record);
-
-if (empty($repair_options)) {
-    redirect(
-        new moodle_url('/local/question_diagnostic/orphan_files.php'),
-        get_string('repair_no_target_found', 'local_question_diagnostic'),
-        null,
-        \core\output\notification::NOTIFY_WARNING
-    );
+if (!orphan_file_repairer::can_repair($filerecord)) {
+    redirect($returnurl, get_string('orphan_repair_not_allowed', 'local_question_diagnostic'), null,
+        \core\output\notification::NOTIFY_ERROR);
 }
 
 // ======================================================================
-// PAGE DE SÉLECTION DES OPTIONS (si pas encore de type sélectionné)
+// EXÉCUTION (POST + sesskey + confirmation uniquement)
 // ======================================================================
-
-if (empty($repair_type) || !$confirm) {
-    echo $OUTPUT->header();
-    
-    // Titre
-    echo html_writer::tag('h2', '🔧 ' . get_string('repair_modal_title', 'local_question_diagnostic'));
-    
-    // Informations sur le fichier
-    echo html_writer::start_div('alert alert-info', ['style' => 'margin: 20px 0;']);
-    echo '<strong>📁 Fichier :</strong> ' . htmlspecialchars($file_record->filename) . '<br>';
-    echo '<strong>💾 Taille :</strong> ' . orphan_file_detector::format_filesize($file_record->filesize) . '<br>';
-    echo '<strong>📦 Composant :</strong> ' . htmlspecialchars($file_record->component) . '<br>';
-    echo '<strong>🆔 ID :</strong> ' . $file_record->id;
-    echo html_writer::end_div();
-    
-    // Options de réparation
-    echo html_writer::tag('h3', get_string('repair_options', 'local_question_diagnostic'));
-    
-    echo html_writer::start_tag('div', ['class' => 'qd-repair-options']);
-    
-    foreach ($repair_options as $index => $option) {
-        $card_class = 'qd-repair-option';
-        if ($option['confidence'] >= 90) {
-            $card_class .= ' high-confidence';
-        } else if ($option['confidence'] >= 60) {
-            $card_class .= ' medium-confidence';
-        } else {
-            $card_class .= ' low-confidence';
-        }
-        
-        echo html_writer::start_tag('div', ['class' => $card_class, 'style' => 'margin: 15px 0; padding: 20px; border: 2px solid #ddd; border-radius: 8px;']);
-        
-        // En-tête de l'option
-        echo html_writer::start_tag('div', ['style' => 'display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;']);
-        echo html_writer::tag('h4', $option['icon'] . ' ' . get_string('repair_' . $option['type'], 'local_question_diagnostic'), ['style' => 'margin: 0;']);
-        echo html_writer::tag('span', get_string('repair_confidence', 'local_question_diagnostic') . ': ' . $option['confidence'] . '%', 
-                             ['class' => 'badge badge-primary', 'style' => 'font-size: 14px;']);
-        echo html_writer::end_tag('div');
-        
-        // Description
-        echo html_writer::tag('p', $option['description'], ['style' => 'margin: 10px 0; color: #666;']);
-        
-        // Détails selon le type
-        if ($option['type'] === 'contenthash' && isset($option['target'])) {
-            $target = $option['target'];
-            echo html_writer::start_div('alert alert-success', ['style' => 'margin: 10px 0; padding: 10px;']);
-            echo '<strong>✅ Fichier identique trouvé :</strong><br>';
-            echo '• Parent : ' . htmlspecialchars($target->parent_name ?? 'N/A') . '<br>';
-            echo '• ID : ' . ($target->parent_id ?? $target->itemid) . '<br>';
-            echo '• Type : ' . ($target->parent_type ?? $target->component);
-            echo html_writer::end_div();
-        } else if ($option['type'] === 'filename' && isset($option['targets'])) {
-            echo html_writer::start_div('alert alert-warning', ['style' => 'margin: 10px 0; padding: 10px;']);
-            echo '<strong>🔍 ' . count($option['targets']) . ' candidat(s) trouvé(s) :</strong><br>';
-            foreach ($option['targets'] as $target) {
-                echo '• Question #' . $target->id . ': ' . htmlspecialchars(substr($target->name, 0, 60)) . 
-                     (strlen($target->name) > 60 ? '...' : '') . 
-                     ' (score: ' . ($target->match_score ?? 'N/A') . '%)<br>';
-            }
-            echo html_writer::end_div();
-        } else if ($option['type'] === 'recovery_stub') {
-            echo html_writer::start_div('alert alert-info', ['style' => 'margin: 10px 0; padding: 10px;']);
-            echo '<strong>📝 Solution sûre à 100% :</strong><br>';
-            echo '• Crée une question "description" dans "Recovered Files"<br>';
-            echo '• Préserve le fichier sans risque de perte<br>';
-            echo '• Permet révision manuelle ultérieure';
-            echo html_writer::end_div();
-        }
-        
-        // Bouton d'action
-        $action_params = [
-            'id' => $file_id,
-            'type' => $option['action'],
-            'sesskey' => sesskey()
-        ];
-        
-        // Ajouter target_id si nécessaire
-        if ($option['type'] === 'contenthash' && isset($option['target'])) {
-            $action_params['target_id'] = $option['target']->parent_id ?? $option['target']->itemid;
-        } else if ($option['type'] === 'filename' && count($option['targets']) == 1) {
-            $action_params['target_id'] = $option['targets'][0]->id;
-        }
-        
-        echo html_writer::start_div('', ['style' => 'margin-top: 15px; display: flex; gap: 10px;']);
-        
-        // Dry-Run
-        $dryrun_params = array_merge($action_params, ['dryrun' => 1, 'confirm' => 1]);
-        echo html_writer::link(
-            new moodle_url('/local/question_diagnostic/actions/orphan_repair.php', $dryrun_params),
-            '🧪 ' . get_string('repair_dry_run', 'local_question_diagnostic'),
-            ['class' => 'btn btn-warning']
-        );
-        
-        // Exécuter (seulement si cible unique ou pas besoin de sélection)
-        if ($option['type'] === 'contenthash' || $option['type'] === 'recovery_stub' || 
-            ($option['type'] === 'filename' && count($option['targets']) == 1)) {
-            $execute_params = array_merge($action_params, ['confirm' => 1]);
-            echo html_writer::link(
-                new moodle_url('/local/question_diagnostic/actions/orphan_repair.php', $execute_params),
-                '🔧 ' . get_string('repair_execute', 'local_question_diagnostic'),
-                ['class' => 'btn btn-primary']
-            );
-        } else {
-            echo html_writer::tag('em', get_string('repair_select_option', 'local_question_diagnostic'), ['style' => 'color: #666;']);
-        }
-        
-        echo html_writer::end_div();
-        
-        echo html_writer::end_tag('div'); // fin qd-repair-option
+if ($confirm && data_submitted()) {
+    require_sesskey();
+    // copy_to_question revérifie le statut orphelin et la cible au moment de l'exécution.
+    $result = orphan_file_repairer::copy_to_question($fileid, $questionid, (bool)$dryrun);
+    if ($dryrun) {
+        $type = \core\output\notification::NOTIFY_INFO;
+    } else {
+        $type = $result['success'] ? \core\output\notification::NOTIFY_SUCCESS : \core\output\notification::NOTIFY_ERROR;
     }
-    
-    echo html_writer::end_tag('div'); // fin qd-repair-options
-    
-    // Bouton Annuler
-    echo html_writer::start_div('', ['style' => 'margin: 30px 0; text-align: center;']);
-    echo html_writer::link(
-        new moodle_url('/local/question_diagnostic/orphan_files.php'),
-        get_string('cancel', 'core'),
-        ['class' => 'btn btn-secondary btn-lg']
-    );
-    echo html_writer::end_div();
-    
-    echo $OUTPUT->footer();
-    exit;
+    redirect($returnurl, s($result['message']), null, $type);
 }
 
 // ======================================================================
-// EXÉCUTION DE LA RÉPARATION (après sélection)
+// AFFICHAGE (aucune modification)
 // ======================================================================
+echo $OUTPUT->header();
+echo $OUTPUT->heading(get_string('repair_modal_title', 'local_question_diagnostic'));
 
-// Convertir le type d'action en type de réparation
-$repair_type_map = [
-    'reassociate' => 'reassociate_contenthash',
-    'reassign' => 'reassign_filename',
-    'create_stub' => 'create_recovery'
+// Informations sur le fichier (valeurs issues de la base : toujours échappées).
+$info = new html_table();
+$info->attributes['class'] = 'table table-sm generaltable w-auto';
+$info->data = [
+    [get_string('orphan_file_id', 'local_question_diagnostic'), (int)$filerecord->id],
+    [get_string('orphan_filename', 'local_question_diagnostic'), s($filerecord->filename)],
+    [get_string('orphan_component', 'local_question_diagnostic'), s($filerecord->component)],
+    [get_string('orphan_filearea', 'local_question_diagnostic'), s($filerecord->filearea)],
+    [get_string('orphan_filesize', 'local_question_diagnostic'), s(orphan_file_detector::format_filesize($filerecord->filesize))],
 ];
+echo html_writer::table($info);
 
-$actual_repair_type = $repair_type_map[$repair_type] ?? $repair_type;
+echo $OUTPUT->notification(s(get_string('orphan_repair_explanation', 'local_question_diagnostic')),
+    \core\output\notification::NOTIFY_INFO, false);
 
-// Paramètres de réparation
-$repair_params = [];
-if ($target_id > 0) {
-    $repair_params['target_id'] = $target_id;
-}
+// Étape 1 : choix explicite de la question cible (formulaire GET, sans effet de bord).
+echo html_writer::start_tag('form', ['method' => 'get', 'action' => $PAGE->url->out_omit_querystring(),
+    'class' => 'form-inline my-3']);
+echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'id', 'value' => (int)$fileid]);
+echo html_writer::label(get_string('orphan_repair_questionid', 'local_question_diagnostic'), 'qd-questionid', true,
+    ['class' => 'mr-2']);
+echo html_writer::empty_tag('input', ['type' => 'number', 'min' => 1, 'name' => 'questionid', 'id' => 'qd-questionid',
+    'value' => $questionid > 0 ? $questionid : '', 'class' => 'form-control mr-2', 'required' => 'required']);
+echo html_writer::tag('button', s(get_string('orphan_repair_preview', 'local_question_diagnostic')),
+    ['type' => 'submit', 'class' => 'btn btn-secondary']);
+echo html_writer::end_tag('form');
 
-// Si on a une cible contenthash, la récupérer
-if ($repair_type === 'reassociate') {
-    $contenthash_match = orphan_file_repairer::find_by_contenthash($file_record);
-    if ($contenthash_match) {
-        $repair_params['target'] = $contenthash_match;
+// Étape 2 : aperçu de la cible et confirmation par POST.
+if ($questionid > 0) {
+    $target = orphan_file_repairer::get_question_target($questionid);
+    if (!$target) {
+        echo $OUTPUT->notification(s(get_string('repair_target_not_found', 'local_question_diagnostic')),
+            \core\output\notification::NOTIFY_ERROR, false);
+    } else {
+        $targetcontext = context::instance_by_id($target->contextid, IGNORE_MISSING);
+        $preview = new html_table();
+        $preview->attributes['class'] = 'table table-sm generaltable w-auto';
+        $preview->data = [
+            [get_string('orphan_repair_target_question', 'local_question_diagnostic'),
+                (int)$target->id . ' — ' . s($target->name) . ' (' . s($target->qtype) . ')'],
+            [get_string('category'), s($target->categoryname)],
+            // get_context_name() applique format_string() aux noms issus de la base.
+            [get_string('context', 'role'), $targetcontext ? $targetcontext->get_context_name(true, true) : '-'],
+            [get_string('orphan_filearea', 'local_question_diagnostic'), s(orphan_file_repairer::TARGET_FILEAREA)],
+        ];
+        echo html_writer::table($preview);
+
+        $actionurl = new moodle_url('/local/question_diagnostic/actions/orphan_repair.php');
+        $params = ['id' => (int)$fileid, 'questionid' => (int)$target->id, 'confirm' => 1];
+        echo html_writer::start_div('my-3');
+        echo orphan_file_detector::render_post_button($actionurl, $params,
+            get_string('orphan_repair_copy_button', 'local_question_diagnostic'), 'btn btn-primary');
+        echo orphan_file_detector::render_post_button($actionurl, $params + ['dryrun' => 1],
+            get_string('repair_dry_run', 'local_question_diagnostic'), 'btn btn-warning');
+        echo html_writer::end_div();
     }
 }
 
-// Exécuter la réparation
-$result = orphan_file_repairer::execute_repair($file_id, $actual_repair_type, $repair_params, $dry_run);
+echo html_writer::div(html_writer::link($returnurl, get_string('cancel'), ['class' => 'btn btn-secondary']), 'my-4');
 
-// Purger le cache
-orphan_file_detector::purge_orphan_cache();
-
-// Message de résultat
-if ($dry_run) {
-    $message = '[DRY-RUN] ' . $result['message'];
-    $notification_type = \core\output\notification::NOTIFY_INFO;
-} else {
-    $message = $result['message'];
-    $notification_type = $result['success'] ? \core\output\notification::NOTIFY_SUCCESS : \core\output\notification::NOTIFY_ERROR;
-}
-
-// Redirection
-redirect(
-    new moodle_url('/local/question_diagnostic/orphan_files.php'),
-    $message,
-    null,
-    $notification_type
-);
-
+echo $OUTPUT->footer();

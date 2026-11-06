@@ -119,11 +119,51 @@ class local_question_diagnostic_permissions_test extends advanced_testcase {
         // Recharger les capabilities
         accesslib_clear_all_caches_for_unit_testing();
         
-        // L'utilisateur devrait avoir la permission manage
-        $this->assertTrue(local_question_diagnostic_can_manage_categories());
-        
-        // Mais pas delete questions (admin only)
+        // L'utilisateur a bien la capacité…
+        $this->assertTrue(has_capability('local/question_diagnostic:managecategories', $context));
+        // … mais les écritures sont réservées aux administrateurs du site (v1.15.0) : refus.
+        $this->assertFalse(local_question_diagnostic_can_manage_categories());
         $this->assertFalse(local_question_diagnostic_can_delete_questions());
+
+        // Et le contrôle d'accès des pages d'écriture refuse aussi.
+        try {
+            local_question_diagnostic_require_access('managecategories', true);
+            $this->fail('Un non-administrateur ne doit pas passer un contrôle adminonly.');
+        } catch (\moodle_exception $e) {
+            $this->assertSame('accessdenied', $e->errorcode);
+        }
+    }
+
+    /**
+     * Test : un auditeur (capacités de consultation déléguées) lit les pages mais n'écrit rien.
+     */
+    public function test_user_with_read_capabilities_only() {
+        $this->resetAfterTest(true);
+
+        $user = $this->getDataGenerator()->create_user();
+        $this->setUser($user);
+
+        $roleid = create_role('Question Auditor', 'questionauditor', 'Read-only question diagnostic');
+        $context = context_system::instance();
+        foreach (['view', 'viewcategories', 'viewquestions'] as $cap) {
+            assign_capability('local/question_diagnostic:' . $cap, CAP_ALLOW, $roleid, $context->id);
+        }
+        role_assign($roleid, $user->id, $context->id);
+        accesslib_clear_all_caches_for_unit_testing();
+
+        $this->assertTrue(local_question_diagnostic_can_view());
+        $this->assertTrue(local_question_diagnostic_can_view_categories());
+        $this->assertTrue(local_question_diagnostic_can_view_questions());
+        $this->assertFalse(local_question_diagnostic_can_view_audit_logs());
+        $this->assertFalse(local_question_diagnostic_can_export());
+
+        // Pages de consultation : accès accordé (aucune exception).
+        local_question_diagnostic_require_access('viewcategories');
+        local_question_diagnostic_require_access('viewquestions');
+
+        // Page d'écriture : refusée (capacité manquante).
+        $this->expectException(\required_capability_exception::class);
+        local_question_diagnostic_require_access('deletecategories', true);
     }
 
     /**

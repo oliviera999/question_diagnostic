@@ -10,13 +10,8 @@ require_once(__DIR__ . '/classes/category_manager.php');
 
 use local_question_diagnostic\category_manager;
 
-// Charger les bibliothèques Moodle nécessaires.
-require_login();
-
-// Vérification stricte : seuls les administrateurs du site peuvent accéder à cette page.
-if (!is_siteadmin()) {
-    throw new \moodle_exception('accessdenied', 'admin', '', 'Vous devez être administrateur du site pour accéder à cet outil.');
-}
+// Contrôle d'accès : capacité du plugin (consultation).
+local_question_diagnostic_require_access('viewcategories');
 
 // Définir le contexte de la page (système).
 $context = context_system::instance();
@@ -137,10 +132,9 @@ if (!empty($integrityreport)) {
         'warnings' => $warnings,
     ]), ['style' => 'margin-top: 6px;']);
 
-    // 🆕 Correction assistée (avec confirmation).
-    if ($errors > 0 || $warnings > 0) {
+    // 🆕 Correction assistée (avec confirmation) : lien GET vers l'aperçu, sans sesskey ; réservé aux administrateurs.
+    if (($errors > 0 || $warnings > 0) && is_siteadmin()) {
         $fixurl = new moodle_url('/local/question_diagnostic/actions/fix_categories_integrity.php', [
-            'sesskey' => sesskey(),
             // Retour vers cette page (avec les mêmes paramètres).
             'returnurl' => $PAGE->url->out(false),
         ]);
@@ -169,7 +163,7 @@ if (!empty($integrityreport)) {
         }
 
         echo html_writer::start_div('alert ' . $boxclass, ['style' => 'margin-bottom: 12px;']);
-        echo html_writer::tag('strong', ($check->title ?? $checkkey) . ' — ' . $count);
+        echo html_writer::tag('strong', s($check->title ?? $checkkey) . ' — ' . $count);
         if (!empty($check->description)) {
             echo html_writer::tag('div', s($check->description), ['style' => 'margin-top: 6px;']);
         }
@@ -359,13 +353,6 @@ if (isset($globalstats->total_protected) && $globalstats->total_protected > 0) {
     
     echo '</ul>';
     echo '<p style="margin-top: 15px;"><em>Ces protections évitent de casser la structure de votre Moodle.</em></p>';
-    echo '<p style="margin-top: 10px;"><strong>💡 Conseil :</strong> Utilisez ';
-    echo html_writer::link(
-        new moodle_url('/local/question_diagnostic/quick_check_categories.php'),
-        'quick_check_categories.php',
-        ['style' => 'font-weight: bold; text-decoration: underline;']
-    );
-    echo ' pour voir le détail des catégories protégées.</p>';
     echo html_writer::end_div();
 }
 
@@ -375,26 +362,27 @@ if (isset($globalstats->total_protected) && $globalstats->total_protected > 0) {
 
 echo html_writer::start_tag('div', ['style' => 'margin: 20px 0; display: flex; gap: 10px; flex-wrap: wrap;']);
 
-// 🆕 v1.10.2 : Bouton de nettoyage global des catégories
-$cleanup_all_url = new moodle_url('/local/question_diagnostic/actions/cleanup_all_categories.php', [
-    'preview' => 1,
-    'sesskey' => sesskey()
-]);
-echo html_writer::link(
-    $cleanup_all_url, 
-    '🧹 ' . get_string('cleanup_all_categories', 'local_question_diagnostic'), 
-    [
-        'class' => 'btn btn-warning btn-lg',
-        'title' => get_string('cleanup_all_categories_desc', 'local_question_diagnostic'),
-        'style' => 'font-weight: bold;'
-    ]
-);
+// Actions d'écriture et export : réservés aux administrateurs du site.
+if (is_siteadmin()) {
+    // 🆕 v1.10.2 : Bouton de nettoyage global des catégories (lien vers l'aperçu, sans sesskey).
+    $cleanup_all_url = new moodle_url('/local/question_diagnostic/actions/cleanup_all_categories.php', [
+        'preview' => 1,
+    ]);
+    echo html_writer::link(
+        $cleanup_all_url,
+        '🧹 ' . get_string('cleanup_all_categories', 'local_question_diagnostic'),
+        [
+            'class' => 'btn btn-warning btn-lg',
+            'title' => get_string('cleanup_all_categories_desc', 'local_question_diagnostic'),
+            'style' => 'font-weight: bold;'
+        ]
+    );
 
-$exporturl = new moodle_url('/local/question_diagnostic/actions/export.php', [
-    'type' => 'csv',
-    'sesskey' => sesskey()
-]);
-echo html_writer::link($exporturl, '📥 ' . get_string('export', 'local_question_diagnostic'), ['class' => 'btn btn-success']);
+    // Export CSV : formulaire POST (le sesskey n'apparaît jamais dans une URL).
+    $exporturl = new moodle_url('/local/question_diagnostic/actions/export.php', ['type' => 'csv']);
+    echo $OUTPUT->single_button($exporturl, '📥 ' . get_string('export', 'local_question_diagnostic'), 'post',
+        ['type' => single_button::BUTTON_PRIMARY]);
+}
 
 // 🆕 v1.9.35 : Lien vers le centre d'aide
 echo html_writer::link(
@@ -546,17 +534,19 @@ echo html_writer::tag('span', ' ' . get_string('categoriesselected', 'local_ques
 
 echo html_writer::start_tag('div', ['class' => 'qd-bulk-actions-buttons']);
 
-echo html_writer::tag('button', '🗑️ ' . get_string('bulkdelete', 'local_question_diagnostic'), [
-    'id' => 'bulk-delete-btn',
-    'class' => 'btn btn-danger',
-    'title' => 'Supprimer les catégories vides sélectionnées'
-]);
+if (is_siteadmin()) {
+    echo html_writer::tag('button', '🗑️ ' . get_string('bulkdelete', 'local_question_diagnostic'), [
+        'id' => 'bulk-delete-btn',
+        'class' => 'btn btn-danger',
+        'title' => 'Supprimer les catégories vides sélectionnées'
+    ]);
 
-echo html_writer::tag('button', '📤 Exporter la sélection', [
-    'id' => 'bulk-export-btn',
-    'class' => 'btn btn-primary',
-    'title' => 'Exporter les catégories sélectionnées en CSV'
-]);
+    echo html_writer::tag('button', '📤 Exporter la sélection', [
+        'id' => 'bulk-export-btn',
+        'class' => 'btn btn-primary',
+        'title' => 'Exporter les catégories sélectionnées en CSV'
+    ]);
+}
 
 echo html_writer::tag('button', '❌ Annuler', [
     'id' => 'bulk-cancel-btn',
@@ -887,7 +877,7 @@ foreach ($categories_with_stats as $item) {
             'style' => 'background: #5bc0de; color: white; font-weight: bold;',
             'title' => $stats->protection_reason
         ]);
-        echo '<br><small style="color: #666;">' . $stats->protection_reason . '</small>';
+        echo '<br><small style="color: #666;">' . s($stats->protection_reason) . '</small>';
     }
     if ($stats->is_empty) {
         echo html_writer::tag('span', 'Vide', ['class' => 'qd-badge qd-badge-empty']);
@@ -927,7 +917,7 @@ foreach ($categories_with_stats as $item) {
         $reasons = [];
         
         if ($stats->is_protected) {
-            $reasons[] = html_writer::tag('small', '🛡️ ' . $stats->protection_reason, [
+            $reasons[] = html_writer::tag('small', '🛡️ ' . s($stats->protection_reason), [
                 'style' => 'display: block; color: #5bc0de; margin-top: 3px;'
             ]);
         }
@@ -965,11 +955,13 @@ foreach ($categories_with_stats as $item) {
         );
     }
     
-    // Bouton supprimer (seulement si vide ET NON protégée)
-    if ($stats->is_empty && !$stats->is_protected) {
+    // Actions d'écriture : réservées aux administrateurs du site.
+    $qdisadmin = is_siteadmin();
+
+    // Bouton supprimer (seulement si vide ET NON protégée) : lien vers la confirmation, sans sesskey.
+    if ($qdisadmin && $stats->is_empty && !$stats->is_protected) {
         $deleteurl = new moodle_url('/local/question_diagnostic/actions/delete.php', [
             'id' => $cat->id,
-            'sesskey' => sesskey()
         ]);
         echo html_writer::link($deleteurl, '🗑️ Supprimer', ['class' => 'qd-btn qd-btn-delete']);
     } else if ($stats->is_protected) {
@@ -981,15 +973,17 @@ foreach ($categories_with_stats as $item) {
     }
     
     // Bouton fusionner
-    echo html_writer::tag('a', '🔀 Fusionner', [
-        'href' => '#',
-        'class' => 'qd-btn qd-btn-merge merge-btn',
-        'data-id' => $cat->id,
-        'data-name' => format_string($cat->name)
-    ]);
-    
+    if ($qdisadmin) {
+        echo html_writer::tag('a', '🔀 Fusionner', [
+            'href' => '#',
+            'class' => 'qd-btn qd-btn-merge merge-btn',
+            'data-id' => $cat->id,
+            'data-name' => format_string($cat->name)
+        ]);
+    }
+
     // 🆕 v1.9.36 : Bouton déplacer (si non protégée)
-    if (!$stats->is_protected) {
+    if ($qdisadmin && !$stats->is_protected) {
         echo html_writer::tag('a', '📦 Déplacer', [
             'href' => '#',
             'class' => 'qd-btn qd-btn-move move-btn',
@@ -1053,28 +1047,36 @@ echo html_writer::end_tag('div');
 echo html_writer::start_tag('script');
 ?>
 // Modal de déplacement
+function qdEscape(value) {
+    const div = document.createElement('div');
+    div.textContent = value === null || value === undefined ? '' : String(value);
+    // Échapper aussi les guillemets : la valeur peut être placée dans un attribut.
+    return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 function openMoveModal(categoryId, categoryName, contextId) {
+    categoryId = parseInt(categoryId, 10);
+    categoryName = qdEscape(categoryName);
     const modal = document.getElementById('move-modal');
     const body = document.getElementById('move-modal-body');
     const footer = document.getElementById('move-modal-footer');
     
     // Récupérer toutes les catégories du même contexte (pour liste des parents possibles)
-    const allCategories = <?php echo json_encode($categories_with_stats); ?>;
+    const allCategories = <?php echo json_encode($categories_with_stats, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
     const sameContext = allCategories.filter(c => c.category.contextid == contextId && c.category.id != categoryId);
     
     // Construire le contenu
     let html = '<p><strong>Catégorie à déplacer :</strong> ' + categoryName + ' (ID: ' + categoryId + ')</p>';
     html += '<p><strong>Choisir le nouveau parent :</strong></p>';
-    html += '<form id="move-form" method="post" action="<?php echo new moodle_url('/local/question_diagnostic/actions/move.php'); ?>">';
+    html += '<form id="move-form" method="post" action="' + qdEscape(<?php echo json_encode((new moodle_url('/local/question_diagnostic/actions/move.php'))->out(false), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>) + '">';
     html += '<input type="hidden" name="id" value="' + categoryId + '">';
     html += '<input type="hidden" name="sesskey" value="<?php echo sesskey(); ?>">';
     html += '<select name="parent" class="form-control" style="width: 100%; padding: 8px; margin: 10px 0;">';
-    html += '<option value="0">→ Racine (aucun parent)</option>';
     
     sameContext.forEach(function(item) {
         if (!item.stats.is_protected || item.category.parent == 0) {
-            html += '<option value="' + item.category.id + '">';
-            html += item.category.name + ' (ID: ' + item.category.id + ')';
+            html += '<option value="' + parseInt(item.category.id, 10) + '">';
+            html += qdEscape(item.category.name) + ' (ID: ' + parseInt(item.category.id, 10) + ')';
             if (item.category.parent == 0) {
                 html += ' - RACINE';
             }

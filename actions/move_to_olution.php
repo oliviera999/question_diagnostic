@@ -21,12 +21,9 @@ require_once(__DIR__ . '/../classes/olution_manager.php');
 
 use local_question_diagnostic\olution_manager;
 
-require_login();
-require_sesskey();
-
-if (!is_siteadmin()) {
-    throw new \moodle_exception('accessdenied', 'admin');
-}
+// Contrôle d'accès : capacité du plugin + administrateur du site (écriture).
+local_question_diagnostic_require_access('movecategories', true);
+// Le sesskey n'est exigé qu'à l'exécution (POST) : les confirmations s'affichent depuis de simples liens GET.
 
 $PAGE->set_url(new moodle_url('/local/question_diagnostic/actions/move_to_olution.php'));
 $PAGE->set_context(context_system::instance());
@@ -90,8 +87,8 @@ if ($action === 'move_selected') {
             null, \core\output\notification::NOTIFY_WARNING);
     }
 
-    // Si pas de confirmation, afficher la page de confirmation avec détails.
-    if (!$confirm) {
+    // Si pas de confirmation (POST), afficher la page de confirmation avec détails.
+    if (!$confirm || !data_submitted()) {
         $PAGE->set_title(get_string('confirm_move_selected_to_olution', 'local_question_diagnostic'));
         $PAGE->set_heading(get_string('confirm_move_selected_to_olution', 'local_question_diagnostic'));
 
@@ -205,7 +202,8 @@ if ($action === 'move_selected') {
         exit;
     }
 
-    // Confirmation donnée : exécuter en batch.
+    // Confirmation donnée (POST + sesskey) : exécuter en batch.
+    require_sesskey();
     $result = olution_manager::move_questions_batch($operations);
     $message = get_string('move_batch_result', 'local_question_diagnostic', [
         'success' => $result['success'],
@@ -243,8 +241,8 @@ if ($action === 'move_one') {
                        LIMIT 1";
     $source_category = $DB->get_record_sql($sql_source_cat, ['questionid' => $questionid]);
     
-    // Si pas de confirmation, afficher la page de confirmation
-    if (!$confirm) {
+    // Si pas de confirmation (POST), afficher la page de confirmation
+    if (!$confirm || !data_submitted()) {
         $PAGE->set_title(get_string('confirm_move_to_olution', 'local_question_diagnostic'));
         $PAGE->set_heading(get_string('confirm_move_to_olution', 'local_question_diagnostic'));
         
@@ -297,18 +295,17 @@ if ($action === 'move_one') {
         echo '⚠️ ' . get_string('move_warning', 'local_question_diagnostic');
         echo html_writer::end_div();
         
-        // Boutons de confirmation
+        // Boutons de confirmation : formulaire POST (sesskey ajouté par single_button).
         $confirm_url = new moodle_url('/local/question_diagnostic/actions/move_to_olution.php', [
             'action' => 'move_one',
             'questionid' => $questionid,
             'targetcatid' => $targetcatid,
             'confirm' => 1,
-            'sesskey' => sesskey(),
             'returnurl' => !empty($returnurlparam) ? $returnurlparam : null,
         ]);
-        
-        echo html_writer::link($confirm_url, get_string('confirm', 'core'), 
-                              ['class' => 'btn btn-primary btn-lg mr-2']);
+
+        echo $OUTPUT->single_button($confirm_url, get_string('confirm', 'core'), 'post',
+            ['type' => single_button::BUTTON_PRIMARY]);
         echo html_writer::link($return_url, get_string('cancel', 'core'), 
                               ['class' => 'btn btn-secondary btn-lg']);
         
@@ -316,14 +313,15 @@ if ($action === 'move_one') {
         exit;
     }
     
-    // Confirmation donnée : effectuer le déplacement
+    // Confirmation donnée (POST + sesskey) : effectuer le déplacement
+    require_sesskey();
     $result = olution_manager::move_question_to_olution($questionid, $targetcatid);
     
     if ($result === true) {
         redirect($return_url, get_string('move_success', 'local_question_diagnostic'), 
                 null, \core\output\notification::NOTIFY_SUCCESS);
     } else {
-        redirect($return_url, get_string('move_error', 'local_question_diagnostic') . ': ' . $result, 
+        redirect($return_url, get_string('move_error', 'local_question_diagnostic') . ': ' . s($result), 
                 null, \core\output\notification::NOTIFY_ERROR);
     }
 }
@@ -333,8 +331,8 @@ if ($action === 'move_one') {
 // ===========================================================================
 else if ($action === 'move_all') {
     
-    // Si pas de confirmation, afficher la page de confirmation
-    if (!$confirm) {
+    // Si pas de confirmation (POST), afficher la page de confirmation
+    if (!$confirm || !data_submitted()) {
         $PAGE->set_title(get_string('confirm_move_all_to_olution', 'local_question_diagnostic'));
         $PAGE->set_heading(get_string('confirm_move_all_to_olution', 'local_question_diagnostic'));
         
@@ -373,12 +371,11 @@ else if ($action === 'move_all') {
         $confirm_url = new moodle_url('/local/question_diagnostic/actions/move_to_olution.php', [
             'action' => 'move_all',
             'confirm' => 1,
-            'sesskey' => sesskey(),
             'returnurl' => !empty($returnurlparam) ? $returnurlparam : null,
         ]);
-        
-        echo html_writer::link($confirm_url, get_string('confirm', 'core'), 
-                              ['class' => 'btn btn-danger btn-lg mr-2']);
+
+        echo $OUTPUT->single_button($confirm_url, get_string('confirm', 'core'), 'post',
+            ['type' => single_button::BUTTON_DANGER]);
         echo html_writer::link($return_url, get_string('cancel', 'core'), 
                               ['class' => 'btn btn-secondary btn-lg']);
         
@@ -386,7 +383,8 @@ else if ($action === 'move_all') {
         exit;
     }
     
-    // Confirmation donnée : effectuer le déplacement global
+    // Confirmation donnée (POST + sesskey) : effectuer le déplacement global
+    require_sesskey();
     // Préparer les opérations de déplacement
     $operations = [];
 
@@ -456,8 +454,8 @@ else if ($action === 'move_all') {
 // ===========================================================================
 else if ($action === 'move_triage_all') {
 
-    // Si pas de confirmation, afficher la page de confirmation.
-    if (!$confirm) {
+    // Si pas de confirmation (POST), afficher la page de confirmation.
+    if (!$confirm || !data_submitted()) {
         $PAGE->set_title(get_string('confirm_move_all_triage_to_olution', 'local_question_diagnostic'));
         $PAGE->set_heading(get_string('confirm_move_all_triage_to_olution', 'local_question_diagnostic'));
 
@@ -481,15 +479,11 @@ else if ($action === 'move_triage_all') {
         $confirm_url = new moodle_url('/local/question_diagnostic/actions/move_to_olution.php', [
             'action' => 'move_triage_all',
             'confirm' => 1,
-            'sesskey' => sesskey(),
             'returnurl' => !empty($returnurlparam) ? $returnurlparam : null,
         ]);
 
-        echo html_writer::link(
-            $confirm_url,
-            get_string('confirm', 'core'),
-            ['class' => 'btn btn-danger btn-lg mr-2']
-        );
+        echo $OUTPUT->single_button($confirm_url, get_string('confirm', 'core'), 'post',
+            ['type' => single_button::BUTTON_DANGER]);
         echo html_writer::link(
             $return_url,
             get_string('cancel', 'core'),
@@ -500,7 +494,8 @@ else if ($action === 'move_triage_all') {
         exit;
     }
 
-    // Confirmation donnée : effectuer le déplacement des questions triables.
+    // Confirmation donnée (POST + sesskey) : effectuer le déplacement des questions triables.
+    require_sesskey();
     $triagestats = olution_manager::get_triage_stats();
     $total = !empty($triagestats->movable_questions) ? (int)$triagestats->movable_questions : 0;
     if ($total <= 0) {

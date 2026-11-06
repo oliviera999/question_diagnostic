@@ -17,6 +17,14 @@
 /**
  * Action : correction assistée des incohérences de catégories (diagnostic de cohérence).
  *
+ * Seules deux anomalies sont corrigées, toujours par l'API du cœur (update_category) et dans une transaction :
+ * - racines multiples dans un contexte : les racines en trop sont ré-attachées sous la racine conservée ;
+ * - parent dans un autre contexte : la catégorie est ré-attachée sous la racine de son propre contexte.
+ * Aucune catégorie n'est jamais mise à parent=0, aucune n'est supprimée ; une catégorie (ou son arborescence)
+ * visée par une question aléatoire est laissée telle quelle. Les autres anomalies restent en rapport seul.
+ *
+ * GET : liste des corrections proposées ; POST + sesskey + confirm : application.
+ *
  * @package    local_question_diagnostic
  * @copyright  2025
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
@@ -29,12 +37,9 @@ require_once(__DIR__ . '/../classes/category_manager.php');
 
 use local_question_diagnostic\category_manager;
 
-require_login();
-require_sesskey();
-
-if (!is_siteadmin()) {
-    throw new \moodle_exception('accessdenied', 'admin');
-}
+// Contrôle d'accès : capacité du plugin + administrateur du site (écriture).
+local_question_diagnostic_require_access('managecategories', true);
+// Le sesskey n'est exigé qu'à l'application (POST) : l'aperçu s'affiche depuis un simple lien GET.
 
 $confirm = optional_param('confirm', 0, PARAM_INT);
 $returnurlraw = optional_param('returnurl', '', PARAM_LOCALURL);
@@ -116,7 +121,7 @@ $build_operations = function(): array {
                 continue;
             }
             $ops[] = [
-                'type' => 'move_category',
+                'type' => 'reattach_to_root',
                 'categoryid' => $catid,
                 'newparentid' => $keep,
                 'contextid' => $ctxid,
@@ -160,8 +165,10 @@ $build_operations = function(): array {
 };
 
 $operations = $build_operations();
+// Corriger d'abord les racines multiples : la ré-attache des catégories exige une racine unique.
+usort($operations, fn($a, $b) => ($a['type'] === 'reparent_root' ? 0 : 1) <=> ($b['type'] === 'reparent_root' ? 0 : 1));
 
-if (!$confirm) {
+if (!$confirm || !data_submitted()) {
     $PAGE->set_title(get_string('categories_integrity_fix_confirm_title', 'local_question_diagnostic'));
     $PAGE->set_heading(get_string('categories_integrity_fix_confirm_title', 'local_question_diagnostic'));
 
@@ -195,15 +202,15 @@ if (!$confirm) {
     }
     echo html_writer::end_tag('ul');
 
+    echo html_writer::div(get_string('categories_integrity_fix_guards', 'local_question_diagnostic'), 'alert alert-info');
+
     $confirmurl = new moodle_url('/local/question_diagnostic/actions/fix_categories_integrity.php', [
         'confirm' => 1,
-        'sesskey' => sesskey(),
         'returnurl' => $returnurl->out(false),
     ]);
 
-    echo html_writer::start_div('mt-3', ['style' => 'margin-top: 20px;']);
-    echo html_writer::link($confirmurl, get_string('confirm', 'core'), ['class' => 'btn btn-danger']);
-    echo ' ';
+    echo html_writer::start_div('mt-3', ['style' => 'margin-top: 20px; display: flex; gap: 10px; align-items: center;']);
+    echo $OUTPUT->render(new single_button($confirmurl, get_string('confirm', 'core'), 'post', single_button::BUTTON_DANGER));
     echo html_writer::link($returnurl, get_string('cancel', 'core'), ['class' => 'btn btn-secondary']);
     echo html_writer::end_div();
 
@@ -211,7 +218,8 @@ if (!$confirm) {
     exit;
 }
 
-// Confirmé : appliquer les corrections.
+// Confirmé (POST) : appliquer les corrections.
+require_sesskey();
 $success = 0;
 $failed = 0;
 $errors = [];
@@ -229,7 +237,7 @@ foreach ($operations as $op) {
     if ($op['type'] === 'reparent_root') {
         $result = category_manager::force_reparent_root_category($catid, $newparentid);
     } else {
-        $result = category_manager::move_category($catid, $newparentid);
+        $result = category_manager::reattach_to_context_root($catid, $newparentid);
     }
 
     if ($result === true) {

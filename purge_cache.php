@@ -9,12 +9,10 @@
  */
 
 require_once(__DIR__ . '/../../config.php');
+require_once(__DIR__ . '/lib.php');
 
-require_login();
-
-if (!is_siteadmin()) {
-    throw new \moodle_exception('accessdenied', 'admin');
-}
+// Contrôle d'accès : capacité du plugin + administrateur du site (écriture).
+local_question_diagnostic_require_access('configureplugin', true);
 
 // URL de retour (page précédemment affichée).
 // Compat : le paramètre historique `return_url` est encore accepté.
@@ -69,12 +67,10 @@ if (!$confirm) {
     
     $confirm_url = new moodle_url('/local/question_diagnostic/purge_cache.php', [
         'confirm' => 1,
-        'sesskey' => sesskey(),
         'returnurl' => $returnurl->out(false),
     ]);
-    echo html_writer::link($confirm_url, '🔧 ' . get_string('purge_cache_confirm', 'local_question_diagnostic'), [
-        'class' => 'btn btn-primary btn-lg'
-    ]);
+    echo $OUTPUT->single_button($confirm_url, get_string('purge_cache_confirm', 'local_question_diagnostic'), 'post',
+        ['type' => single_button::BUTTON_PRIMARY]);
     
     echo html_writer::link(
         $returnurl,
@@ -93,6 +89,9 @@ if (!$confirm) {
 } else {
     // Vérifier le sesskey
     require_sesskey();
+    if (!data_submitted()) {
+        throw new \moodle_exception('invalidrequest');
+    }
     
     // Purger les caches
     echo html_writer::start_div('alert alert-info', ['style' => 'margin: 20px 0;']);
@@ -127,12 +126,6 @@ if (!$confirm) {
         echo html_writer::start_div('', ['style' => 'margin: 30px 0;']);
         echo html_writer::tag('h4', get_string('purge_cache_test_now', 'local_question_diagnostic'));
         echo html_writer::start_div('', ['style' => 'display: flex; gap: 15px; flex-wrap: wrap;']);
-        
-        echo html_writer::link(
-            new moodle_url('/local/question_diagnostic/test_function.php'),
-            get_string('purge_cache_test_functions', 'local_question_diagnostic'),
-            ['class' => 'btn btn-info', 'target' => '_blank']
-        );
         
         echo html_writer::link(
             new moodle_url('/local/question_diagnostic/questions_cleanup.php'),

@@ -19,11 +19,8 @@
 require_once(__DIR__ . '/../../config.php');
 require_once(__DIR__ . '/lib.php');
 
-require_login();
-
-if (!is_siteadmin()) {
-    throw new \moodle_exception('accessdenied', 'admin');
-}
+// Contrôle d'accès : capacité du plugin (consultation).
+local_question_diagnostic_require_access('view');
 
 $PAGE->set_context(context_system::instance());
 $PAGE->set_url(new moodle_url('/local/question_diagnostic/help_features.php'));
@@ -168,7 +165,7 @@ echo html_writer::tag('h3', '📖 Documentation et Ressources');
 echo html_writer::start_div('qd-card', ['style' => 'padding: 20px; margin: 20px 0; background: white; border: 1px solid #ddd; border-radius: 8px;']);
 echo html_writer::start_tag('ul');
 echo html_writer::tag('li', html_writer::link(
-    new moodle_url('/local/question_diagnostic/docs/README.md'),
+    'https://github.com/oliviera999/question_diagnostic/blob/master/docs/README.md',
     '📚 Index Complet de la Documentation'
 ) . ' (79 fichiers organisés)');
 
@@ -183,12 +180,12 @@ echo html_writer::tag('li', html_writer::link(
 ));
 
 echo html_writer::tag('li', html_writer::link(
-    new moodle_url('/local/question_diagnostic/docs/technical/MOODLE_COMPATIBILITY_POLICY.md'),
+    'https://github.com/oliviera999/question_diagnostic/blob/master/docs/technical/MOODLE_COMPATIBILITY_POLICY.md',
     '🎯 Politique de Compatibilité Moodle'
 ));
 
 echo html_writer::tag('li', html_writer::link(
-    new moodle_url('/local/question_diagnostic/docs/DEVELOPER_GUIDE.md'),
+    'https://github.com/oliviera999/question_diagnostic/blob/master/docs/DEVELOPER_GUIDE.md',
     '🛠️ Guide du Développeur'
 ) . ' (v1.9.34)');
 

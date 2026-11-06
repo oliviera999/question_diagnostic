@@ -26,12 +26,9 @@ require_once(__DIR__ . '/../classes/question_analyzer.php');
 
 use local_question_diagnostic\question_analyzer;
 
-require_login();
-require_sesskey();
-
-if (!is_siteadmin()) {
-    throw new \moodle_exception('accessdenied', 'admin');
-}
+// Contrôle d'accès : capacité du plugin + administrateur du site (écriture).
+local_question_diagnostic_require_access('deletequestions', true);
+// Le sesskey n'est exigé qu'à l'exécution (POST) : la confirmation s'affiche depuis un simple lien GET.
 
 // 🆕 v1.9.23 : Support suppression en masse
 $questionid = optional_param('id', 0, PARAM_INT);
@@ -97,7 +94,7 @@ if (empty($can_delete)) {
         echo html_writer::tag('h4', 'Raisons :', ['style' => 'margin-top: 15px;']);
         echo html_writer::start_tag('ul');
         foreach ($cannot_delete as $qid => $reason) {
-            echo html_writer::tag('li', '<strong>Question ' . $qid . ' :</strong> ' . $reason);
+            echo html_writer::tag('li', '<strong>Question ' . (int)$qid . ' :</strong> ' . s($reason));
         }
         echo html_writer::end_tag('ul');
     } else {
@@ -105,7 +102,7 @@ if (empty($can_delete)) {
         $first_reason = reset($cannot_delete);
         $check = $deletability_map[$first_qid];
         
-        echo html_writer::tag('p', '<strong>' . get_string('reason', 'local_question_diagnostic') . '</strong> : ' . $first_reason, ['style' => 'font-size: 16px;']);
+        echo html_writer::tag('p', '<strong>' . get_string('reason', 'local_question_diagnostic') . '</strong> : ' . s($first_reason), ['style' => 'font-size: 16px;']);
         
         // 🆕 v1.9.45 : Afficher les informations de diagnostic (toujours activé pour les admins)
         if (isset($check->details)) {
@@ -204,8 +201,8 @@ if (!empty($cannot_delete) && !empty($can_delete)) {
     debugging('Suppression partielle : ' . count($can_delete) . ' sur ' . count($question_ids) . ' questions peuvent être supprimées', DEBUG_DEVELOPER);
 }
 
-if (!$confirm) {
-    // PAGE DE CONFIRMATION
+if (!$confirm || !data_submitted()) {
+    // PAGE DE CONFIRMATION (tout accès GET, même avec confirm=1, s'arrête ici)
     global $DB;
     
     $PAGE->set_context(context_system::instance());
@@ -227,7 +224,7 @@ if (!$confirm) {
         $questions_to_delete = $DB->get_records_list('question', 'id', $can_delete, '', 'id, name, qtype');
         echo html_writer::start_tag('ul', ['style' => 'max-height: 300px; overflow-y: auto;']);
         foreach ($questions_to_delete as $q) {
-            echo html_writer::tag('li', '<strong>ID ' . $q->id . '</strong>: ' . format_string($q->name) . ' (' . $q->qtype . ')');
+            echo html_writer::tag('li', '<strong>ID ' . $q->id . '</strong>: ' . format_string($q->name) . ' (' . s($q->qtype) . ')');
         }
         echo html_writer::end_tag('ul');
         echo html_writer::end_tag('div');
@@ -245,7 +242,7 @@ if (!$confirm) {
         echo html_writer::tag('h3', get_string('question_to_delete', 'local_question_diagnostic'), ['style' => 'margin-top: 0;']);
         echo html_writer::tag('p', '<strong>ID :</strong> ' . $question->id);
         echo html_writer::tag('p', '<strong>' . get_string('name') . ' :</strong> ' . format_string($question->name));
-        echo html_writer::tag('p', '<strong>' . get_string('type') . ' :</strong> ' . $question->qtype);
+        echo html_writer::tag('p', '<strong>' . get_string('type') . ' :</strong> ' . s($question->qtype));
         echo html_writer::tag('p', '<strong>' . get_string('category') . ' :</strong> ' . $stats->category_name);
         if (!empty($stats->course_name)) {
             echo html_writer::tag('p', '<strong>' . get_string('course') . ' :</strong> ' . $stats->course_name);
@@ -266,7 +263,7 @@ if (!$confirm) {
         echo html_writer::tag('p', '<strong>Nom de la question :</strong> ' . s($check->details['debug_name']));
         echo html_writer::tag('p', '<strong>Type de la question :</strong> ' . s($check->details['debug_type']));
         echo html_writer::tag('p', '<strong>Signature de détection :</strong> ' . s($check->details['debug_signature']));
-        echo html_writer::tag('p', '<strong>IDs des doublons :</strong> ' . implode(', ', $check->details['duplicate_ids']));
+        echo html_writer::tag('p', '<strong>IDs des doublons :</strong> ' . implode(', ', array_map('intval', $check->details['duplicate_ids'])));
         echo html_writer::tag('p', '<em>Ces informations confirment que la question peut être supprimée en toute sécurité.</em>');
         echo html_writer::end_tag('div');
     }
@@ -316,7 +313,8 @@ if (!$confirm) {
     exit;
 }
 
-// EXÉCUTION DE LA SUPPRESSION (après confirmation)
+// EXÉCUTION DE LA SUPPRESSION (après confirmation, POST + sesskey)
+require_sesskey();
 // 🔧 FIX: Gérer à la fois la suppression unique et en masse
 if ($is_bulk || count($can_delete) > 1) {
     // Suppression en masse
@@ -324,9 +322,7 @@ if ($is_bulk || count($can_delete) > 1) {
     $error_count = 0;
     $errors = [];
     
-    foreach ($can_delete as $qid) {
-        $result = question_analyzer::delete_question_safe($qid);
-        
+    foreach (question_analyzer::delete_questions_safe($can_delete, 'delete-questions') as $qid => $result) {
         if ($result === true) {
             $success_count++;
         } else {
@@ -374,7 +370,7 @@ if ($is_bulk || count($can_delete) > 1) {
         // ERREUR
         redirect(
             $returnurl,
-            '❌ ' . get_string('error') . ' : ' . $result,
+            '❌ ' . get_string('error') . ' : ' . s($result),
             null,
             \core\output\notification::NOTIFY_ERROR
         );

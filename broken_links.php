@@ -12,13 +12,8 @@ require_once(__DIR__ . '/classes/question_analyzer.php');
 use local_question_diagnostic\question_link_checker;
 use local_question_diagnostic\question_analyzer;
 
-// Charger les bibliothèques Moodle nécessaires.
-require_login();
-
-// Vérification stricte : seuls les administrateurs du site peuvent accéder à cette page.
-if (!is_siteadmin()) {
-    throw new \moodle_exception('accessdenied', 'admin', '', 'Vous devez être administrateur du site pour accéder à cet outil.');
-}
+// Contrôle d'accès : capacité du plugin (consultation).
+local_question_diagnostic_require_access('viewbrokenlinks');
 
 // Définir le contexte de la page (système).
 $context = context_system::instance();
@@ -46,37 +41,46 @@ $newurl = optional_param('newurl', '', PARAM_RAW_TRIMMED);
 $sourcequestionid = optional_param('sourcequestionid', 0, PARAM_INT);
 
 $show_repair_confirm = false;
+$show_remove_confirm = false;
 $repair_result = null;
 
-// Action de rafraîchissement du cache
-if ($refresh) {
+// Action de rafraîchissement du cache d'analyse (POST + sesskey ; un simple GET n'a aucun effet).
+if ($refresh && data_submitted()) {
     require_sesskey();
     question_link_checker::purge_broken_links_cache();
     redirect($PAGE->url, '✅ Cache purgé. Analyse des liens en cours...', null, \core\output\notification::NOTIFY_SUCCESS);
 }
 
 if ($action) {
-    require_sesskey();
+    // Les actions (aperçus de réparation compris) mènent à une modification des questions :
+    // réservées aux administrateurs du site. Les écritures exigent en plus POST + sesskey.
+    local_question_diagnostic_require_access('deletequestions', true);
     if ($action === 'remove') {
-        $result = question_link_checker::remove_broken_link($questionid, $field, $url);
-        if ($result === true) {
-            // Purger le cache après modification
-            question_link_checker::purge_broken_links_cache();
-            redirect($PAGE->url, 'Lien cassé supprimé avec succès.', null, \core\output\notification::NOTIFY_SUCCESS);
-        } else {
-            redirect($PAGE->url, $result, null, \core\output\notification::NOTIFY_ERROR);
+        if ($confirm && data_submitted()) {
+            require_sesskey();
+            $result = question_link_checker::remove_broken_link($questionid, $field, $url);
+            if ($result === true) {
+                // Purger le cache après modification
+                question_link_checker::purge_broken_links_cache();
+                redirect($PAGE->url, 'Lien cassé supprimé avec succès.', null, \core\output\notification::NOTIFY_SUCCESS);
+            } else {
+                redirect($PAGE->url, s((string)$result), null, \core\output\notification::NOTIFY_ERROR);
+            }
         }
+        // Lien GET : page de confirmation (aucune modification).
+        $show_remove_confirm = true;
     } else if ($action === 'repair') {
         // Deux étapes:
-        // - confirm=0 : proposer des suggestions (sans modifier la BDD)
-        // - confirm=1 : appliquer le remplacement (MODIFIE la BDD)
-        if ($confirm && !empty($newurl)) {
+        // - aperçu (GET) : proposer des suggestions (sans modifier la BDD)
+        // - confirm=1 en POST + sesskey : appliquer le remplacement (MODIFIE la BDD)
+        if ($confirm && !empty($newurl) && data_submitted()) {
+            require_sesskey();
             $apply = question_link_checker::replace_broken_link_with_url($questionid, $field, $url, $newurl, $sourcequestionid ?: null);
             if ($apply === true) {
                 question_link_checker::purge_broken_links_cache();
                 redirect($PAGE->url, 'Réparation appliquée avec succès.', null, \core\output\notification::NOTIFY_SUCCESS);
             } else {
-                redirect($PAGE->url, (string)$apply, null, \core\output\notification::NOTIFY_ERROR);
+                redirect($PAGE->url, s((string)$apply), null, \core\output\notification::NOTIFY_ERROR);
             }
         } else {
             $repair_result = question_link_checker::attempt_repair($questionid, $field, $url);
@@ -86,7 +90,7 @@ if ($action) {
                 $msg = is_array($repair_result) && !empty($repair_result['message'])
                     ? $repair_result['message']
                     : 'Aucune suggestion de réparation disponible.';
-                redirect($PAGE->url, $msg, null, \core\output\notification::NOTIFY_INFO);
+                redirect($PAGE->url, s($msg), null, \core\output\notification::NOTIFY_INFO);
             }
         }
     } else if ($action === 'search_similar') {
@@ -99,7 +103,7 @@ if ($action) {
             $msg = is_array($search_result) && !empty($search_result['message'])
                 ? $search_result['message']
                 : 'Aucun fichier similaire trouvé.';
-            redirect($PAGE->url, $msg, null, \core\output\notification::NOTIFY_INFO);
+            redirect($PAGE->url, s($msg), null, \core\output\notification::NOTIFY_INFO);
         }
     }
 }
@@ -115,6 +119,32 @@ echo local_question_diagnostic_render_version_badge();
 echo html_writer::start_div('text-right', ['style' => 'margin-bottom: 20px;']);
 echo local_question_diagnostic_render_cache_purge_button();
 echo html_writer::end_div();
+
+// Page de confirmation "supprimer la référence" : l'exécution se fait uniquement par le bouton POST ci-dessous.
+if ($show_remove_confirm) {
+    echo html_writer::tag('h2', '🗑️ ' . get_string('remove_reference', 'local_question_diagnostic'));
+    echo html_writer::start_div('qd-card', ['style' => 'padding: 15px; margin-bottom: 20px;']);
+    echo html_writer::tag('div', '<strong>Question:</strong> #' . (int)$questionid);
+    echo html_writer::tag('div', '<strong>Champ:</strong> ' . s($field));
+    echo html_writer::tag('div', '<strong>URL cassée:</strong> <code style="word-break: break-all;">' . s($url) . '</code>');
+    echo html_writer::end_div();
+    echo html_writer::div(s(get_string('remove_reference_confirm', 'local_question_diagnostic')), 'alert alert-warning');
+
+    $removeurl = new moodle_url('/local/question_diagnostic/broken_links.php', [
+        'action' => 'remove',
+        'confirm' => 1,
+        'questionid' => (int)$questionid,
+        'field' => $field,
+        'url' => $url,
+    ]);
+    echo html_writer::start_div('', ['style' => 'display: flex; gap: 10px; align-items: center;']);
+    echo $OUTPUT->single_button($removeurl, get_string('confirm', 'core'), 'post', ['type' => single_button::BUTTON_DANGER]);
+    echo html_writer::link(new moodle_url('/local/question_diagnostic/broken_links.php'), get_string('cancel', 'core'),
+        ['class' => 'btn btn-secondary']);
+    echo html_writer::end_div();
+    echo $OUTPUT->footer();
+    exit;
+}
 
 // Page de confirmation "réparer" ou "recherche similaire" (évite d'afficher tout le tableau si on est en mode réparation)
 if ($show_repair_confirm && is_array($repair_result)) {
@@ -166,7 +196,6 @@ if ($show_repair_confirm && is_array($repair_result)) {
                 'url' => $url,
                 'newurl' => $replacement_url,
                 'sourcequestionid' => $srcid > 0 ? $srcid : 0,
-                'sesskey' => sesskey(),
             ]);
 
             // Afficher différemment selon le type de suggestion
@@ -216,7 +245,11 @@ if ($show_repair_confirm && is_array($repair_result)) {
                 html_writer::tag('div', s($desc)) .
                 $source_info .
                 html_writer::tag('div', '<strong>Nouvelle URL:</strong> <code style="word-break: break-all;">' . s($replacement_url) . '</code>', ['style' => 'margin: 6px 0;']) .
-                html_writer::link($apply_url, '✅ Appliquer cette réparation', ['class' => 'btn btn-primary btn-sm', 'onclick' => "return confirm('" . addslashes($confirm_text) . "')"])
+                // Application : formulaire POST (sesskey ajouté par single_button), avec confirmation navigateur.
+                $OUTPUT->single_button($apply_url, '✅ Appliquer cette réparation', 'post', [
+                    'type' => single_button::BUTTON_PRIMARY,
+                    'onclick' => 'return confirm(' . json_encode($confirm_text, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) . ')',
+                ])
             );
         }
         echo html_writer::end_tag('ul');
@@ -230,11 +263,13 @@ if ($show_repair_confirm && is_array($repair_result)) {
 // 🆕 v1.9.44 : Lien retour hiérarchique + Bouton rafraîchir
 echo html_writer::start_tag('div', ['style' => 'margin-bottom: 20px; display: flex; gap: 10px;']);
 echo local_question_diagnostic_render_back_link('broken_links.php');
-echo html_writer::link(
-    new moodle_url('/local/question_diagnostic/broken_links.php', ['refresh' => 1, 'sesskey' => sesskey()]),
+// Rafraîchissement : formulaire POST (sesskey ajouté par single_button, jamais dans l'URL).
+echo $OUTPUT->single_button(
+    new moodle_url('/local/question_diagnostic/broken_links.php', ['refresh' => 1]),
     '🔄 Rafraîchir l\'analyse',
+    'post',
     [
-        'class' => 'btn btn-warning',
+        'type' => single_button::BUTTON_WARNING,
         'title' => 'Forcer une nouvelle analyse des liens (purge le cache)'
     ]
 );
@@ -302,8 +337,8 @@ if (!empty($globalstats->by_qtype)) {
     echo html_writer::start_tag('div', ['class' => 'qd-stats-by-type']);
     foreach ($globalstats->by_qtype as $qtype => $count) {
         echo html_writer::start_tag('div', ['class' => 'qd-stat-item']);
-        echo html_writer::tag('span', ucfirst($qtype), ['class' => 'qd-stat-label']);
-        echo html_writer::tag('span', $count, ['class' => 'qd-stat-value']);
+        echo html_writer::tag('span', s(ucfirst($qtype)), ['class' => 'qd-stat-label']);
+        echo html_writer::tag('span', (int)$count, ['class' => 'qd-stat-value']);
         echo html_writer::end_tag('div');
     }
     echo html_writer::end_tag('div');
@@ -335,7 +370,7 @@ echo html_writer::tag('label', get_string('question_type', 'local_question_diagn
 echo html_writer::start_tag('select', ['id' => 'filter-qtype', 'class' => 'form-control']);
 echo html_writer::tag('option', get_string('all', 'local_question_diagnostic'), ['value' => 'all']);
 foreach ($globalstats->by_qtype as $qtype => $count) {
-    echo html_writer::tag('option', ucfirst($qtype) . " ($count)", ['value' => $qtype]);
+    echo html_writer::tag('option', s(ucfirst($qtype)) . ' (' . (int)$count . ')', ['value' => $qtype]);
 }
 echo html_writer::end_tag('select');
 echo html_writer::end_tag('div');
@@ -432,7 +467,7 @@ if (empty($broken_questions)) {
         
         // Type
         echo html_writer::tag('td', html_writer::tag('span', 
-            ucfirst($question->qtype), 
+            s(ucfirst($question->qtype)), 
             ['class' => 'badge badge-info']
         ));
         
@@ -476,12 +511,9 @@ if (empty($broken_questions)) {
         // Catégorie
         echo html_writer::start_tag('td');
         if ($category) {
-            $cat_url = new moodle_url('/question/edit.php', [
-                'courseid' => 0,
-                'cat' => $category->id . ',' . $category->contextid
-            ]);
-            $cat_name = format_string($category->name) . ' <span style="color: #666; font-size: 11px;">(ID: ' . $category->id . ')</span>';
-            echo html_writer::link($cat_url, $cat_name, ['target' => '_blank']);
+            $cat_url = local_question_diagnostic_get_question_bank_url($category);
+            $cat_name = format_string($category->name) . ' <span style="color: #666; font-size: 11px;">(ID: ' . (int)$category->id . ')</span>';
+            echo $cat_url ? html_writer::link($cat_url, $cat_name, ['target' => '_blank']) : $cat_name;
         } else {
             echo '-';
         }
@@ -546,14 +578,18 @@ if (empty($broken_questions)) {
             );
         }
         
-        // Bouton tentative de réparation
-        echo html_writer::tag('button', '🔧 ' . get_string('repair_options', 'local_question_diagnostic'), [
-            'class' => 'qd-btn qd-btn-merge repair-btn',
-            'data-questionid' => $question->id,
-            'data-name' => format_string($question->name),
-            'data-links' => json_encode($broken_links),
-            'onclick' => 'showRepairModal(' . $question->id . ', ' . json_encode(format_string($question->name)) . ', ' . json_encode($broken_links) . ')'
-        ]);
+        // Bouton tentative de réparation (options d'écriture : administrateurs uniquement)
+        if (is_siteadmin()) {
+            $jsonflags = JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT;
+            echo html_writer::tag('button', '🔧 ' . get_string('repair_options', 'local_question_diagnostic'), [
+                'class' => 'qd-btn qd-btn-merge repair-btn',
+                'data-questionid' => $question->id,
+                'data-name' => format_string($question->name),
+                'data-links' => json_encode($broken_links, $jsonflags),
+                'onclick' => 'showRepairModal(' . (int)$question->id . ', ' . json_encode(format_string($question->name), $jsonflags)
+                    . ', ' . json_encode($broken_links, $jsonflags) . ')'
+            ]);
+        }
         
         echo html_writer::end_tag('div');
         echo html_writer::end_tag('td');
@@ -596,7 +632,15 @@ echo html_writer::end_tag('div');
 
 echo html_writer::start_tag('script');
 ?>
+// Échappe une valeur (issue de la base) avant insertion dans innerHTML.
+function qdEscape(value) {
+    const div = document.createElement('div');
+    div.textContent = value === null || value === undefined ? '' : String(value);
+    return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 function showRepairModal(questionId, questionName, brokenLinks) {
+    questionId = parseInt(questionId, 10);
     const modal = document.getElementById('repair-modal');
     const modalBody = document.getElementById('repair-modal-body');
 
@@ -608,6 +652,7 @@ function showRepairModal(questionId, questionName, brokenLinks) {
     }
     
     // Construire le contenu du modal
+    // questionName est déjà formaté (format_string) côté serveur.
     let content = '<h4>Question: ' + questionName + ' (ID: ' + questionId + ')</h4>';
     content += '<p>Liens cassés détectés dans cette question:</p>';
     
@@ -616,9 +661,9 @@ function showRepairModal(questionId, questionName, brokenLinks) {
         content += '<div style="margin: 15px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; background: #f9f9f9;">';
         content += '<strong>Lien #' + (index + 1) + '</strong><br>';
         content += '<div style="margin: 10px 0;">';
-        content += '<strong>Champ:</strong> ' + link.field + '<br>';
-        content += '<strong>URL:</strong> <code style="word-break: break-all; background: #fff; padding: 2px 5px; border-radius: 3px;">' + link.url + '</code><br>';
-        content += '<strong>Raison:</strong> <span style="color: #d9534f;">' + link.reason + '</span>';
+        content += '<strong>Champ:</strong> ' + qdEscape(link.field) + '<br>';
+        content += '<strong>URL:</strong> <code style="word-break: break-all; background: #fff; padding: 2px 5px; border-radius: 3px;">' + qdEscape(link.url) + '</code><br>';
+        content += '<strong>Raison:</strong> <span style="color: #d9534f;">' + qdEscape(link.reason) + '</span>';
         content += '</div>';
         
         // Options (la "réparation automatique" n'est pas implémentée, mais certaines corrections sont possibles)
@@ -626,13 +671,13 @@ function showRepairModal(questionId, questionName, brokenLinks) {
         content += '<strong>Options:</strong><br>';
         content += '<div style="margin-top: 8px;">';
         
-        // Bouton supprimer la référence / désactiver bgimage
+        // Bouton supprimer la référence / désactiver bgimage : mène à une page de confirmation
+        // (aucun sesskey dans l'URL ; la suppression se fait en POST depuis cette page).
         const removeUrl = new URL(window.location.href);
         removeUrl.searchParams.set('action', 'remove');
         removeUrl.searchParams.set('questionid', questionId);
         removeUrl.searchParams.set('field', link.field);
         removeUrl.searchParams.set('url', link.url);
-        removeUrl.searchParams.set('sesskey', M.cfg.sesskey);
 
         // Bouton "réparer via doublon strict" (ouvre une page de confirmation avec suggestions).
         const repairUrl = new URL(window.location.href);
@@ -640,20 +685,16 @@ function showRepairModal(questionId, questionName, brokenLinks) {
         repairUrl.searchParams.set('questionid', questionId);
         repairUrl.searchParams.set('field', link.field);
         repairUrl.searchParams.set('url', link.url);
-        repairUrl.searchParams.set('sesskey', M.cfg.sesskey);
 
         const isBgImage = (String(link.field || '').toLowerCase().indexOf('bgimage') !== -1);
         const actionLabel = isBgImage
             ? '🧹 Désactiver l’image de fond'
             : '🗑️ <?php echo addslashes(get_string('remove_reference', 'local_question_diagnostic')); ?>';
-        const confirmText = isBgImage
-            ? 'Êtes-vous sûr de vouloir désactiver l’image de fond pour ce type de question ?'
-            : '<?php echo addslashes(get_string('remove_reference_confirm', 'local_question_diagnostic')); ?>';
         const hint = isBgImage
             ? '(Met le champ bgimage à 0 : la question s’affichera sans image de fond)'
             : '(<?php echo addslashes(get_string('remove_reference_desc', 'local_question_diagnostic')); ?>)';
 
-        content += '<a href="' + removeUrl.toString() + '" class="btn btn-danger btn-sm" style="margin-right: 5px;" onclick="return confirm(\'' + confirmText + '\')">' + actionLabel + '</a>';
+        content += '<a href="' + qdEscape(removeUrl.toString()) + '" class="btn btn-danger btn-sm" style="margin-right: 5px;">' + actionLabel + '</a>';
 
         // Ne proposer la réparation via doublon strict que si l'URL est un pluginfile.
         // Sinon, attempt_repair() refusera (ex: bgimage missing, messages, etc.).
@@ -665,10 +706,9 @@ function showRepairModal(questionId, questionName, brokenLinks) {
             searchSimilarUrl.searchParams.set('questionid', questionId);
             searchSimilarUrl.searchParams.set('field', link.field);
             searchSimilarUrl.searchParams.set('url', link.url);
-            searchSimilarUrl.searchParams.set('sesskey', M.cfg.sesskey);
-            
-            content += '<a href="' + searchSimilarUrl.toString() + '" class="btn btn-outline-info btn-sm" style="margin-right: 5px;" target="_blank">🔍 Rechercher par nom similaire</a>';
-            content += '<a href="' + repairUrl.toString() + '" class="btn btn-outline-primary btn-sm" style="margin-right: 5px;" target="_blank">🔎 Trouver via doublon strict</a>';
+
+            content += '<a href="' + qdEscape(searchSimilarUrl.toString()) + '" class="btn btn-outline-info btn-sm" style="margin-right: 5px;" target="_blank">🔍 Rechercher par nom similaire</a>';
+            content += '<a href="' + qdEscape(repairUrl.toString()) + '" class="btn btn-outline-primary btn-sm" style="margin-right: 5px;" target="_blank">🔎 Trouver via doublon strict</a>';
         } else {
             // Afficher quand même l'option (désactivée) pour éviter l'impression qu'elle a "disparu".
             content += '<span class="btn btn-outline-secondary btn-sm disabled" style="margin-right: 5px;" title="Disponible uniquement pour les liens de type pluginfile.php">🔍 Rechercher par nom similaire</span>';

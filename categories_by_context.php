@@ -30,10 +30,8 @@ require_once(__DIR__ . '/../../config.php');
 require_once(__DIR__ . '/lib.php');
 require_once(__DIR__ . '/classes/olution_manager.php');
 
-require_login();
-if (!is_siteadmin()) {
-    throw new \moodle_exception('accessdenied', 'admin', '', 'Vous devez être administrateur du site pour accéder à cet outil.');
-}
+// Contrôle d'accès : capacité du plugin (consultation).
+local_question_diagnostic_require_access('viewcategories');
 
 $context = context_system::instance();
 
@@ -722,8 +720,12 @@ foreach ($filtered as $cat) {
         echo html_writer::tag('span', '-', ['class' => 'text-muted']);
     }
 
+    // Actions de déplacement : formulaires GET vers les pages de confirmation (aucun sesskey dans l'URL ;
+    // l'exécution se fait en POST). Réservées aux administrateurs du site.
+    $qdisadmin = is_siteadmin();
+
     // Déplacer vers Olution/commun/* (si Olution est détectée ET même contexte).
-    if (!empty($olutioncommun) && !empty($olutioncommunoptions)) {
+    if ($qdisadmin && !empty($olutioncommun) && !empty($olutioncommunoptions)) {
         if ((int)$cat->contextid === (int)$olutioncommuncontextid) {
             $actionurl = new moodle_url('/local/question_diagnostic/actions/move.php');
             echo html_writer::start_tag('form', [
@@ -740,11 +742,6 @@ foreach ($filtered as $cat) {
                 'type' => 'hidden',
                 'name' => 'returnurl',
                 'value' => $returnurl->out(false),
-            ]);
-            echo html_writer::empty_tag('input', [
-                'type' => 'hidden',
-                'name' => 'sesskey',
-                'value' => sesskey(),
             ]);
 
             echo html_writer::start_tag('select', [
@@ -778,7 +775,7 @@ foreach ($filtered as $cat) {
 
     // Déplacer les QUESTIONS de cette catégorie vers Olution/commun/Catégories à trier (par défaut),
     // même si la cible est dans un autre contexte, si Moodle la considère "accessible" depuis le cours.
-    if (!empty($olutiontriage) && !empty($olutiontriage->id) && $courseid > 0) {
+    if ($qdisadmin && !empty($olutiontriage) && !empty($olutiontriage->id) && $courseid > 0) {
         $actionurl = new moodle_url('/local/question_diagnostic/actions/move_category_questions_to_olution_triage.php');
         echo html_writer::start_tag('form', [
             'method' => 'get',
@@ -788,7 +785,6 @@ foreach ($filtered as $cat) {
         echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sourcecatid', 'value' => $cid]);
         echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'courseid', 'value' => (int)$courseid]);
         echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'returnurl', 'value' => $returnurl->out(false)]);
-        echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]);
         echo html_writer::tag('button', get_string('tool_categories_by_context_move_questions_to_triage_button', 'local_question_diagnostic'), [
             'type' => 'submit',
             'class' => 'btn btn-sm btn-warning',
@@ -800,7 +796,7 @@ foreach ($filtered as $cat) {
     // Déplacer la catégorie (changer de parent) : sélecteur + confirmation via actions/move.php.
     $ctxid = (int)$cat->contextid;
     $options = $moveparentoptionsbycontext[$ctxid] ?? [];
-    if (!empty($options)) {
+    if ($qdisadmin && !empty($options)) {
         // Ne jamais proposer comme parent la catégorie elle-même ni ses descendants (évite les boucles).
         $invalid = $get_descendants($cid, $ctxid);
         $invalid[$cid] = true;
@@ -820,11 +816,6 @@ foreach ($filtered as $cat) {
             'type' => 'hidden',
             'name' => 'returnurl',
             'value' => $returnurl->out(false),
-        ]);
-        echo html_writer::empty_tag('input', [
-            'type' => 'hidden',
-            'name' => 'sesskey',
-            'value' => sesskey(),
         ]);
 
         echo html_writer::start_tag('select', [

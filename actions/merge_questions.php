@@ -30,17 +30,13 @@ require_once(__DIR__ . '/../classes/question_merger.php');
 use local_question_diagnostic\question_analyzer;
 use local_question_diagnostic\question_merger;
 
-require_login();
-require_sesskey();
-
-if (!is_siteadmin()) {
-    throw new \moodle_exception('accessdenied', 'admin');
-}
+// Contrôle d'accès : capacité du plugin + administrateur du site (écriture).
+local_question_diagnostic_require_access('deletequestions', true);
+// Le sesskey n'est exigé qu'à l'exécution (POST) : l'aperçu s'affiche depuis un simple lien GET.
 
 $repid = required_param('repid', PARAM_INT);
 $confirm = optional_param('confirm', 0, PARAM_INT);
 $includequiz = optional_param('includequiz', 1, PARAM_INT);
-$discovery = optional_param('discovery', 0, PARAM_INT);
 $returnurlparam = optional_param('returnurl', '', PARAM_LOCALURL);
 
 $returnurl = !empty($returnurlparam)
@@ -51,7 +47,6 @@ $PAGE->set_context(context_system::instance());
 $PAGE->set_url(new moodle_url('/local/question_diagnostic/actions/merge_questions.php', [
     'repid' => $repid,
     'includequiz' => $includequiz,
-    'discovery' => $discovery,
     'returnurl' => $returnurl->out(false),
 ]));
 $PAGE->set_pagelayout('admin');
@@ -62,13 +57,12 @@ $options = [
     // include_quiz_references est toujours actif : les questions utilisées dans des quiz
     // mais sans tentatives sont fusionnables et les références quiz seront remappées.
     'include_quiz_references' => true,
-    'advanced_discovery' => (int)$discovery === 1,
 ];
 
 // Toujours reconstruire le plan depuis la BDD (preview ou exécution).
 $plan = question_merger::build_merge_plan((int)$repid, $options);
 
-if (!$confirm) {
+if (!$confirm || !data_submitted()) {
     echo $OUTPUT->header();
     echo local_question_diagnostic_render_version_badge();
 
@@ -188,6 +182,19 @@ if (!$confirm) {
     }
     echo html_writer::table($table);
 
+    // v1.15.0 : questions non fusionnables, avec la raison.
+    $skippeditems = [];
+    foreach ((array)($plan->skipped ?? []) as $reason => $ids) {
+        if (!empty($ids)) {
+            $skippeditems[] = get_string('merge_skipped_' . $reason, 'local_question_diagnostic') . ' : '
+                . implode(', ', array_map('intval', (array)$ids));
+        }
+    }
+    if ($skippeditems) {
+        echo html_writer::tag('h4', get_string('merge_skipped_title', 'local_question_diagnostic'));
+        echo html_writer::alist(array_map('s', $skippeditems));
+    }
+
     // Impacts.
     echo html_writer::tag('h4', get_string('question_merge_impacts_title', 'local_question_diagnostic'));
     $it = new html_table();
@@ -209,11 +216,10 @@ if (!$confirm) {
         'repid' => $repid,
         'confirm' => 1,
         'includequiz' => $includequiz,
-        'discovery' => $discovery,
-        'sesskey' => sesskey(),
         'returnurl' => $returnurl->out(false),
     ]);
-    echo html_writer::link($confirmurl, get_string('question_merge_confirm_button', 'local_question_diagnostic'), ['class' => 'btn btn-danger']);
+    echo $OUTPUT->single_button($confirmurl, get_string('question_merge_confirm_button', 'local_question_diagnostic'),
+        'post', ['type' => single_button::BUTTON_DANGER]);
     echo html_writer::link($returnurl, get_string('cancel', 'core'), ['class' => 'btn btn-secondary']);
     echo html_writer::end_div();
 
@@ -221,8 +227,11 @@ if (!$confirm) {
     exit;
 }
 
-// Exécution (confirm=1).
+// Exécution (confirm=1) : uniquement en POST.
 require_sesskey();
+if (!data_submitted()) {
+    throw new \moodle_exception('invalidrequest');
+}
 
 // Rebuild plan right before applying, to avoid stale preview.
 $plan = question_merger::build_merge_plan((int)$repid, $options);

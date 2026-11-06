@@ -90,9 +90,7 @@ $capabilities = [
         'riskbitmask' => RISK_CONFIG | RISK_DATALOSS,
         'captype' => 'write',
         'contextlevel' => CONTEXT_SYSTEM,
-        'archetypes' => [
-            'manager' => CAP_ALLOW
-        ]
+        'archetypes' => []  // v1.15.0 : écritures réservées aux administrateurs du site
     ],
     
     'local/question_diagnostic:deletecategories' => [
@@ -110,12 +108,10 @@ $capabilities = [
     ],
     
     'local/question_diagnostic:movecategories' => [
-        'riskbitmask' => RISK_CONFIG,
+        'riskbitmask' => RISK_CONFIG | RISK_DATALOSS,
         'captype' => 'write',
         'contextlevel' => CONTEXT_SYSTEM,
-        'archetypes' => [
-            'manager' => CAP_ALLOW
-        ]
+        'archetypes' => []  // v1.15.0 : écritures réservées aux administrateurs du site
     ],
     
     // =========================================================================

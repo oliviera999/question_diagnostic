@@ -10,14 +10,8 @@ require_once(__DIR__ . '/classes/question_analyzer.php');
 
 use local_question_diagnostic\question_analyzer;
 
-// Charger les bibliothèques Moodle nécessaires.
-require_login();
-
-// Vérification stricte : seuls les administrateurs du site peuvent accéder à cette page.
-if (!is_siteadmin()) {
-    throw new \moodle_exception('accessdenied', 'admin', '', 'Vous devez être administrateur du site pour accéder à cet outil.');
-    exit;
-}
+// Contrôle d'accès : capacité du plugin (consultation).
+local_question_diagnostic_require_access('viewquestions');
 
 // Définir le contexte de la page (système).
 $context = context_system::instance();
@@ -51,26 +45,23 @@ echo html_writer::end_div();
 echo html_writer::start_tag('div', ['style' => 'margin-bottom: 20px; display: flex; gap: 10px; align-items: center;']);
 echo local_question_diagnostic_render_back_link('questions_cleanup.php');
 
-// Traiter la purge de cache si demandée
+// Traiter la purge du cache d'analyse du plugin si demandée (aucune donnée modifiée : POST + sesskey suffisent).
 $purgecache = optional_param('purgecache', 0, PARAM_INT);
-if ($purgecache && confirm_sesskey()) {
+if ($purgecache && data_submitted()) {
+    require_sesskey();
     question_analyzer::purge_all_caches();
     redirect($PAGE->url, '✅ Cache purgé avec succès.', null, \core\output\notification::NOTIFY_SUCCESS);
 }
 
-// Bouton de purge de cache
-$purgecache_url = new moodle_url($PAGE->url, ['purgecache' => 1, 'sesskey' => sesskey()]);
-echo html_writer::link(
-    $purgecache_url,
-    '🔄 Purger le cache',
-    [
-        'class' => 'btn btn-warning',
-        'title' => 'Vider le cache pour forcer le recalcul des statistiques'
-    ]
-);
+// Bouton de purge du cache d'analyse (formulaire POST : le sesskey n'apparaît jamais dans l'URL).
+$purgecache_url = new moodle_url($PAGE->url, ['purgecache' => 1]);
+echo $OUTPUT->single_button($purgecache_url, '🔄 Purger le cache', 'post', [
+    'type' => single_button::BUTTON_WARNING,
+    'title' => 'Vider le cache pour forcer le recalcul des statistiques',
+]);
 
-// 🆕 v1.7.0 : Bouton de test aléatoire pour détecter les doublons
-$randomtest_url = new moodle_url($PAGE->url, ['randomtest' => 1, 'sesskey' => sesskey()]);
+// 🆕 v1.7.0 : Bouton de test aléatoire pour détecter les doublons (lecture seule : simple lien, sans sesskey)
+$randomtest_url = new moodle_url($PAGE->url, ['randomtest' => 1]);
 echo html_writer::link(
     $randomtest_url,
     '🎲 Test Aléatoire Doublons',
@@ -81,7 +72,7 @@ echo html_writer::link(
 );
 
 // 🆕 v1.8.0 : Bouton test aléatoire doublons UTILISÉS
-$randomtest_used_url = new moodle_url($PAGE->url, ['randomtest_used' => 1, 'sesskey' => sesskey()]);
+$randomtest_used_url = new moodle_url($PAGE->url, ['randomtest_used' => 1]);
 echo html_writer::link(
     $randomtest_used_url,
     '🎲 Test Doublons Utilisés',
@@ -163,10 +154,9 @@ if (!empty($integrityreport)) {
         'warnings' => $warnings,
     ]), ['style' => 'margin-top: 6px;']);
 
-    // 🆕 Correction assistée (avec confirmation).
-    if ($errors > 0 || $warnings > 0) {
+    // 🆕 Correction assistée (avec confirmation) : lien GET vers l'aperçu, sans sesskey ; réservé aux administrateurs.
+    if (($errors > 0 || $warnings > 0) && is_siteadmin()) {
         $fixurl = new moodle_url('/local/question_diagnostic/actions/fix_questions_integrity.php', [
-            'sesskey' => sesskey(),
             // Retour vers cette page (avec les mêmes paramètres).
             'returnurl' => $PAGE->url->out(false),
         ]);
@@ -194,7 +184,7 @@ if (!empty($integrityreport)) {
         }
 
         echo html_writer::start_div('alert ' . $boxclass, ['style' => 'margin-bottom: 12px;']);
-        echo html_writer::tag('strong', ($check->title ?? $checkkey) . ' — ' . $count);
+        echo html_writer::tag('strong', s($check->title ?? $checkkey) . ' — ' . $count);
         if (!empty($check->description)) {
             echo html_writer::tag('div', s($check->description), ['style' => 'margin-top: 6px;']);
         }
@@ -271,7 +261,8 @@ if (!empty($integrityreport)) {
 
 // 🆕 v1.7.0 : MODE TEST ALÉATOIRE - Afficher le résultat si demandé
 $randomtest = optional_param('randomtest', 0, PARAM_INT);
-if ($randomtest && confirm_sesskey()) {
+if ($randomtest) {
+    // Test en lecture seule : aucun sesskey requis.
     echo html_writer::tag('h2', '🎲 Test de Détection de Doublons - Question Aléatoire');
     
     // Sélectionner une question aléatoire
@@ -300,8 +291,9 @@ if ($randomtest && confirm_sesskey()) {
     echo html_writer::tag('h3', '🎯 Question Sélectionnée', ['style' => 'margin-top: 0;']);
     echo html_writer::tag('p', '<strong>ID :</strong> ' . $random_question->id);
     echo html_writer::tag('p', '<strong>Nom :</strong> ' . format_string($random_question->name));
-    echo html_writer::tag('p', '<strong>Type :</strong> ' . $random_question->qtype);
-    echo html_writer::tag('p', '<strong>Texte :</strong> ' . substr(strip_tags($random_question->questiontext), 0, 200) . '...');
+    echo html_writer::tag('p', '<strong>Type :</strong> ' . s($random_question->qtype));
+    echo html_writer::tag('p', '<strong>Texte :</strong> '
+        . s(core_text::substr(html_to_text($random_question->questiontext, 0, false), 0, 200)) . '...');
     echo html_writer::end_tag('div');
     
     if (count($duplicates) > 0) {
@@ -345,6 +337,7 @@ if ($randomtest && confirm_sesskey()) {
                 'data-type' => $q->qtype,
                 'data-category' => isset($stats->category_name) ? $stats->category_name : 'N/A',
                 'data-context' => isset($stats->context_name) ? strip_tags($stats->context_name) : 'N/A',
+                'data-bankurl' => (string)(local_question_diagnostic_get_question_bank_url(null, (int)$q->id) ?: ''),
                 'data-quiz' => isset($stats->quiz_count) ? $stats->quiz_count : 0,
                 'data-attempts' => isset($stats->attempt_count) ? $stats->attempt_count : 0,
                 'data-created' => $q->timecreated
@@ -353,16 +346,16 @@ if ($randomtest && confirm_sesskey()) {
             echo html_writer::start_tag('tr', $row_attrs);
             echo html_writer::tag('td', $q->id . ($q->id == $random_question->id ? ' 🎯' : ''));
             echo html_writer::tag('td', format_string($q->name));
-            echo html_writer::tag('td', $q->qtype);
+            echo html_writer::tag('td', s($q->qtype));
             
             // Catégorie cliquable
             echo html_writer::start_tag('td');
             if (isset($stats->category_id) && $stats->category_id > 0 && isset($stats->context_id)) {
-                $cat_url = new moodle_url('/question/edit.php', [
-                    'courseid' => 1,
-                    'cat' => $stats->category_id . ',' . $stats->context_id
-                ]);
-                $category_display = html_writer::link($cat_url, format_string($stats->category_name), ['target' => '_blank', 'title' => 'Ouvrir la catégorie dans la banque de questions']);
+                $cat_url = local_question_diagnostic_get_question_bank_url(
+                    (object)['id' => (int)$stats->category_id, 'contextid' => (int)$stats->context_id]);
+                $category_display = $cat_url
+                    ? html_writer::link($cat_url, format_string($stats->category_name), ['target' => '_blank', 'title' => 'Ouvrir la catégorie dans la banque de questions'])
+                    : format_string($stats->category_name);
                 $category_display .= ' <span style="color: #666; font-size: 11px;">(ID: ' . $stats->category_id . ')</span>';
                 echo $category_display;
             } else {
@@ -422,7 +415,7 @@ if ($randomtest && confirm_sesskey()) {
     }
     
     echo html_writer::start_tag('div', ['style' => 'margin-top: 30px; text-align: center;']);
-    $randomtest_url_again = new moodle_url($PAGE->url, ['randomtest' => 1, 'sesskey' => sesskey()]);
+    $randomtest_url_again = new moodle_url($PAGE->url, ['randomtest' => 1]);
     echo html_writer::link(
         $randomtest_url_again,
         '🔄 Tester une autre question aléatoire',
@@ -442,7 +435,8 @@ if ($randomtest && confirm_sesskey()) {
 
 // 🆕 v1.8.0 : MODE TEST ALÉATOIRE DOUBLONS UTILISÉS
 $randomtest_used = optional_param('randomtest_used', 0, PARAM_INT);
-if ($randomtest_used && confirm_sesskey()) {
+if ($randomtest_used) {
+    // Test en lecture seule : aucun sesskey requis.
     echo html_writer::tag('h2', '🎲 Test Doublons Utilisés - Question Aléatoire');
     
     // 🔧 v1.9.16 REFONTE COMPLÈTE : Nouvelle logique (suggestion utilisateur)
@@ -530,7 +524,7 @@ if ($randomtest_used && confirm_sesskey()) {
         echo html_writer::tag('li', '<strong>Total quiz_slots :</strong> ' . (isset($debug_info['total_slots']) ? $debug_info['total_slots'] : '?'));
         echo html_writer::tag('li', '<strong>Questions trouvées :</strong> ' . (isset($debug_info['count']) ? $debug_info['count'] : 0));
         if (!empty($debug_info['error'])) {
-            echo html_writer::tag('li', '<strong style="color: red;">Erreur :</strong> ' . $debug_info['error']);
+            echo html_writer::tag('li', '<strong style="color: red;">Erreur :</strong> ' . s($debug_info['error']));
         }
         echo html_writer::end_tag('ul');
         
@@ -632,21 +626,23 @@ if ($randomtest_used && confirm_sesskey()) {
     echo html_writer::tag('p', '📊 Total de questions utilisées dans la base : <strong>' . count($used_question_ids) . '</strong>');
     echo html_writer::tag('p', '<strong>Question sélectionnée ID :</strong> ' . $random_question->id . ' (Cette question est UTILISÉE dans au moins un quiz)');
     echo html_writer::tag('p', '<strong>Nom :</strong> ' . format_string($random_question->name));
-    echo html_writer::tag('p', '<strong>Type :</strong> ' . $random_question->qtype);
+    echo html_writer::tag('p', '<strong>Type :</strong> ' . s($random_question->qtype));
     echo html_writer::tag('p', '<strong>Nombre de versions totales :</strong> ' . count($all_questions) . ' (' . $used_count_preview . ' utilisée(s) dans quiz + ' . $unused_count_preview . ' doublon(s) inutilisé(s))');
     echo html_writer::end_tag('div');
     
     // Tableau détaillé
     echo html_writer::tag('h3', '📋 Détails de Toutes les Versions');
     
-    // 🆕 v1.9.23 : Bouton de suppression en masse (au-dessus du tableau)
+    // 🆕 v1.9.23 : Bouton de suppression en masse (au-dessus du tableau, administrateurs uniquement)
     echo html_writer::start_tag('div', ['id' => 'bulk-actions-container', 'style' => 'margin-bottom: 15px; display: none;']);
-    echo html_writer::tag('button', '🗑️ Supprimer la sélection', [
-        'id' => 'bulk-delete-btn',
-        'class' => 'btn btn-danger',
-        'onclick' => 'bulkDeleteQuestions()',
-        'style' => 'margin-right: 10px;'
-    ]);
+    if (is_siteadmin()) {
+        echo html_writer::tag('button', '🗑️ Supprimer la sélection', [
+            'id' => 'bulk-delete-btn',
+            'class' => 'btn btn-danger',
+            'onclick' => 'bulkDeleteQuestions()',
+            'style' => 'margin-right: 10px;'
+        ]);
+    }
     echo html_writer::tag('span', '0 question(s) sélectionnée(s)', [
         'id' => 'selection-count',
         'style' => 'font-weight: bold; color: #666;'
@@ -724,6 +720,7 @@ if ($randomtest_used && confirm_sesskey()) {
             'data-type' => $q->qtype,
             'data-category' => isset($stats->category_name) ? $stats->category_name : 'N/A',
             'data-context' => isset($stats->context_name) ? strip_tags($stats->context_name) : '-',
+            'data-bankurl' => (string)(local_question_diagnostic_get_question_bank_url(null, (int)$q->id) ?: ''),
             'data-course' => isset($stats->course_name) ? strip_tags($stats->course_name) : '-',
             'data-quiz' => $quiz_count,
             'data-usages' => $total_usages,
@@ -746,16 +743,16 @@ if ($randomtest_used && confirm_sesskey()) {
         
         echo html_writer::tag('td', $q->id . ($q->id == $random_question->id ? ' 🎯' : ''));
         echo html_writer::tag('td', format_string($q->name));
-        echo html_writer::tag('td', $q->qtype);
+        echo html_writer::tag('td', s($q->qtype));
         
         // Catégorie cliquable
         echo html_writer::start_tag('td');
         if (isset($stats->category_id) && $stats->category_id > 0 && isset($stats->context_id)) {
-            $cat_url = new moodle_url('/question/edit.php', [
-                'courseid' => 1,
-                'cat' => $stats->category_id . ',' . $stats->context_id
-            ]);
-            $category_display = html_writer::link($cat_url, format_string($stats->category_name), ['target' => '_blank', 'title' => 'Ouvrir la catégorie dans la banque de questions']);
+            $cat_url = local_question_diagnostic_get_question_bank_url(
+                (object)['id' => (int)$stats->category_id, 'contextid' => (int)$stats->context_id]);
+            $category_display = $cat_url
+                ? html_writer::link($cat_url, format_string($stats->category_name), ['target' => '_blank', 'title' => 'Ouvrir la catégorie dans la banque de questions'])
+                : format_string($stats->category_name);
             $category_display .= ' <span style="color: #666; font-size: 11px;">(ID: ' . $stats->category_id . ')</span>';
             echo $category_display;
         } else {
@@ -796,7 +793,7 @@ if ($randomtest_used && confirm_sesskey()) {
                 'class' => 'qd-badge',
                 'style' => 'background: #28a745; color: white; font-weight: bold;'
             ]);
-            echo '<br><small style="color: #666; display: block; margin-top: 3px;">' . $can_delete_check->reason . '</small>';
+            echo '<br><small style="color: #666; display: block; margin-top: 3px;">' . s($can_delete_check->reason) . '</small>';
         } else {
             // NON SUPPRIMABLE
             $reason = $can_delete_check ? $can_delete_check->reason : 'Vérification impossible';
@@ -807,17 +804,17 @@ if ($randomtest_used && confirm_sesskey()) {
             ]);
             
             // Afficher la raison avec icône
-            $reason_display = $reason;
+            $reason_display = s($reason);
             $reason_color = '#dc3545';
             
             if (strpos($reason, 'utilisée dans') !== false) {
-                $reason_display = '📊 ' . $reason;
+                $reason_display = '📊 ' . s($reason);
                 $reason_color = '#f0ad4e';
             } else if (strpos($reason, 'cachée') !== false) {
-                $reason_display = '👁️ ' . $reason;
+                $reason_display = '👁️ ' . s($reason);
                 $reason_color = '#6c757d';
             } else if (strpos($reason, 'unique') !== false) {
-                $reason_display = '🔒 ' . $reason;
+                $reason_display = '🔒 ' . s($reason);
                 $reason_color = '#5bc0de';
             }
             
@@ -842,19 +839,20 @@ if ($randomtest_used && confirm_sesskey()) {
             ]);
         }
         
-        // 🆕 v1.9.6 : Bouton Supprimer avec protection
+        // 🆕 v1.9.6 : Bouton Supprimer avec protection (administrateurs uniquement)
         // ($can_delete_check déjà récupéré ligne 488)
         if ($can_delete_check && $can_delete_check->can_delete) {
-            // Question supprimable
-            $delete_url = new moodle_url('/local/question_diagnostic/actions/delete_question.php', [
-                'id' => $q->id,
-                'sesskey' => sesskey()
-            ]);
-            echo html_writer::link($delete_url, '🗑️', [
-                'class' => 'btn btn-sm btn-danger',
-                'title' => 'Supprimer ce doublon inutilisé',
-                'style' => 'background: #d9534f; color: white; padding: 3px 8px; margin-right: 5px;'
-            ]);
+            if (is_siteadmin()) {
+                // Question supprimable : lien vers la confirmation (aucun sesskey dans l'URL)
+                $delete_url = new moodle_url('/local/question_diagnostic/actions/delete_question.php', [
+                    'id' => $q->id,
+                ]);
+                echo html_writer::link($delete_url, '🗑️', [
+                    'class' => 'btn btn-sm btn-danger',
+                    'title' => 'Supprimer ce doublon inutilisé',
+                    'style' => 'background: #d9534f; color: white; padding: 3px 8px; margin-right: 5px;'
+                ]);
+            }
         } else {
             // Question protégée
             $reason = $can_delete_check ? $can_delete_check->reason : 'Vérification impossible';
@@ -914,9 +912,10 @@ if ($randomtest_used && confirm_sesskey()) {
         message += 'Questions à supprimer : ' + ids.join(', ');
         
         if (confirm(message)) {
-            // Rediriger vers l'action de suppression en masse
-            var url = '" . (new \moodle_url('/local/question_diagnostic/actions/delete_questions_bulk.php'))->out(false) . "';
-            url += '?ids=' + ids.join(',') + '&sesskey=" . sesskey() . "';
+            // Rediriger vers la page de confirmation (aucun sesskey dans l'URL : la suppression se fait en POST)
+            var url = " . json_encode((new \moodle_url('/local/question_diagnostic/actions/delete_questions_bulk.php'))->out(false),
+                JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) . ";
+            url += '?ids=' + encodeURIComponent(ids.join(','));
             window.location.href = url;
         }
     }
@@ -1067,7 +1066,7 @@ try {
     echo html_writer::start_tag('div', ['class' => 'alert alert-danger']);
     echo html_writer::tag('strong', '⚠️ Erreur : ');
     echo 'Impossible de charger les statistiques globales. ';
-    echo html_writer::tag('p', 'Détails : ' . $e->getMessage(), ['style' => 'margin-top: 10px; font-size: 12px;']);
+    echo html_writer::tag('p', 'Détails : ' . s($e->getMessage()), ['style' => 'margin-top: 10px; font-size: 12px;']);
     echo html_writer::end_tag('div');
     echo $OUTPUT->footer();
     exit;
@@ -1164,7 +1163,7 @@ if (!empty($globalstats->by_type) && $globalstats->total_questions > 0) {
     foreach ($globalstats->by_type as $qtype => $count) {
         $percentage = round(($count / $globalstats->total_questions) * 100, 1);
         echo html_writer::start_tag('div', ['class' => 'qd-stat-item']);
-        echo html_writer::tag('span', ucfirst($qtype), ['class' => 'qd-stat-label']);
+        echo html_writer::tag('span', s(ucfirst($qtype)), ['class' => 'qd-stat-label']);
         echo html_writer::tag('span', $count . ' (' . $percentage . '%)', ['class' => 'qd-stat-value']);
         echo html_writer::end_tag('div');
     }
@@ -1177,29 +1176,31 @@ if (!empty($globalstats->by_type) && $globalstats->total_questions > 0) {
 
 echo html_writer::start_tag('div', ['style' => 'margin: 30px 0 20px 0; display: flex; gap: 10px; flex-wrap: wrap;']);
 
-// 🆕 v1.9.52 : Bouton de nettoyage global des doublons
-$cleanup_all_url = new moodle_url('/local/question_diagnostic/actions/cleanup_all_duplicates.php', [
-    'preview' => 1,
-    'sesskey' => sesskey()
-]);
-echo html_writer::link(
-    $cleanup_all_url, 
-    '🧹 ' . get_string('cleanup_all_duplicates', 'local_question_diagnostic'), 
-    [
-        'class' => 'btn btn-warning btn-lg',
-        'title' => get_string('cleanup_all_duplicates_desc', 'local_question_diagnostic'),
-        'style' => 'font-weight: bold;'
-    ]
-);
+// Écritures et export : réservés aux administrateurs du site.
+$qdisadmin = is_siteadmin();
+if ($qdisadmin) {
+    // 🆕 v1.9.52 : Bouton de nettoyage global des doublons (lien vers l'aperçu, sans sesskey)
+    $cleanup_all_url = new moodle_url('/local/question_diagnostic/actions/cleanup_all_duplicates.php', [
+        'preview' => 1,
+    ]);
+    echo html_writer::link(
+        $cleanup_all_url,
+        '🧹 ' . get_string('cleanup_all_duplicates', 'local_question_diagnostic'),
+        [
+            'class' => 'btn btn-warning btn-lg',
+            'title' => get_string('cleanup_all_duplicates_desc', 'local_question_diagnostic'),
+            'style' => 'font-weight: bold;'
+        ]
+    );
 
-    $exporturl = new moodle_url('/local/question_diagnostic/actions/export.php', [
-    'type' => 'questions_csv',
-    'sesskey' => sesskey()
-]);
-echo html_writer::link($exporturl, '📥 ' . get_string('export_questions_csv', 'local_question_diagnostic'), ['class' => 'btn btn-success']);
+    // Export CSV : formulaire POST (le sesskey n'apparaît jamais dans une URL).
+    $exporturl = new moodle_url('/local/question_diagnostic/actions/export.php', ['type' => 'questions_csv']);
+    echo $OUTPUT->single_button($exporturl, '📥 ' . get_string('export_questions_csv', 'local_question_diagnostic'), 'post',
+        ['type' => single_button::BUTTON_PRIMARY]);
+}
 
 // 🆕 v1.11.18 : Bouton de nettoyage des catégories redondantes
-$redundant_groups = \local_question_diagnostic\category_manager::get_redundant_default_categories();
+$redundant_groups = $qdisadmin ? \local_question_diagnostic\category_manager::get_redundant_default_categories() : [];
 if (!empty($redundant_groups)) {
     echo html_writer::tag('button', '🧹 Nettoyer catégories par défaut redondantes (' . count($redundant_groups) . ')', [
         'id' => 'cleanup-redundant-btn',
@@ -1232,14 +1233,16 @@ if (!empty($redundant_groups)) {
     
     echo html_writer::start_tag('ul');
     foreach ($redundant_groups as $group) {
-        echo html_writer::tag('li', "<strong>{$group['context_name']}</strong> : {$group['count']} catégorie(s) inutile(s) détectée(s).");
+        echo html_writer::tag('li', '<strong>' . s($group['context_name']) . '</strong> : ' . (int)$group['count']
+            . ' catégorie(s) inutile(s) détectée(s).');
     }
     echo html_writer::end_tag('ul');
     
     echo html_writer::tag('p', '⚠️ <strong>Attention :</strong> Cette action est irréversible.');
     
-    $cleanup_url = new moodle_url('/local/question_diagnostic/actions/cleanup_redundant_defaults.php', ['action' => 'cleanup_all', 'sesskey' => sesskey()]);
-    echo html_writer::link($cleanup_url, 'Confirmer le nettoyage', ['class' => 'btn btn-danger btn-lg']);
+    // Lien vers la page de confirmation détaillée (aucun sesskey dans l'URL : la suppression se fait en POST).
+    $cleanup_url = new moodle_url('/local/question_diagnostic/actions/cleanup_redundant_defaults.php', ['action' => 'cleanup_all']);
+    echo html_writer::link($cleanup_url, 'Voir le détail et confirmer', ['class' => 'btn btn-danger btn-lg']);
     echo html_writer::end_tag('div');
     echo html_writer::end_tag('div');
     echo html_writer::end_tag('div');
@@ -1318,7 +1321,7 @@ echo html_writer::tag('option', 'Tous', ['value' => 'all']);
 $types_list = [];
 if (isset($globalstats->by_type)) {
     foreach ($globalstats->by_type as $qtype => $count) {
-        $types_list[$qtype] = $qtype . ' (' . $count . ')';
+        $types_list[$qtype] = s($qtype) . ' (' . (int)$count . ')';
     }
     asort($types_list);
     foreach ($types_list as $qtype => $label) {
@@ -1401,7 +1404,7 @@ if (loadingQuestions) {
     echo html_writer::start_tag('div', ['class' => 'alert alert-danger']);
     echo html_writer::tag('strong', '⚠️ Erreur : ');
     echo 'Impossible de charger les groupes de doublons. Cela peut être dû à une base de données trop volumineuse ou à un timeout. ';
-    echo html_writer::tag('p', 'Détails : ' . $e->getMessage(), ['style' => 'margin-top: 10px; font-size: 12px;']);
+    echo html_writer::tag('p', 'Détails : ' . s($e->getMessage()), ['style' => 'margin-top: 10px; font-size: 12px;']);
     echo html_writer::tag('p', 'Suggestions :', ['style' => 'margin-top: 10px; font-weight: bold;']);
     echo html_writer::start_tag('ul');
     echo html_writer::tag('li', 'Augmenter le timeout PHP dans votre configuration');
@@ -1450,12 +1453,14 @@ echo html_writer::end_tag('div');
 
 // 🆕 v1.9.49 : Bouton de nettoyage en masse (au-dessus du tableau)
 echo html_writer::start_tag('div', ['id' => 'bulk-cleanup-container', 'style' => 'margin-bottom: 15px; display: none;']);
-echo html_writer::tag('button', '🧹 Nettoyer la sélection', [
-    'id' => 'bulk-cleanup-btn',
-    'class' => 'btn btn-warning',
-    'onclick' => 'bulkCleanupGroups()',
-    'style' => 'margin-right: 10px;'
-]);
+if ($qdisadmin) {
+    echo html_writer::tag('button', '🧹 Nettoyer la sélection', [
+        'id' => 'bulk-cleanup-btn',
+        'class' => 'btn btn-warning',
+        'onclick' => 'bulkCleanupGroups()',
+        'style' => 'margin-right: 10px;'
+    ]);
+}
 echo html_writer::tag('span', '0 groupe(s) sélectionné(s)', [
     'id' => 'selection-count-groups',
     'style' => 'font-weight: bold; color: #666;'
@@ -1501,8 +1506,8 @@ foreach ($duplicate_groups as $group) {
     if ($deletable_count > 0) {
         echo '<input type="checkbox" class="group-select-checkbox" value="' . $group_id . '" 
                 data-repid="' . (int)$group->representative_id . '"
-                data-name="' . htmlspecialchars($group->question_name) . '" 
-                data-qtype="' . $group->qtype . '"
+                data-name="' . s($group->question_name) . '" 
+                data-qtype="' . s($group->qtype) . '"
                 data-deletable="' . $deletable_count . '">';
     }
     echo html_writer::end_tag('td');
@@ -1514,7 +1519,7 @@ foreach ($duplicate_groups as $group) {
     
     // Colonne 2 : Type
     echo html_writer::tag('td', html_writer::tag('span', 
-        ucfirst($group->qtype), 
+        s(ucfirst($group->qtype)), 
         ['class' => 'badge badge-info']
     ));
     
@@ -1557,11 +1562,13 @@ foreach ($duplicate_groups as $group) {
     
     // 🆕 v1.9.53 : Colonne 8 : Actions (bouton nettoyage uniquement si versions SUPPRIMABLES)
     echo html_writer::start_tag('td', ['style' => 'text-align: center; white-space: nowrap;']);
-    if ($deletable_count > 0) {
-        // Bouton de nettoyage automatique
+    if ($deletable_count > 0 && !$qdisadmin) {
+        // Consultation seule : pas d'action de nettoyage.
+        echo '-';
+    } else if ($deletable_count > 0) {
+        // Bouton de nettoyage automatique : lien vers la confirmation (aucun sesskey dans l'URL)
         $cleanup_url = new moodle_url('/local/question_diagnostic/actions/cleanup_duplicate_groups.php', [
             'id' => (int)$group->representative_id,
-            'sesskey' => sesskey()
         ]);
         echo html_writer::link($cleanup_url, '🧹 Nettoyer', [
             'class' => 'btn btn-warning btn-sm',
@@ -1663,7 +1670,8 @@ function bulkCleanupGroups() {
     if (confirm(message)) {
         // POST (évite les URLs trop longues en mode bulk).
         var groupsData = JSON.stringify(groups.map(function(g) { return String(g.repid); }));
-        var action = '" . (new \moodle_url('/local/question_diagnostic/actions/cleanup_duplicate_groups.php'))->out(false) . "';
+        var action = " . json_encode((new \moodle_url('/local/question_diagnostic/actions/cleanup_duplicate_groups.php'))->out(false),
+            JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) . ";
         
         var form = document.createElement('form');
         form.method = 'POST';
@@ -1908,7 +1916,16 @@ function sortTableByColumn(table, column, direction) {
 // MODAL DES DOUBLONS
 // ======================================================================
 
+function qdEscape(value) {
+    const div = document.createElement('div');
+    div.textContent = value === null || value === undefined ? '' : String(value);
+    // Échapper aussi les guillemets : la valeur peut être placée dans un attribut.
+    return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 function showDuplicatesModal(questionId, questionName, duplicateIds) {
+    questionId = parseInt(questionId, 10);
+    questionName = qdEscape(questionName);
     const modal = document.getElementById('duplicates-modal');
     const modalBody = document.getElementById('duplicates-modal-body');
     
@@ -1924,16 +1941,19 @@ function showDuplicatesModal(questionId, questionName, duplicateIds) {
     duplicateIds.forEach(function(dupId) {
         const dupRow = document.querySelector('tr[data-id="' + dupId + '"]');
         if (dupRow) {
-            const dupName = dupRow.getAttribute('data-name');
-            const dupType = dupRow.getAttribute('data-type');
-            const dupCategory = dupRow.getAttribute('data-category');
+            const dupName = qdEscape(dupRow.getAttribute('data-name'));
+            const dupType = qdEscape(dupRow.getAttribute('data-type'));
+            const dupCategory = qdEscape(dupRow.getAttribute('data-category'));
+            const dupUrl = dupRow.getAttribute('data-bankurl');
             
             content += '<tr>';
-            content += '<td>' + dupId + '</td>';
+            content += '<td>' + parseInt(dupId, 10) + '</td>';
             content += '<td>';
             content += '<strong>' + dupName + '</strong><br>';
             content += '<small>Type: ' + dupType + ' | Catégorie: ' + dupCategory + '</small><br>';
-            content += '<a href="' + M.cfg.wwwroot + '/question/edit.php?courseid=1&qid=' + dupId + '" target="_blank" class="btn btn-sm btn-primary" style="margin-top: 5px;">👁️ Voir</a>';
+            if (dupUrl) {
+                content += '<a href="' + qdEscape(dupUrl) + '" target="_blank" class="btn btn-sm btn-primary" style="margin-top: 5px;">👁️ Voir</a>';
+            }
             content += '</td>';
             content += '</tr>';
         }

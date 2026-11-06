@@ -20,12 +20,9 @@ require_once(__DIR__ . '/../classes/question_analyzer.php');
 
 use local_question_diagnostic\question_analyzer;
 
-require_login();
-require_sesskey();
-
-if (!is_siteadmin()) {
-    throw new \moodle_exception('accessdenied', 'admin');
-}
+// Contrôle d'accès : capacité du plugin + administrateur du site (écriture).
+local_question_diagnostic_require_access('deletequestions', true);
+// Le sesskey n'est exigé qu'à l'exécution (POST) : la confirmation s'affiche depuis un simple lien GET.
 
 // 🔧 SÉCURITÉ v1.9.27 : Limite stricte sur les opérations en masse
 define('MAX_BULK_DELETE_QUESTIONS', 500);
@@ -36,7 +33,6 @@ $confirm = optional_param('confirm', 0, PARAM_INT);
 // 🆕 v1.9.44 : URL de retour hiérarchique avec paramètres
 $returnurl = local_question_diagnostic_get_parent_url('actions/delete_questions_bulk.php');
 $returnurl->param('randomtest_used', 1);
-$returnurl->param('sesskey', sesskey());
 
 // Parser les IDs
 $question_ids = array_map('intval', explode(',', $questionids_param));
@@ -83,7 +79,7 @@ if (empty($can_delete)) {
     echo html_writer::tag('h4', 'Raisons :', ['style' => 'margin-top: 15px;']);
     echo html_writer::start_tag('ul');
     foreach ($cannot_delete as $qid => $reason) {
-        echo html_writer::tag('li', '<strong>Question ' . $qid . ' :</strong> ' . $reason);
+        echo html_writer::tag('li', '<strong>Question ' . (int)$qid . ' :</strong> ' . s($reason));
     }
     echo html_writer::end_tag('ul');
     echo html_writer::end_tag('div');
@@ -96,8 +92,8 @@ if (empty($can_delete)) {
     exit;
 }
 
-// PAGE DE CONFIRMATION
-if (!$confirm) {
+// PAGE DE CONFIRMATION (tout accès GET, même avec confirm=1, s'arrête ici)
+if (!$confirm || !data_submitted()) {
     global $DB;
     
     $PAGE->set_context(context_system::instance());
@@ -121,7 +117,7 @@ if (!$confirm) {
         echo html_writer::tag('p', 'Ces questions NE SERONT PAS supprimées car elles sont protégées :');
         echo html_writer::start_tag('ul', ['style' => 'font-size: 12px;']);
         foreach ($cannot_delete as $qid => $reason) {
-            echo html_writer::tag('li', 'Question ' . $qid . ' : ' . $reason);
+            echo html_writer::tag('li', 'Question ' . (int)$qid . ' : ' . s($reason));
         }
         echo html_writer::end_tag('ul');
         echo html_writer::end_tag('div');
@@ -146,7 +142,7 @@ if (!$confirm) {
         echo html_writer::start_tag('tr');
         echo html_writer::tag('td', $q->id);
         echo html_writer::tag('td', format_string($q->name));
-        echo html_writer::tag('td', $q->qtype);
+        echo html_writer::tag('td', s($q->qtype));
         echo html_writer::end_tag('tr');
     }
     
@@ -164,16 +160,13 @@ if (!$confirm) {
     // BOUTONS : Confirmer + Annuler
     echo html_writer::start_tag('div', ['style' => 'margin-top: 30px; display: flex; gap: 20px;']);
     
-    // Formulaire de confirmation
+    // Formulaire de confirmation : POST + sesskey (jamais un lien GET).
     $confirm_url = new moodle_url('/local/question_diagnostic/actions/delete_questions_bulk.php', [
         'ids' => implode(',', $can_delete),
         'confirm' => 1,
-        'sesskey' => sesskey()
     ]);
-    
-    echo html_writer::link($confirm_url, '🗑️ Confirmer la Suppression (' . count($can_delete) . ')', [
-        'class' => 'btn btn-danger btn-lg'
-    ]);
+    echo $OUTPUT->single_button($confirm_url, '🗑️ Confirmer la Suppression (' . count($can_delete) . ')', 'post',
+        ['type' => single_button::BUTTON_DANGER]);
     
     echo html_writer::link($returnurl, '← Annuler', ['class' => 'btn btn-secondary btn-lg']);
     echo html_writer::end_tag('div');
@@ -182,14 +175,13 @@ if (!$confirm) {
     exit;
 }
 
-// EXÉCUTION DE LA SUPPRESSION (après confirmation)
+// EXÉCUTION DE LA SUPPRESSION (après confirmation, POST + sesskey)
+require_sesskey();
 $success_count = 0;
 $error_count = 0;
 $errors = [];
 
-foreach ($can_delete as $qid) {
-    $result = question_analyzer::delete_question_safe($qid);
-    
+foreach (question_analyzer::delete_questions_safe($can_delete, 'delete-questions') as $qid => $result) {
     if ($result === true) {
         $success_count++;
     } else {

@@ -21,11 +21,8 @@ require_once(__DIR__ . '/classes/olution_manager.php');
 
 use local_question_diagnostic\olution_manager;
 
-require_login();
-
-if (!is_siteadmin()) {
-    throw new \moodle_exception('accessdenied', 'admin');
-}
+// Contrôle d'accès : capacité du plugin (consultation).
+local_question_diagnostic_require_access('viewquestions');
 
 $PAGE->set_url(new moodle_url('/local/question_diagnostic/olution_duplicates.php'));
 $PAGE->set_context(context_system::instance());
@@ -159,12 +156,14 @@ if ($stats->total_duplicates == 0) {
     exit;
 }
 
-// Bouton d'action globale
-if ($stats->movable_questions > 0) {
+// Les déplacements sont des écritures : actions réservées aux administrateurs du site (l'action revérifie).
+$qdisadmin = is_siteadmin();
+
+// Bouton d'action globale (lien vers la confirmation, sans sesskey : le déplacement se fait en POST)
+if ($stats->movable_questions > 0 && $qdisadmin) {
     echo html_writer::start_div('mb-3');
     $move_all_url = new moodle_url('/local/question_diagnostic/actions/move_to_olution.php', [
         'action' => 'move_all',
-        'sesskey' => sesskey()
     ]);
     echo html_writer::link(
         $move_all_url,
@@ -212,9 +211,9 @@ echo $OUTPUT->notification(
 
 if (!empty($duplicate_groups)) {
     // Formulaire global pour déplacer une sélection de questions (multi-sélection).
+    // Formulaire POST (sesskey en champ caché, jamais dans l'URL) : mène à la page de confirmation.
     $move_selected_url = new moodle_url('/local/question_diagnostic/actions/move_to_olution.php', [
         'action' => 'move_selected',
-        'sesskey' => sesskey(),
     ]);
     echo html_writer::start_tag('form', [
         'method' => 'post',
@@ -232,13 +231,15 @@ if (!empty($duplicate_groups)) {
     echo html_writer::tag('strong', get_string('selected_questions', 'local_question_diagnostic') . ': ', ['class' => 'mr-1']);
     echo html_writer::tag('span', '0', ['id' => 'qd-olution-selected-count']);
     echo ' ';
-    echo html_writer::empty_tag('input', [
-        'type' => 'submit',
-        'value' => get_string('move_selected_button', 'local_question_diagnostic'),
-        'class' => 'btn btn-primary btn-sm ml-2',
-        'id' => 'qd-olution-move-selected-btn',
-        'disabled' => 'disabled',
-    ]);
+    if ($qdisadmin) {
+        echo html_writer::empty_tag('input', [
+            'type' => 'submit',
+            'value' => get_string('move_selected_button', 'local_question_diagnostic'),
+            'class' => 'btn btn-primary btn-sm ml-2',
+            'id' => 'qd-olution-move-selected-btn',
+            'disabled' => 'disabled',
+        ]);
+    }
     echo html_writer::end_div();
 
     foreach ($duplicate_groups as $group) {
@@ -247,7 +248,7 @@ if (!empty($duplicate_groups)) {
         echo html_writer::start_div('card mb-3');
         echo html_writer::start_div('card-header bg-light');
         echo html_writer::tag('strong', format_string($group['group_name']));
-        echo ' (' . $group['group_type'] . ') - ';
+        echo ' (' . s($group['group_type']) . ') - ';
         echo html_writer::tag('span', $group['total_count'] . ' version(s)', ['class' => 'badge badge-primary']);
         echo ' ';
         echo html_writer::tag('span', $group['olution_count'] . ' dans Olution', ['class' => 'badge badge-success']);
@@ -272,9 +273,9 @@ if (!empty($duplicate_groups)) {
             $targetcrumb = local_question_diagnostic_get_question_category_breadcrumb((int)$group['target_category']->id);
             $targeturl = local_question_diagnostic_get_question_bank_url($group['target_category']);
             if ($targeturl) {
-                echo html_writer::link($targeturl, html_writer::tag('strong', $targetcrumb), ['target' => '_blank']);
+                echo html_writer::link($targeturl, html_writer::tag('strong', s($targetcrumb)), ['target' => '_blank']);
             } else {
-                echo html_writer::tag('strong', $targetcrumb);
+                echo html_writer::tag('strong', s($targetcrumb));
             }
         }
         echo html_writer::end_div();
@@ -310,12 +311,13 @@ if (!empty($duplicate_groups)) {
             echo html_writer::start_tag('tr', ['class' => $row_class]);
 
             $canmove = (!$in_olution && $group['target_category'] && $cat->id != $group['target_category']->id);
+            $candomove = $canmove && $qdisadmin;
             $opvalue = '';
             if ($canmove) {
                 $opvalue = (int)$q->id . ':' . (int)$group['target_category']->id;
             }
             echo html_writer::start_tag('td');
-            if ($canmove) {
+            if ($candomove) {
                 echo html_writer::empty_tag('input', [
                     'type' => 'checkbox',
                     'name' => 'ops[]',
@@ -375,12 +377,12 @@ if (!empty($duplicate_groups)) {
             
             // Action : déplacer vers catégorie cible (uniquement si la question est hors Olution)
             echo html_writer::start_tag('td');
-            if ($canmove) {
+            if ($candomove) {
+                // Lien vers la page de confirmation (aucun sesskey dans l'URL).
                 $move_url = new moodle_url('/local/question_diagnostic/actions/move_to_olution.php', [
                     'action' => 'move_one',
                     'questionid' => $q->id,
                     'targetcatid' => $group['target_category']->id,
-                    'sesskey' => sesskey()
                 ]);
                 echo html_writer::link(
                     $move_url,
