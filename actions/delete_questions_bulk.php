@@ -187,9 +187,7 @@ $success_count = 0;
 $error_count = 0;
 $errors = [];
 
-foreach ($can_delete as $qid) {
-    $result = question_analyzer::delete_question_safe($qid);
-    
+foreach (question_analyzer::delete_questions_safe($can_delete, 'delete-questions') as $qid => $result) {
     if ($result === true) {
         $success_count++;
     } else {

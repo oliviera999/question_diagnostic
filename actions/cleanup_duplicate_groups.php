@@ -118,21 +118,16 @@ if (!$confirm) {
 
         $all_questions = $DB->get_records_list('question', 'id', $question_ids, 'id ASC');
         
-        // Charger l'usage
+        // v1.15.0 : usage au sens du cœur (toutes versions : tentatives, références, plugins).
         $question_ids = array_keys($all_questions);
-        $usage_map = question_analyzer::get_questions_usage_by_ids($question_ids);
-        
+        $inuse = \local_question_diagnostic\local\usage_checker::entries_in_use($question_ids);
+
         // Identifier les questions à supprimer et celles à conserver
         $to_keep = [];
         $to_delete = [];
-        
+
         foreach ($all_questions as $q) {
-            $quiz_count = 0;
-            if (isset($usage_map[$q->id]) && isset($usage_map[$q->id]['quiz_count'])) {
-                $quiz_count = $usage_map[$q->id]['quiz_count'];
-            }
-            
-            if ($quiz_count > 0) {
+            if (!empty($inuse[$q->id])) {
                 $to_keep[] = $q; // Utilisée = conservée.
             } else {
                 $to_delete[] = $q; // Inutilisée = candidate à suppression.
@@ -168,6 +163,10 @@ if (!$confirm) {
             }
         }
         
+        // Réservoirs de tirage aléatoire : ces questions ne seront pas supprimées.
+        $checks = \local_question_diagnostic\local\question_deleter::check(array_map(fn($q) => (int)$q->id, $to_delete));
+        $to_delete = array_values(array_filter($to_delete, fn($q) => ($checks[(int)$q->id] ?? 'error') === null));
+
         // Accumuler la liste finale à supprimer (après application de la règle "au moins 1 conservée").
         foreach ($to_delete as $q) {
             $questions_to_delete[] = (object)[
@@ -345,70 +344,16 @@ foreach ($groups_to_clean as $group) {
         continue;
     }
 
-    $all_questions = $DB->get_records_list('question', 'id', $question_ids, 'id ASC');
-    
-    if (count($all_questions) <= 1) {
-        // Si une seule version, on ne supprime rien
-        $kept_count += count($all_questions);
-        continue;
+    // v1.15.0 : nettoyage commun (usage au sens du cœur, réservoirs aléatoires, export XML, vérification).
+    $groupresult = question_analyzer::cleanup_duplicate_group($repid, 'cleanup-duplicate-groups');
+    $deleted_count += count($groupresult->deleted);
+    $kept_count += count($groupresult->kept);
+    foreach ($groupresult->skipped as $qid => $skip) {
+        $errors[] = get_string('cleanup_skipped_question', 'local_question_diagnostic', (object)[
+            'id' => $qid,
+            'reason' => \local_question_diagnostic\local\question_deleter::skip_label($skip),
+        ]);
     }
-    
-    // Charger l'usage
-    $question_ids = array_keys($all_questions);
-    $usage_map = question_analyzer::get_questions_usage_by_ids($question_ids);
-    
-    // Identifier les questions à supprimer et à garder
-    $to_delete = [];
-    $to_keep = [];
-    
-    foreach ($all_questions as $q) {
-        $quiz_count = 0;
-        if (isset($usage_map[$q->id]) && isset($usage_map[$q->id]['quiz_count'])) {
-            $quiz_count = $usage_map[$q->id]['quiz_count'];
-        }
-        
-        if ($quiz_count > 0) {
-            // Question utilisée = à garder
-            $to_keep[] = $q;
-        } else {
-            // Question inutilisée = candidat à la suppression
-            $to_delete[] = $q;
-        }
-    }
-    
-    // 🆕 v1.9.46 : Sécurité intelligente - garder la version la plus accessible
-    if (empty($to_keep) && !empty($to_delete)) {
-        $best = question_analyzer::select_best_question_to_keep($to_delete);
-        if ($best) {
-            $to_keep[] = $best->question;
-            $to_delete = array_values(array_filter($to_delete, function($q) use ($best) {
-                return (int)$q->id !== (int)$best->question->id;
-            }));
-            
-            // 📝 Log pour traçabilité
-            debugging('Groupe "' . $rep->name . '" : Version conservée ID ' . (int)$best->question->id .
-                ' (Score: ' . (int)$best->score . ', ' . $best->info . ', créée le ' .
-                userdate((int)$best->timecreated, '%d/%m/%Y') . ')', DEBUG_DEVELOPER);
-        } else {
-            // Fallback : garder la première (ordre id ASC).
-            $oldest = array_shift($to_delete);
-            if ($oldest) {
-                $to_keep[] = $oldest;
-            }
-        }
-    }
-    
-    // Supprimer les questions inutilisées
-    foreach ($to_delete as $q) {
-        try {
-            question_delete_question($q->id);
-            $deleted_count++;
-        } catch (Exception $e) {
-            $errors[] = 'Erreur suppression question ID ' . $q->id . ': ' . $e->getMessage();
-        }
-    }
-    
-    $kept_count += count($to_keep);
 }
 
 // Redirection avec message de succès/erreur

@@ -820,3 +820,23 @@ $string['tool_categories_by_context_move_questions_to_triage_warning'] = '⚠️
 $string['tool_categories_by_context_move_questions_to_triage_not_accessible'] = 'La catégorie cible Olution/commun n’est pas accessible depuis le cours (courseid={$a->courseid}). Contexte cible={$a->targetcontextid}. Méthode={$a->method}.';
 $string['tool_categories_by_context_categories_to_sort_not_found'] = 'Catégorie cible introuvable : créez une sous-catégorie de questions nommée « Catégories à trier » sous Olution → commun.';
 
+// v1.15.0
+$string['cleanup_all_background'] = 'Le nettoyage tourne en tâche de fond (cron) ; vous recevez un rapport à la fin. Chaque suppression est précédée d\'un export XML Moodle.';
+$string['cleanup_all_queued'] = 'Le nettoyage est programmé. Il s\'exécutera au prochain passage du cron ; vous recevrez un rapport.';
+$string['cleanup_skipped_question'] = 'question {$a->id} conservée : {$a->reason}';
+$string['delete_error'] = 'Erreur pendant la suppression : {$a}';
+$string['delete_refused'] = 'Suppression refusée : {$a}';
+$string['deleter_skip_error'] = 'erreur pendant le contrôle ou la suppression';
+$string['deleter_skip_hiddenbycore'] = 'cachée par Moodle au lieu d\'être supprimée (utilisée)';
+$string['deleter_skip_missing'] = 'question introuvable';
+$string['deleter_skip_randompool'] = 'sa catégorie sert à un tirage aléatoire';
+$string['deleter_skip_used'] = 'utilisée (tentatives, tests ou autre plugin, toutes versions)';
+$string['error_export_dir'] = 'Impossible de créer le dossier d\'export {$a} : rien n\'a été supprimé.';
+$string['error_export_write'] = 'Impossible d\'écrire l\'export {$a} : rien n\'a été supprimé.';
+$string['messageprovider:operationreport'] = 'Rapport d\'une opération sur la banque de questions';
+$string['report_cleanup_deleted'] = 'Questions supprimées : {$a}';
+$string['report_cleanup_groups'] = 'Groupes de doublons traités : {$a}';
+$string['report_cleanup_kept'] = 'Questions conservées : {$a}';
+$string['report_cleanup_skipped'] = 'Questions non supprimées : {$a}';
+$string['report_exports'] = 'Exports XML Moodle écrits avant suppression (dans {$a}) :';
+$string['task_cleanup_duplicates'] = 'Nettoyage de toutes les questions en doublon';

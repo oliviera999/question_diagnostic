@@ -820,3 +820,23 @@ $string['tool_categories_by_context_move_questions_to_triage_warning'] = '⚠️
 $string['tool_categories_by_context_move_questions_to_triage_not_accessible'] = 'Target Olution/commun category is not accessible from the course (courseid={$a->courseid}). Target context={$a->targetcontextid}. Method={$a->method}.';
 $string['tool_categories_by_context_categories_to_sort_not_found'] = 'Target category not found: create a question subcategory named “Catégories à trier” under Olution → commun.';
 
+// v1.15.0
+$string['cleanup_all_background'] = 'The clean-up runs as a background task (cron); you receive a report when it ends. Each deletion is preceded by a Moodle XML export.';
+$string['cleanup_all_queued'] = 'The clean-up has been scheduled. It runs at the next cron run; you will receive a report.';
+$string['cleanup_skipped_question'] = 'question {$a->id} kept: {$a->reason}';
+$string['delete_error'] = 'Error during deletion: {$a}';
+$string['delete_refused'] = 'Deletion refused: {$a}';
+$string['deleter_skip_error'] = 'error during the check or the deletion';
+$string['deleter_skip_hiddenbycore'] = 'hidden by Moodle instead of deleted (in use)';
+$string['deleter_skip_missing'] = 'question not found';
+$string['deleter_skip_randompool'] = 'its category is used by a random question';
+$string['deleter_skip_used'] = 'used (attempts, quizzes or another plugin, any version)';
+$string['error_export_dir'] = 'Cannot create the export folder {$a}: nothing was deleted.';
+$string['error_export_write'] = 'Cannot write the export {$a}: nothing was deleted.';
+$string['messageprovider:operationreport'] = 'Report of a question bank operation';
+$string['report_cleanup_deleted'] = 'Questions deleted: {$a}';
+$string['report_cleanup_groups'] = 'Duplicate groups processed: {$a}';
+$string['report_cleanup_kept'] = 'Questions kept: {$a}';
+$string['report_cleanup_skipped'] = 'Questions not deleted: {$a}';
+$string['report_exports'] = 'Moodle XML exports written before deletion (in {$a}):';
+$string['task_cleanup_duplicates'] = 'Clean-up of all duplicate questions';

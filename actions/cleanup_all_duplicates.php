@@ -23,7 +23,7 @@
  * Modes de fonctionnement :
  * - preview : Affiche les statistiques et la page de confirmation
  * - download_csv : Génère le CSV de la liste des questions à supprimer
- * - execute : Exécute le nettoyage par lots (avec batch number)
+ * - execute : programme le nettoyage en tâche de fond (tâche adhoc cleanup_duplicates_task)
  * - complete : Affiche le résumé final
  *
  * @package    local_question_diagnostic
@@ -53,18 +53,14 @@ $PAGE->set_context($context);
 $preview = optional_param('preview', 0, PARAM_INT);
 $download_csv = optional_param('download_csv', 0, PARAM_INT);
 $execute = optional_param('execute', 0, PARAM_INT);
-$batch = optional_param('batch', 0, PARAM_INT);
-
-// Taille du lot (nombre de groupes à traiter par batch)
-define('BATCH_SIZE', 10);
 
 if ($download_csv) {
     // MODE TÉLÉCHARGEMENT CSV
     handle_csv_download();
     exit;
 } else if ($execute) {
-    // MODE EXÉCUTION PAR LOTS
-    execute_cleanup_batch($batch);
+    // v1.15.0 : MODE EXÉCUTION EN TÂCHE DE FOND (plus de requête HTTP qui enchaîne les lots).
+    queue_cleanup_task();
 } else if ($preview) {
     // MODE PRÉVISUALISATION
     show_preview_page();
@@ -230,7 +226,7 @@ function show_preview_page() {
     echo html_writer::tag('li', '✅ Seules les versions inutilisées seront supprimées');
     echo html_writer::tag('li', '✅ Au moins 1 version sera toujours conservée par groupe (même si inutilisée)');
     echo html_writer::tag('li', '🌐 <strong>Logique de conservation intelligente :</strong> si aucune version n\'est utilisée, la version conservée sera celle du contexte le plus large (site > catégorie > cours > module), puis la plus ancienne en cas d\'égalité');
-    echo html_writer::tag('li', '✅ Le traitement se fait par lots de ' . BATCH_SIZE . ' groupes pour éviter les timeouts');
+    echo html_writer::tag('li', '✅ ' . get_string('cleanup_all_background', 'local_question_diagnostic'));
     echo html_writer::end_tag('ul');
     echo html_writer::end_tag('div');
     
@@ -261,15 +257,12 @@ function show_preview_page() {
     echo '<br><br>';
     
     // Bouton confirmer
-    $execute_url = new moodle_url('/local/question_diagnostic/actions/cleanup_all_duplicates.php', [
-        'execute' => 1,
-        'batch' => 0,
-        'sesskey' => sesskey()
-    ]);
-    echo html_writer::link(
+    $execute_url = new moodle_url('/local/question_diagnostic/actions/cleanup_all_duplicates.php', ['execute' => 1]);
+    echo $OUTPUT->single_button(
         $execute_url,
-        '✓ ' . get_string('cleanup_all_confirm_button', 'local_question_diagnostic'),
-        ['class' => 'btn btn-danger btn-lg', 'style' => 'margin-right: 10px; font-weight: bold;']
+        get_string('cleanup_all_confirm_button', 'local_question_diagnostic'),
+        'post',
+        ['type' => single_button::BUTTON_DANGER]
     );
     
     // Bouton annuler
@@ -285,272 +278,29 @@ function show_preview_page() {
     echo $OUTPUT->footer();
 }
 
-/**
- * Exécute le nettoyage par lots
- * 
- * @param int $batch Numéro du lot actuel
- */
-function execute_cleanup_batch($batch) {
-    global $OUTPUT, $PAGE, $DB;
-    
-    $PAGE->set_url(new moodle_url('/local/question_diagnostic/actions/cleanup_all_duplicates.php', 
-                   ['execute' => 1, 'batch' => $batch, 'sesskey' => sesskey()]));
-    $PAGE->set_title(get_string('cleanup_all_progress_title', 'local_question_diagnostic'));
-    $PAGE->set_heading(local_question_diagnostic_get_heading_with_version(
-        get_string('cleanup_all_progress_title', 'local_question_diagnostic')
-    ));
-    $PAGE->set_pagelayout('admin');
-    
-    // Initialiser ou récupérer la progression depuis la session
-    if ($batch == 0) {
-        // 🆕 v1.9.53 : OPTIMISATION - Ne compter que les groupes avec versions supprimables
-        // Premier batch : initialiser
-        $_SESSION['cleanup_progress'] = [
-            'total_deleted' => 0,
-            'total_kept' => 0,
-            'total_groups_processed' => 0,
-            'total_groups' => question_analyzer::count_duplicate_groups(false, true), // deletable_only = true
-            'errors' => []
-        ];
-    }
-    
-    $progress = $_SESSION['cleanup_progress'];
-    
-    // Calculer l'offset
-    $offset = $batch * BATCH_SIZE;
-    
-    // 🆕 v1.9.53 : OPTIMISATION - Charger uniquement les groupes avec versions supprimables
-    // Cela évite de traiter des groupes où toutes les versions sont protégées
-    $groups = question_analyzer::get_duplicate_groups(BATCH_SIZE, $offset, false, true); // deletable_only = true
-    
-    // Si aucun groupe restant, afficher la page de complétion
-    if (empty($groups)) {
-        show_completion_page($progress);
-        exit;
-    }
-    
-    // Traiter chaque groupe
-    $batch_deleted = 0;
-    $batch_kept = 0;
-    
-    foreach ($groups as $group) {
-        // Récupérer toutes les questions du groupe (même définition que question_analyzer::get_duplicate_groups()).
-        $all_questions = [];
-        if (!empty($group->all_question_ids) && is_array($group->all_question_ids)) {
-            $all_questions = $DB->get_records_list('question', 'id', $group->all_question_ids, 'id ASC');
-        }
-        
-        if (count($all_questions) <= 1) {
-            // Si une seule version, on ne supprime rien
-            $batch_kept += count($all_questions);
-            continue;
-        }
-        
-        // Charger l'usage
-        $question_ids = array_keys($all_questions);
-        $usage_map = question_analyzer::get_questions_usage_by_ids($question_ids);
-        
-        // Identifier les questions à supprimer et à garder
-        $to_delete = [];
-        $to_keep = [];
-        
-        foreach ($all_questions as $q) {
-            $quiz_count = 0;
-            if (isset($usage_map[$q->id]) && isset($usage_map[$q->id]['quiz_count'])) {
-                $quiz_count = $usage_map[$q->id]['quiz_count'];
-            }
-            
-            if ($quiz_count > 0) {
-                // Question utilisée = à garder
-                $to_keep[] = $q;
-            } else {
-                // Question inutilisée = candidat à la suppression
-                $to_delete[] = $q;
-            }
-        }
-        
-        // Sécurité : garder au moins 1 version
-        if (empty($to_keep) && !empty($to_delete)) {
-            // 🆕 v1.11.20 : Sélection intelligente (contexte le plus large, puis plus ancienne).
-            $best = question_analyzer::select_best_question_to_keep($to_delete);
-            if ($best) {
-                $to_keep[] = $best->question;
-                $to_delete = array_values(array_filter($to_delete, function($q) use ($best) {
-                    return (int)$q->id !== (int)$best->question->id;
-                }));
-            } else {
-                // Fallback : garder la première (ordre id ASC).
-                $oldest = array_shift($to_delete);
-                if ($oldest) {
-                    $to_keep[] = $oldest;
-                }
-            }
-        }
-        
-        // Supprimer les questions inutilisées
-        foreach ($to_delete as $q) {
-            try {
-                question_delete_question($q->id);
-                $batch_deleted++;
-            } catch (Exception $e) {
-                $progress['errors'][] = 'Erreur suppression question ID ' . $q->id . ': ' . $e->getMessage();
-            }
-        }
-        
-        $batch_kept += count($to_keep);
-    }
-    
-    // Mettre à jour la progression
-    $progress['total_deleted'] += $batch_deleted;
-    $progress['total_kept'] += $batch_kept;
-    $progress['total_groups_processed'] += count($groups);
-    $_SESSION['cleanup_progress'] = $progress;
-    
-    // Afficher la page de progression
-    echo $OUTPUT->header();
-    
-    echo html_writer::tag('h2', '🧹 ' . get_string('cleanup_all_progress_title', 'local_question_diagnostic'));
-    
-    // Barre de progression
-    $progress_percent = ($progress['total_groups_processed'] / max($progress['total_groups'], 1)) * 100;
-    
-    echo html_writer::start_tag('div', ['style' => 'margin: 30px 0;']);
-    echo html_writer::start_tag('div', [
-        'style' => 'width: 100%; background: #e9ecef; border-radius: 5px; height: 40px; position: relative; overflow: hidden;'
-    ]);
-    echo html_writer::start_tag('div', [
-        'style' => 'width: ' . $progress_percent . '%; background: linear-gradient(90deg, #28a745, #5cb85c); height: 100%; transition: width 0.3s;'
-    ]);
-    echo html_writer::end_tag('div');
-    echo html_writer::tag('div', round($progress_percent, 1) . '%', [
-        'style' => 'position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-weight: bold; font-size: 16px;'
-    ]);
-    echo html_writer::end_tag('div');
-    echo html_writer::end_tag('div');
-    
-    // Statistiques actuelles
-    $batch_obj = new stdClass();
-    $batch_obj->current = $batch + 1;
-    $batch_obj->total = ceil($progress['total_groups'] / BATCH_SIZE);
-    
-    echo html_writer::tag('h3', 
-        get_string('cleanup_all_progress_batch', 'local_question_diagnostic', $batch_obj),
-        ['style' => 'text-align: center;']
-    );
-    
-    $stats_obj = new stdClass();
-    $stats_obj->deleted = $progress['total_deleted'];
-    $stats_obj->kept = $progress['total_kept'];
-    
-    echo html_writer::tag('p', 
-        get_string('cleanup_all_progress_stats', 'local_question_diagnostic', $stats_obj),
-        ['style' => 'text-align: center; font-size: 18px; margin: 20px 0;']
-    );
-    
-    echo html_writer::tag('p', 'Groupes traités : ' . $progress['total_groups_processed'] . ' / ' . $progress['total_groups'],
-                          ['style' => 'text-align: center; color: #666;']);
-    
-    // Auto-redirection vers le batch suivant
-    $next_batch = $batch + 1;
-    $next_url = new moodle_url('/local/question_diagnostic/actions/cleanup_all_duplicates.php', [
-        'execute' => 1,
-        'batch' => $next_batch,
-        'sesskey' => sesskey()
-    ]);
-    
-    echo html_writer::start_tag('div', ['style' => 'text-align: center; margin: 30px 0;']);
-    echo html_writer::tag('p', '⏳ Redirection automatique dans 2 secondes...', 
-                          ['style' => 'font-style: italic; color: #666;']);
-    echo html_writer::end_tag('div');
-    
-    // JavaScript pour la redirection
-    echo html_writer::start_tag('script');
-    echo "setTimeout(function() {
-        window.location.href = '" . $next_url->out(false) . "';
-    }, 2000);";
-    echo html_writer::end_tag('script');
-    
-    echo $OUTPUT->footer();
-}
+
 
 /**
- * Affiche la page de complétion avec le résumé final
- * 
- * @param array $progress Données de progression
+ * Programme le nettoyage global en tâche de fond et affiche la confirmation.
  */
-function show_completion_page($progress) {
-    global $OUTPUT, $PAGE;
-    
-    $PAGE->set_url(new moodle_url('/local/question_diagnostic/actions/cleanup_all_duplicates.php'));
-    $PAGE->set_title(get_string('cleanup_all_complete_title', 'local_question_diagnostic'));
-    $PAGE->set_heading(local_question_diagnostic_get_heading_with_version(
-        get_string('cleanup_all_complete_title', 'local_question_diagnostic')
-    ));
-    $PAGE->set_pagelayout('admin');
-    
-    echo $OUTPUT->header();
-    
-    echo html_writer::tag('h2', '✅ ' . get_string('cleanup_all_complete_title', 'local_question_diagnostic'));
-    
-    // Résumé en cartes
-    echo html_writer::start_tag('div', ['class' => 'qd-dashboard', 'style' => 'margin: 30px 0;']);
-    
-    echo html_writer::start_tag('div', ['class' => 'qd-card success']);
-    echo html_writer::tag('div', 'Questions Supprimées', ['class' => 'qd-card-title']);
-    echo html_writer::tag('div', $progress['total_deleted'], ['class' => 'qd-card-value']);
-    echo html_writer::tag('div', 'versions inutilisées', ['class' => 'qd-card-subtitle']);
-    echo html_writer::end_tag('div');
-    
-    echo html_writer::start_tag('div', ['class' => 'qd-card']);
-    echo html_writer::tag('div', 'Versions Conservées', ['class' => 'qd-card-title']);
-    echo html_writer::tag('div', $progress['total_kept'], ['class' => 'qd-card-value']);
-    echo html_writer::tag('div', 'versions protégées', ['class' => 'qd-card-subtitle']);
-    echo html_writer::end_tag('div');
-    
-    echo html_writer::start_tag('div', ['class' => 'qd-card']);
-    echo html_writer::tag('div', 'Groupes Traités', ['class' => 'qd-card-title']);
-    echo html_writer::tag('div', $progress['total_groups_processed'], ['class' => 'qd-card-value']);
-    echo html_writer::tag('div', 'groupes nettoyés', ['class' => 'qd-card-subtitle']);
-    echo html_writer::end_tag('div');
-    
-    echo html_writer::end_tag('div'); // fin dashboard
-    
-    // Résumé textuel
-    $summary_obj = new stdClass();
-    $summary_obj->deleted = $progress['total_deleted'];
-    $summary_obj->kept = $progress['total_kept'];
-    $summary_obj->groups = $progress['total_groups_processed'];
-    
-    echo html_writer::start_tag('div', ['class' => 'alert alert-success', 'style' => 'margin: 30px 0; font-size: 16px;']);
-    echo html_writer::tag('h3', '📊 ' . get_string('cleanup_all_complete_summary', 'local_question_diagnostic', $summary_obj));
-    echo html_writer::end_tag('div');
-    
-    // Erreurs éventuelles
-    if (!empty($progress['errors'])) {
-        echo html_writer::start_tag('div', ['class' => 'alert alert-warning', 'style' => 'margin: 30px 0;']);
-        echo html_writer::tag('h4', '⚠️ Erreurs rencontrées (' . count($progress['errors']) . ')');
-        echo html_writer::start_tag('ul', ['style' => 'margin-top: 15px;']);
-        foreach ($progress['errors'] as $error) {
-            echo html_writer::tag('li', $error);
-        }
-        echo html_writer::end_tag('ul');
-        echo html_writer::end_tag('div');
+function queue_cleanup_task() {
+    global $OUTPUT, $PAGE, $USER;
+
+    if (!data_submitted()) {
+        throw new \moodle_exception('invalidrequest');
     }
-    
-    // Bouton retour
-    echo html_writer::start_tag('div', ['style' => 'text-align: center; margin: 40px 0;']);
-    $return_url = new moodle_url('/local/question_diagnostic/questions_cleanup.php', ['loadstats' => 1]);
-    echo html_writer::link(
-        $return_url,
-        '← ' . get_string('backtoquestions', 'local_question_diagnostic'),
-        ['class' => 'btn btn-primary btn-lg']
+    $task = new \local_question_diagnostic\task\cleanup_duplicates_task();
+    $task->set_userid($USER->id);
+    $task->set_custom_data(['userid' => (int)$USER->id]);
+    \core\task\manager::queue_adhoc_task($task, true);
+    \local_question_diagnostic\audit_logger::log_action('cleanup_all_duplicates_queued', []);
+
+    redirect(
+        new moodle_url('/local/question_diagnostic/questions_cleanup.php', ['loadstats' => 1]),
+        get_string('cleanup_all_queued', 'local_question_diagnostic'),
+        null,
+        \core\output\notification::NOTIFY_SUCCESS
     );
-    echo html_writer::end_tag('div');
-    
-    // Nettoyer la session
-    unset($_SESSION['cleanup_progress']);
-    
-    echo $OUTPUT->footer();
 }
 
 /**
