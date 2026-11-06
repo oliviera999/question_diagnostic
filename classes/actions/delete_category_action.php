@@ -42,9 +42,14 @@ class delete_category_action extends base_action {
     const MAX_BULK_DELETE = 100;
 
     /**
-     * Exécute la suppression
+     * Exécute la suppression (uniquement sur un formulaire POST confirmé).
      */
     protected function perform_action() {
+        if (!data_submitted()) {
+            // Confirmation obligatoire par POST : un lien GET ne supprime jamais rien.
+            $this->show_confirmation_page();
+            return;
+        }
         if ($this->is_bulk) {
             $this->perform_bulk_delete();
         } else {
@@ -53,47 +58,43 @@ class delete_category_action extends base_action {
     }
 
     /**
-     * Suppression unique
+     * Suppression unique (catégorie vide, contrôles complets de category_manager).
      */
     private function perform_single_delete() {
-        // Option avancée : ignorer la protection "catégorie avec description" (si demandée explicitement).
-        $bypass_info = optional_param('bypass_info', 0, PARAM_INT);
-        $result = category_manager::delete_category($this->item_id, false, (bool)$bypass_info);
+        $result = category_manager::delete_category($this->item_id);
 
         if ($result === true) {
-            // Purger les caches après modification
             question_analyzer::purge_all_caches();
             $this->redirect_success('Catégorie supprimée avec succès.');
         } else {
-            $this->redirect_error($result);
+            $this->redirect_error(s($result));
         }
     }
 
     /**
-     * Suppression en masse
+     * Suppression en masse : liste figée au lancement (pas de cascade), chaque catégorie revérifiée.
      */
     private function perform_bulk_delete() {
-        $bypass_info = optional_param('bypass_info', 0, PARAM_INT);
-        $result = category_manager::delete_categories_bulk($this->item_ids, false, (bool)$bypass_info);
+        [$eligible, $refused] = category_manager::freeze_deletable_ids($this->item_ids);
+        $result = category_manager::delete_frozen_category_list($eligible);
+        $errors = [];
+        foreach ($refused + $result->skipped as $id => $msg) {
+            $errors[] = s("Catégorie $id : $msg");
+        }
+        $success = count($result->deleted);
 
-        // Purger les caches si au moins une suppression a réussi
-        if ($result['success'] > 0) {
+        if ($success > 0) {
             question_analyzer::purge_all_caches();
         }
 
-        // Gérer les résultats
-        if ($result['success'] > 0 && empty($result['errors'])) {
-            // Tout a réussi
-            $this->redirect_success("{$result['success']} catégorie(s) supprimée(s) avec succès.");
-        } else if ($result['success'] > 0 && !empty($result['errors'])) {
-            // Succès partiel
-            $message = "{$result['success']} supprimée(s), mais {$result['failed']} erreur(s) :<br>";
-            $message .= implode('<br>', array_slice($result['errors'], 0, 5)); // Limiter à 5 erreurs
+        if ($success > 0 && empty($errors)) {
+            $this->redirect_success("$success catégorie(s) supprimée(s) avec succès.");
+        } else if ($success > 0) {
+            $message = "$success supprimée(s), mais " . count($errors) . " erreur(s) :<br>";
+            $message .= implode('<br>', array_slice($errors, 0, 5));
             $this->redirect_warning($message);
         } else {
-            // Aucune suppression
-            $errors = implode('<br>', array_slice($result['errors'], 0, 5));
-            $this->redirect_error("Aucune suppression effectuée. Erreurs :<br>$errors");
+            $this->redirect_error("Aucune suppression effectuée. Erreurs :<br>" . implode('<br>', array_slice($errors, 0, 5)));
         }
     }
 
@@ -163,7 +164,8 @@ class delete_category_action extends base_action {
      */
     protected function get_confirmation_details() {
         if ($this->is_bulk) {
-            return '<strong>Remarque</strong> : Les catégories protégées (par défaut, avec description, racines) seront automatiquement ignorées.';
+            return '<strong>Remarque</strong> : seules les catégories vides et non protégées (par défaut, description, '
+                . 'idnumber, racine, utilisées par une question aléatoire) seront supprimées.';
         }
         return '';
     }
