@@ -782,6 +782,24 @@ function local_question_diagnostic_can_configure_plugin() {
 }
 
 /**
+ * Contrôle d'accès d'une page du plugin (v1.15.0).
+ *
+ * - Pages de consultation : capacité du plugin dans le contexte système (déléguable, par exemple à un auditeur).
+ * - Pages et actions qui écrivent dans la banque de questions ($adminonly) : capacité ET administrateur du site.
+ *
+ * @param string $capability nom court de la capacité (view, viewquestions, deletequestions…)
+ * @param bool $adminonly réserver aux administrateurs du site
+ */
+function local_question_diagnostic_require_access(string $capability = 'view', bool $adminonly = false): void {
+    require_login();
+    $context = context_system::instance();
+    require_capability('local/question_diagnostic:' . $capability, $context);
+    if ($adminonly && !is_siteadmin()) {
+        throw new \moodle_exception('accessdenied', 'admin');
+    }
+}
+
+/**
  * Génère un message d'erreur de permission et redirige
  * 
  * @param string $permission Nom de la permission manquante
@@ -1095,8 +1113,8 @@ function local_question_diagnostic_get_course_categories() {
 function local_question_diagnostic_render_cache_purge_button() {
     global $OUTPUT;
     
+    // Page de confirmation (le sesskey n'est envoyé qu'à la confirmation, en POST).
     $purge_url = new moodle_url('/local/question_diagnostic/purge_cache.php', [
-        'sesskey' => sesskey(),
         // Standard Moodle param name used across the plugin.
         'returnurl' => qualified_me()
     ]);

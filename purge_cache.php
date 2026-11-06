@@ -69,12 +69,10 @@ if (!$confirm) {
     
     $confirm_url = new moodle_url('/local/question_diagnostic/purge_cache.php', [
         'confirm' => 1,
-        'sesskey' => sesskey(),
         'returnurl' => $returnurl->out(false),
     ]);
-    echo html_writer::link($confirm_url, '🔧 ' . get_string('purge_cache_confirm', 'local_question_diagnostic'), [
-        'class' => 'btn btn-primary btn-lg'
-    ]);
+    echo $OUTPUT->single_button($confirm_url, get_string('purge_cache_confirm', 'local_question_diagnostic'), 'post',
+        ['type' => single_button::BUTTON_PRIMARY]);
     
     echo html_writer::link(
         $returnurl,
@@ -93,6 +91,9 @@ if (!$confirm) {
 } else {
     // Vérifier le sesskey
     require_sesskey();
+    if (!data_submitted()) {
+        throw new \moodle_exception('invalidrequest');
+    }
     
     // Purger les caches
     echo html_writer::start_div('alert alert-info', ['style' => 'margin: 20px 0;']);

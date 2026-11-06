@@ -1,21 +1,40 @@
 # 🔧 Moodle Question Bank Diagnostic Tool
 
-![Tests](https://github.com/oliviera999/question_diagnostic/workflows/Tests/badge.svg)
 ![Moodle Plugin CI](https://github.com/oliviera999/question_diagnostic/workflows/Moodle%20Plugin%20CI/badge.svg)
 ![PHP Version](https://img.shields.io/badge/PHP-8.2%2B-blue)
-![Moodle](https://img.shields.io/badge/Moodle-5.1-orange)
+![Moodle](https://img.shields.io/badge/Moodle-5.1%20%C3%A0%205.3-orange)
 ![License](https://img.shields.io/badge/License-GPL%20v3-green)
 
-Outil complet de gestion et diagnostic de la banque de questions pour Moodle 5.1+
+Outil de diagnostic et de nettoyage de la banque de questions pour Moodle 5.1 à 5.3.
 
-**Version actuelle :** v1.13.0 | **Statut :** Production-Ready ✅ | **Qualité :** 9.9/10 ⭐⭐⭐⭐⭐
+**Version actuelle :** v1.15.0
 
 ### 📌 Compatibilité Moodle
 
-- **✅ Supporté** : Moodle **5.1** (requis)
-- **❌ Non supporté** : Moodle 4.x et antérieurs (architecture incompatible)
-- **📖 Détails** : [docs/technical/MOODLE_COMPATIBILITY_POLICY.md](docs/technical/MOODLE_COMPATIBILITY_POLICY.md)
-- **⚠️ Prérequis** : PHP 8.2 minimum
+- **Supporté** : Moodle **5.1, 5.2 et 5.3** (banques de questions dans les activités `mod_qbank`), PHP 8.2 à 8.4.
+- **Non supporté** : Moodle 4.x et antérieurs.
+
+### 🛡️ Garde-fous (v1.15.0)
+
+Depuis l'audit de novembre 2026, toute opération qui écrit dans la banque de questions suit ces règles :
+
+- **Doublons** : même catégorie et même contenu complet (empreinte de l'export XML Moodle : réponses, options,
+  sous-questions, indices, contenu des fichiers). Le nom n'entre pas en compte.
+- **Usage** : une question est utilisée dès qu'une version de son entrée a une tentative, une référence dans un
+  test (version figée ou « toujours la dernière ») ou un usage déclaré par un autre plugin. En cas d'erreur, tout
+  est considéré comme utilisé.
+- **Tirages aléatoires** : une catégorie visée par une question aléatoire (sous-catégories comprises) n'est ni vidée,
+  ni supprimée, ni fusionnée.
+- **Suppression** : un seul point de passage (`local\question_deleter`) ; export XML Moodle dans
+  `dataroot/local_question_diagnostic/exports/` avant toute suppression, entrée supprimée en entier, résultat
+  vérifié en base.
+- **Fusion** : seule `question_references` est remappée ; une référence figée reste figée ; verrou obligatoire.
+- **Opérations sur tout le site** : tâches de fond (cron) avec rapport par la messagerie Moodle.
+- **Confirmations** en POST avec `sesskey` ; journal dans le journal standard de Moodle (événement
+  `operation_performed`).
+
+Réglages : *Administration du site > Plugins > Plugins locaux > Gestion des catégories de questions* (banque
+partagée Olution par son `cmid`, durée de conservation des exports).
 
 ---
 
