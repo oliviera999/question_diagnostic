@@ -1753,7 +1753,9 @@ class question_analyzer {
                 $qid = $q->id;
 
                 // Vérification 1 : question (ou une autre version de son entrée) utilisée, ou dans un réservoir aléatoire ?
-                $skip = $checks[(int)$qid] ?? \local_question_diagnostic\local\question_deleter::SKIP_ERROR;
+                // Attention : une valeur null (supprimable) doit être distinguée d'une clé absente.
+                $skip = array_key_exists((int)$qid, $checks) ? $checks[(int)$qid]
+                    : \local_question_diagnostic\local\question_deleter::SKIP_ERROR;
                 if ($skip !== null) {
                     $results[$qid]->reason = \local_question_diagnostic\local\question_deleter::skip_label($skip);
                     $results[$qid]->details['skip'] = $skip;
@@ -2870,7 +2872,7 @@ class question_analyzer {
             // Réservoirs de tirage aléatoire : conservés.
             $checks = \local_question_diagnostic\local\question_deleter::check(array_map(fn($q) => (int)$q->id, $unused));
             foreach ($unused as $k => $q) {
-                if (($checks[(int)$q->id] ?? 'error') !== null) {
+                if (!array_key_exists((int)$q->id, $checks) || $checks[(int)$q->id] !== null) {
                     $used[] = $q;
                     unset($unused[$k]);
                 }

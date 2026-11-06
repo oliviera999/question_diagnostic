@@ -26,11 +26,8 @@ require_once(__DIR__ . '/classes/olution_manager.php');
 
 use local_question_diagnostic\olution_manager;
 
-require_login();
-
-if (!is_siteadmin()) {
-    throw new \moodle_exception('accessdenied', 'admin');
-}
+// Contrôle d'accès : capacité du plugin (consultation).
+local_question_diagnostic_require_access('viewquestions');
 
 $PAGE->set_url(new moodle_url('/local/question_diagnostic/olution_auto_sort.php'));
 $PAGE->set_context(context_system::instance());
@@ -50,10 +47,14 @@ $mode = ($mode === 'ai') ? 'ai' : 'heuristic';
 // v1.15.0 : le mode IA envoie l'énoncé des questions au fournisseur d'IA configuré dans Moodle. Il n'est lancé que
 // par un envoi de formulaire (POST + sesskey), pour un nombre limité de questions, et si la politique d'usage de
 // l'IA a été acceptée.
+// L'envoi d'énoncés à un fournisseur externe est réservé aux administrateurs du site.
 $aiblocked = '';
 if ($mode === 'ai') {
     if (!data_submitted() || !confirm_sesskey()) {
         $mode = 'heuristic';
+    } else if (!is_siteadmin()) {
+        // Demande explicite (POST) par un non-administrateur : refus net.
+        local_question_diagnostic_require_access('viewquestions', true);
     } else if (class_exists('\\core_ai\\manager') && !\core_ai\manager::get_user_policy_status((int)$USER->id)) {
         $mode = 'heuristic';
         $aiblocked = get_string('olution_auto_sort_ai_policy', 'local_question_diagnostic');
@@ -120,7 +121,7 @@ $heururl = new moodle_url('/local/question_diagnostic/olution_auto_sort.php', $b
 echo html_writer::link($heururl, get_string('olution_auto_sort_mode_heuristic', 'local_question_diagnostic'), [
     'class' => 'btn btn-sm ' . ($mode === 'heuristic' ? 'btn-primary' : 'btn-secondary'),
 ]);
-if ($aienabled) {
+if ($aienabled && is_siteadmin()) {
     $aiurl = new moodle_url('/local/question_diagnostic/olution_auto_sort.php', $baseparams + ['mode' => 'ai']);
     echo ' ';
     echo $OUTPUT->single_button($aiurl, get_string('olution_auto_sort_mode_ai', 'local_question_diagnostic'), 'post',
@@ -207,11 +208,13 @@ $returnurl = new moodle_url('/local/question_diagnostic/olution_auto_sort.php', 
     'minscore' => $minscore,
     'mode' => $mode,
 ]);
+// Formulaire POST (sesskey en champ caché, jamais dans l'URL) : mène à la page de confirmation.
 $move_selected_url = new moodle_url('/local/question_diagnostic/actions/move_to_olution.php', [
     'action' => 'move_selected',
-    'sesskey' => sesskey(),
     'returnurl' => $returnurl->out(false),
 ]);
+// Les déplacements sont des écritures : réservés aux administrateurs du site (l'action revérifie).
+$qdisadmin = is_siteadmin();
 
 echo html_writer::start_tag('form', [
     'method' => 'post',
@@ -225,13 +228,15 @@ echo html_writer::start_div('mb-3');
 echo html_writer::tag('strong', get_string('selected_questions', 'local_question_diagnostic') . ': ', ['class' => 'mr-1']);
 echo html_writer::tag('span', '0', ['id' => 'qd-auto-sort-selected-count']);
 echo ' ';
-echo html_writer::empty_tag('input', [
-    'type' => 'submit',
-    'value' => get_string('move_selected_button', 'local_question_diagnostic'),
-    'class' => 'btn btn-primary btn-sm ml-2',
-    'id' => 'qd-auto-sort-move-selected-btn',
-    'disabled' => 'disabled',
-]);
+if ($qdisadmin) {
+    echo html_writer::empty_tag('input', [
+        'type' => 'submit',
+        'value' => get_string('move_selected_button', 'local_question_diagnostic'),
+        'class' => 'btn btn-primary btn-sm ml-2',
+        'id' => 'qd-auto-sort-move-selected-btn',
+        'disabled' => 'disabled',
+    ]);
+}
 echo html_writer::end_div();
 
 if (empty($rows)) {
@@ -273,8 +278,8 @@ if (empty($rows)) {
 
         $qtext = (string)($q->questiontext ?? '');
         $snippet = $qtext;
-        if (strlen($snippet) > 220) {
-            $snippet = substr($snippet, 0, 220) . '…';
+        if (core_text::strlen($snippet) > 220) {
+            $snippet = core_text::substr($snippet, 0, 220) . '…';
         }
         $snippet = s($snippet);
 
@@ -282,7 +287,7 @@ if (empty($rows)) {
 
         // Select.
         echo html_writer::start_tag('td');
-        if ($best) {
+        if ($best && $qdisadmin) {
             echo html_writer::empty_tag('input', [
                 'type' => 'checkbox',
                 'name' => 'ops[]',
@@ -344,12 +349,12 @@ if (empty($rows)) {
 
         // Actions.
         echo html_writer::start_tag('td');
-        if ($best) {
+        if ($best && $qdisadmin) {
+            // Lien vers la page de confirmation (aucun sesskey dans l'URL).
             $move_url = new moodle_url('/local/question_diagnostic/actions/move_to_olution.php', [
                 'action' => 'move_one',
                 'questionid' => $qid,
                 'targetcatid' => (int)$best->id,
-                'sesskey' => sesskey(),
                 'returnurl' => $returnurl->out(false),
             ]);
             echo html_writer::link($move_url, get_string('move', 'local_question_diagnostic'), ['class' => 'btn btn-sm btn-primary']);

@@ -25,19 +25,11 @@
 require_once(__DIR__ . '/../../config.php');
 require_once(__DIR__ . '/lib.php');
 require_once(__DIR__ . '/classes/question_analyzer.php');
-require_once(__DIR__ . '/classes/debug_manager.php');
 
 use local_question_diagnostic\question_analyzer;
-use local_question_diagnostic\debug_manager;
 
-// Charger les bibliothèques Moodle nécessaires.
-require_login();
-
-// Vérification stricte : seuls les administrateurs du site peuvent accéder à cette page.
-if (!is_siteadmin()) {
-    throw new \moodle_exception('accessdenied', 'admin', '', 'Vous devez être administrateur du site pour accéder à cet outil.');
-    exit;
-}
+// Contrôle d'accès : capacité du plugin + administrateur du site (écriture).
+local_question_diagnostic_require_access('deletequestions', true);
 
 // Définir le contexte de la page (système).
 $context = context_system::instance();
@@ -54,17 +46,12 @@ $PAGE->set_pagelayout('report');
 $PAGE->requires->css('/local/question_diagnostic/styles/main.css');
 $PAGE->requires->js('/local/question_diagnostic/scripts/main.js', true);
 
-// Initialiser le système de debugging
-debug_manager::init();
-debug_manager::set_context('unhide_questions');
 
 // Traitement de l'action
 $action = optional_param('action', '', PARAM_ALPHA);
 $confirm = optional_param('confirm', 0, PARAM_INT);
 $question_ids = optional_param('question_ids', '', PARAM_TEXT);
 
-// Log des paramètres reçus
-debug_manager::verbose("Action: {$action}, Confirm: {$confirm}, Question IDs: {$question_ids}");
 
 // v1.15.0 : l'action « tout rendre visible » est supprimée. Elle faisait revenir dans les banques et les tirages
 // aléatoires les questions que des enseignants avaient supprimées (cachées par Moodle car déjà utilisées).
@@ -96,7 +83,7 @@ if ($action === 'unhide_selected' && $confirm && !empty($question_ids)) {
     
     $message = '✅ Opération terminée : ' . $result['success'] . ' question(s) rendues visibles.';
     if ($result['failed'] > 0) {
-        $message .= ' ' . $result['failed'] . ' échec(s). Détails : ' . implode('; ', array_slice($result['errors'], 0, 5));
+        $message .= ' ' . $result['failed'] . ' échec(s). Détails : ' . s(implode('; ', array_slice($result['errors'], 0, 5)));
     }
     
     redirect(
@@ -132,7 +119,7 @@ if ($action === 'unhide_single' && $confirm && !empty($question_ids)) {
         $message = '✅ Question ID ' . $question_id . ' rendue visible avec succès.';
         $notification_type = \core\output\notification::NOTIFY_SUCCESS;
     } else {
-        $message = '❌ Échec pour la question ID ' . $question_id . ': ' . $result;
+        $message = '❌ Échec pour la question ID ' . $question_id . ': ' . s($result);
         $notification_type = \core\output\notification::NOTIFY_ERROR;
     }
     
@@ -319,7 +306,7 @@ if ($total_hidden > 0) {
         
         echo html_writer::tag('td', $question->id);
         echo html_writer::tag('td', format_string($question->name));
-        echo html_writer::tag('td', $question->qtype);
+        echo html_writer::tag('td', s($question->qtype));
         
         // Colonne statut
         if ($is_used) {

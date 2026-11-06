@@ -262,7 +262,7 @@ function local_question_diagnostic_get_context_details($contextid, $include_id =
         }
         
     } catch (Exception $e) {
-        $result->context_name = 'Erreur : ' . $e->getMessage();
+        $result->context_name = 'Erreur : ' . s($e->getMessage());
     }
 
     $cache[$cachekey] = $result;
@@ -649,6 +649,8 @@ function local_question_diagnostic_pluginfile($course, $cm, $context, $filearea,
 
 // ============================================================================
 // 🆕 v1.9.41 : Fonctions helper pour permissions granulaires (capabilities)
+// v1.15.0 : alignées sur local_question_diagnostic_require_access() — consultation = capacité seule (déléguable),
+// écriture et export = capacité ET administrateur du site.
 // ============================================================================
 
 /**
@@ -658,7 +660,7 @@ function local_question_diagnostic_pluginfile($course, $cm, $context, $filearea,
  */
 function local_question_diagnostic_can_view() {
     $context = context_system::instance();
-    return has_capability('local/question_diagnostic:view', $context) || is_siteadmin();
+    return has_capability('local/question_diagnostic:view', $context);
 }
 
 /**
@@ -668,7 +670,7 @@ function local_question_diagnostic_can_view() {
  */
 function local_question_diagnostic_can_view_categories() {
     $context = context_system::instance();
-    return has_capability('local/question_diagnostic:viewcategories', $context) || is_siteadmin();
+    return has_capability('local/question_diagnostic:viewcategories', $context);
 }
 
 /**
@@ -678,7 +680,7 @@ function local_question_diagnostic_can_view_categories() {
  */
 function local_question_diagnostic_can_view_questions() {
     $context = context_system::instance();
-    return has_capability('local/question_diagnostic:viewquestions', $context) || is_siteadmin();
+    return has_capability('local/question_diagnostic:viewquestions', $context);
 }
 
 /**
@@ -688,7 +690,7 @@ function local_question_diagnostic_can_view_questions() {
  */
 function local_question_diagnostic_can_view_broken_links() {
     $context = context_system::instance();
-    return has_capability('local/question_diagnostic:viewbrokenlinks', $context) || is_siteadmin();
+    return has_capability('local/question_diagnostic:viewbrokenlinks', $context);
 }
 
 /**
@@ -698,7 +700,7 @@ function local_question_diagnostic_can_view_broken_links() {
  */
 function local_question_diagnostic_can_view_audit_logs() {
     $context = context_system::instance();
-    return has_capability('local/question_diagnostic:viewauditlogs', $context) || is_siteadmin();
+    return has_capability('local/question_diagnostic:viewauditlogs', $context);
 }
 
 /**
@@ -708,7 +710,7 @@ function local_question_diagnostic_can_view_audit_logs() {
  */
 function local_question_diagnostic_can_view_monitoring() {
     $context = context_system::instance();
-    return has_capability('local/question_diagnostic:viewmonitoring', $context) || is_siteadmin();
+    return has_capability('local/question_diagnostic:viewmonitoring', $context);
 }
 
 /**
@@ -718,7 +720,8 @@ function local_question_diagnostic_can_view_monitoring() {
  */
 function local_question_diagnostic_can_manage_categories() {
     $context = context_system::instance();
-    return has_capability('local/question_diagnostic:managecategories', $context) || is_siteadmin();
+    // Écriture (ou export) : capacité ET administrateur du site, comme local_question_diagnostic_require_access().
+    return has_capability('local/question_diagnostic:managecategories', $context) && is_siteadmin();
 }
 
 /**
@@ -728,7 +731,8 @@ function local_question_diagnostic_can_manage_categories() {
  */
 function local_question_diagnostic_can_delete_categories() {
     $context = context_system::instance();
-    return has_capability('local/question_diagnostic:deletecategories', $context) || is_siteadmin();
+    // Écriture (ou export) : capacité ET administrateur du site, comme local_question_diagnostic_require_access().
+    return has_capability('local/question_diagnostic:deletecategories', $context) && is_siteadmin();
 }
 
 /**
@@ -738,7 +742,8 @@ function local_question_diagnostic_can_delete_categories() {
  */
 function local_question_diagnostic_can_merge_categories() {
     $context = context_system::instance();
-    return has_capability('local/question_diagnostic:mergecategories', $context) || is_siteadmin();
+    // Écriture (ou export) : capacité ET administrateur du site, comme local_question_diagnostic_require_access().
+    return has_capability('local/question_diagnostic:mergecategories', $context) && is_siteadmin();
 }
 
 /**
@@ -748,7 +753,8 @@ function local_question_diagnostic_can_merge_categories() {
  */
 function local_question_diagnostic_can_move_categories() {
     $context = context_system::instance();
-    return has_capability('local/question_diagnostic:movecategories', $context) || is_siteadmin();
+    // Écriture (ou export) : capacité ET administrateur du site, comme local_question_diagnostic_require_access().
+    return has_capability('local/question_diagnostic:movecategories', $context) && is_siteadmin();
 }
 
 /**
@@ -758,7 +764,8 @@ function local_question_diagnostic_can_move_categories() {
  */
 function local_question_diagnostic_can_delete_questions() {
     $context = context_system::instance();
-    return has_capability('local/question_diagnostic:deletequestions', $context) || is_siteadmin();
+    // Écriture (ou export) : capacité ET administrateur du site, comme local_question_diagnostic_require_access().
+    return has_capability('local/question_diagnostic:deletequestions', $context) && is_siteadmin();
 }
 
 /**
@@ -768,7 +775,8 @@ function local_question_diagnostic_can_delete_questions() {
  */
 function local_question_diagnostic_can_export() {
     $context = context_system::instance();
-    return has_capability('local/question_diagnostic:export', $context) || is_siteadmin();
+    // Écriture (ou export) : capacité ET administrateur du site, comme local_question_diagnostic_require_access().
+    return has_capability('local/question_diagnostic:export', $context) && is_siteadmin();
 }
 
 /**
@@ -778,7 +786,8 @@ function local_question_diagnostic_can_export() {
  */
 function local_question_diagnostic_can_configure_plugin() {
     $context = context_system::instance();
-    return has_capability('local/question_diagnostic:configureplugin', $context) || is_siteadmin();
+    // Écriture (ou export) : capacité ET administrateur du site, comme local_question_diagnostic_require_access().
+    return has_capability('local/question_diagnostic:configureplugin', $context) && is_siteadmin();
 }
 
 /**
@@ -1112,7 +1121,12 @@ function local_question_diagnostic_get_course_categories() {
  */
 function local_question_diagnostic_render_cache_purge_button() {
     global $OUTPUT;
-    
+
+    // La purge des caches est une écriture réservée aux administrateurs du site : pas de bouton pour les autres.
+    if (!is_siteadmin()) {
+        return '';
+    }
+
     // Page de confirmation (le sesskey n'est envoyé qu'à la confirmation, en POST).
     $purge_url = new moodle_url('/local/question_diagnostic/purge_cache.php', [
         // Standard Moodle param name used across the plugin.
@@ -1244,11 +1258,9 @@ function local_question_diagnostic_render_category_hierarchy($hierarchy, $level 
             $badge_class = $count > 10 ? 'badge-success' : 'badge-primary';
         }
         
-        // Lien de purge
+        // Lien de suppression : page de confirmation (aucun sesskey dans l'URL, exécution en POST).
         $purge_url = new moodle_url('/local/question_diagnostic/actions/delete.php', [
             'id' => $category->id,
-            'preview' => 1,
-            'sesskey' => sesskey()
         ]);
         
         $html .= html_writer::start_div('qd-category-item', [
@@ -1260,17 +1272,20 @@ function local_question_diagnostic_render_category_hierarchy($hierarchy, $level 
         $html .= ' ';
         $html .= html_writer::tag('span', '(' . $count . ')', ['class' => 'badge ' . $badge_class]);
         $html .= ' ';
-        $html .= html_writer::link($purge_url, 'Purge this category', [
-            'class' => 'btn btn-xs btn-danger',
-            'style' => 'margin-left: 8px;'
-        ]);
+        if (is_siteadmin()) {
+            $html .= html_writer::link($purge_url, 'Purge this category', [
+                'class' => 'btn btn-xs btn-danger',
+                'style' => 'margin-left: 8px;'
+            ]);
+        }
         
         // Description si disponible
         if (!empty($category->info)) {
             $html .= html_writer::start_div('qd-category-description', [
                 'style' => 'margin-left: ' . (($level + 1) * 20) . 'px; font-size: 0.9em; color: #6c757d; margin-top: 4px;'
             ]);
-            $html .= format_string($category->info);
+            $html .= format_text($category->info, $category->infoformat ?? FORMAT_MOODLE,
+                ['context' => context_system::instance()]);
             $html .= html_writer::end_div();
         }
         
@@ -1444,8 +1459,9 @@ function local_question_diagnostic_get_question_categories_by_course_category($c
                     $course_id = $cat->instanceid;
                     $course = $DB->get_record('course', ['id' => $course_id]);
                     if ($course) {
-                        $course_name = $course->fullname;
-                        $context_display_name = $course->fullname;
+                        // Noms formatés (échappés) : affichés tels quels dans les pages.
+                        $course_name = format_string($course->fullname);
+                        $context_display_name = $course_name;
                     } else {
                         $context_display_name = 'Cours ID: ' . $course_id;
                     }
@@ -1472,7 +1488,8 @@ function local_question_diagnostic_get_question_categories_by_course_category($c
                     
                     if ($module_info) {
                         $course_name = $DB->get_field('course', 'fullname', ['id' => $module_info->course]);
-                        $context_display_name = $module_info->module_name . ': ' . $module_info->activity_name;
+                        $course_name = $course_name ? format_string($course_name) : '';
+                        $context_display_name = s($module_info->module_name) . ': ' . format_string($module_info->activity_name);
                         if ($course_name) {
                             $context_display_name .= ' (' . $course_name . ')';
                         }
@@ -1564,6 +1581,7 @@ function local_question_diagnostic_get_question_categories_by_course_category($c
             // Enrichir avec les propriétés de base
             foreach ($fallback_categories as $cat) {
                 $cat->context_type = 'course';
+                $cat->course_name = format_string((string)$cat->course_name);
                 $cat->context_display_name = $cat->course_name;
                 $cat->total_questions = 0;
                 $cat->visible_questions = 0;

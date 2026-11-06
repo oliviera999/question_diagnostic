@@ -28,11 +28,8 @@ require_once(__DIR__ . '/classes/question_analyzer.php');
 
 use local_question_diagnostic\question_analyzer;
 
-// Sécurité
-require_login();
-if (!is_siteadmin()) {
-    throw new \moodle_exception('accessdenied', 'admin');
-}
+// Contrôle d'accès : capacité du plugin + administrateur du site (écriture).
+local_question_diagnostic_require_access('managecategories', true);
 
 // Paramètres
 $entryid = optional_param('id', 0, PARAM_INT);
@@ -56,12 +53,11 @@ $PAGE->requires->css('/local/question_diagnostic/styles/main.css');
 // Traiter les actions
 // Action groupée : réassigner plusieurs entries
 if ($action === 'bulk_reassign' && !empty($selectedentries) && $targetcategoryid) {
-    require_sesskey();
-    
     if (!$confirm) {
         // Pas de confirmation, afficher la page de confirmation plus bas
     } else {
-    
+    // Exécution : POST (vérifié plus haut) + sesskey.
+    require_sesskey();
     try {
         // Vérifier que la catégorie cible existe
         $target_category = $DB->get_record('question_categories', ['id' => $targetcategoryid], '*', MUST_EXIST);
@@ -97,7 +93,7 @@ if ($action === 'bulk_reassign' && !empty($selectedentries) && $targetcategoryid
         $message .= "{$total_questions} question(s) récupérée(s).";
         
         if (!empty($errors)) {
-            $message .= " Erreurs : " . implode(', ', $errors);
+            $message .= " Erreurs : " . s(implode(', ', $errors));
         }
         
         redirect(
@@ -110,7 +106,7 @@ if ($action === 'bulk_reassign' && !empty($selectedentries) && $targetcategoryid
     } catch (Exception $e) {
         redirect(
             new moodle_url('/local/question_diagnostic/orphan_entries.php'),
-            "Erreur lors de la réassignation groupée : " . $e->getMessage(),
+            "Erreur lors de la réassignation groupée : " . s($e->getMessage()),
             null,
             \core\output\notification::NOTIFY_ERROR
         );
@@ -120,12 +116,11 @@ if ($action === 'bulk_reassign' && !empty($selectedentries) && $targetcategoryid
 
 // Action groupée : supprimer les entries vides (0 questions)
 if ($action === 'bulk_delete_empty' && !empty($selectedentries)) {
-    require_sesskey();
-    
     if (!$confirm) {
         // Pas de confirmation, afficher la page de confirmation plus bas
     } else {
-    
+    // Exécution : POST (vérifié plus haut) + sesskey.
+    require_sesskey();
     try {
         $success_count = 0;
         $errors = [];
@@ -158,7 +153,7 @@ if ($action === 'bulk_delete_empty' && !empty($selectedentries)) {
         $message = "🗑️ {$success_count} entry(ies) vide(s) supprimée(s) avec succès.";
         
         if (!empty($errors)) {
-            $message .= " Erreurs : " . implode(', ', $errors);
+            $message .= " Erreurs : " . s(implode(', ', $errors));
         }
         
         redirect(
@@ -171,7 +166,7 @@ if ($action === 'bulk_delete_empty' && !empty($selectedentries)) {
     } catch (Exception $e) {
         redirect(
             new moodle_url('/local/question_diagnostic/orphan_entries.php'),
-            "Erreur lors de la suppression groupée : " . $e->getMessage(),
+            "Erreur lors de la suppression groupée : " . s($e->getMessage()),
             null,
             \core\output\notification::NOTIFY_ERROR
         );
@@ -181,12 +176,11 @@ if ($action === 'bulk_delete_empty' && !empty($selectedentries)) {
 
 // Action individuelle : réassigner une entry
 if ($action === 'reassign' && $entryid && $targetcategoryid) {
-    require_sesskey();
-    
     if (!$confirm) {
         // Pas de confirmation, afficher la page de confirmation plus bas dans le code
     } else {
-    
+    // Exécution : POST (vérifié plus haut) + sesskey.
+    require_sesskey();
     try {
         // Vérifier que la catégorie cible existe
         $target_category = $DB->get_record('question_categories', ['id' => $targetcategoryid], '*', MUST_EXIST);
@@ -221,7 +215,7 @@ if ($action === 'reassign' && $entryid && $targetcategoryid) {
     } catch (Exception $e) {
         redirect(
             new moodle_url('/local/question_diagnostic/orphan_entries.php', ['id' => $entryid]),
-            "Erreur lors de la réassignation : " . $e->getMessage(),
+            "Erreur lors de la réassignation : " . s($e->getMessage()),
             null,
             \core\output\notification::NOTIFY_ERROR
         );
@@ -365,7 +359,7 @@ if ($entryid > 0) {
             echo '<tr>';
             echo '<td>' . $question->id . '</td>';
             echo '<td><strong>' . s($question->name) . '</strong></td>';
-            echo '<td>' . $question->qtype . '</td>';
+            echo '<td>' . s($question->qtype) . '</td>';
             echo '<td>' . $question->version . '</td>';
             echo '<td>' . $hidden_badge . '</td>';
             echo '<td>' . userdate($question->timecreated, '%d/%m/%Y') . '</td>';
@@ -503,7 +497,7 @@ if ($entryid > 0) {
                         'id' => $entryid,
                         'action' => 'reassign',
                         'targetcategory' => $cat->id,
-                        'sesskey' => sesskey()
+                        // Lien vers la confirmation : aucun sesskey dans l'URL (exécution en POST uniquement).
                     ]),
                     '→ Utiliser cette catégorie',
                     ['class' => 'btn btn-sm btn-primary']
@@ -554,7 +548,7 @@ if ($entryid > 0) {
                         'id' => $entryid,
                         'action' => 'reassign',
                         'targetcategory' => $cat->id,
-                        'sesskey' => sesskey()
+                        // Lien vers la confirmation : aucun sesskey dans l'URL (exécution en POST uniquement).
                     ]),
                     '→ Utiliser',
                     ['class' => 'btn btn-sm btn-secondary']
@@ -679,10 +673,11 @@ if ($entryid > 0) {
                             LIMIT 1
                         ", ['entryid' => $entry_id]);
                         
-                        $question_name = $sample_question ? s($sample_question->name) : '-';
-                        if (strlen($question_name) > 50) {
-                            $question_name = substr($question_name, 0, 50) . '...';
+                        $question_name = $sample_question ? (string)$sample_question->name : '-';
+                        if (core_text::strlen($question_name) > 50) {
+                            $question_name = core_text::substr($question_name, 0, 50) . '...';
                         }
+                        $question_name = s($question_name);
                         
                         echo '<tr>';
                         echo '<td><strong>' . $entry_id . '</strong></td>';
@@ -865,10 +860,11 @@ if ($entryid > 0) {
             
             foreach ($orphan_entries_with_questions as $entry) {
                 $created_date = $entry->created_time ? userdate($entry->created_time, '%d/%m/%Y') : '-';
-                $question_name = $entry->first_question_name ? s($entry->first_question_name) : '-';
-                if (strlen($question_name) > 50) {
-                    $question_name = substr($question_name, 0, 50) . '...';
+                $question_name = $entry->first_question_name ? (string)$entry->first_question_name : '-';
+                if (core_text::strlen($question_name) > 50) {
+                    $question_name = core_text::substr($question_name, 0, 50) . '...';
                 }
+                $question_name = s($question_name);
                 
                 echo '<tr style="background-color: #fcf8e3;">';
                 echo '<td style="text-align: center;">
@@ -879,7 +875,7 @@ if ($entryid > 0) {
                 echo '<td style="text-align: center;"><strong style="color: #d9534f;">' . $entry->question_count . '</strong></td>';
                 echo '<td style="text-align: center;">' . $entry->version_count . '</td>';
                 echo '<td style="font-size: 0.9em;">' . $question_name . '</td>';
-                echo '<td>' . ($entry->question_type ?: '-') . '</td>';
+                echo '<td>' . s($entry->question_type ?: '-') . '</td>';
                 echo '<td style="font-size: 0.9em;">' . $created_date . '</td>';
                 echo '<td>';
                 echo html_writer::link(

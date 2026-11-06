@@ -37,12 +37,9 @@ require_once(__DIR__ . '/../classes/category_manager.php');
 
 use local_question_diagnostic\category_manager;
 
-require_login();
-require_sesskey();
-
-if (!is_siteadmin()) {
-    throw new \moodle_exception('accessdenied', 'admin');
-}
+// Contrôle d'accès : capacité du plugin + administrateur du site (écriture).
+local_question_diagnostic_require_access('managecategories', true);
+// Le sesskey n'est exigé qu'à l'application (POST) : l'aperçu s'affiche depuis un simple lien GET.
 
 $confirm = optional_param('confirm', 0, PARAM_INT);
 $returnurlraw = optional_param('returnurl', '', PARAM_LOCALURL);
@@ -209,7 +206,6 @@ if (!$confirm || !data_submitted()) {
 
     $confirmurl = new moodle_url('/local/question_diagnostic/actions/fix_categories_integrity.php', [
         'confirm' => 1,
-        'sesskey' => sesskey(),
         'returnurl' => $returnurl->out(false),
     ]);
 
@@ -222,7 +218,8 @@ if (!$confirm || !data_submitted()) {
     exit;
 }
 
-// Confirmé : appliquer les corrections.
+// Confirmé (POST) : appliquer les corrections.
+require_sesskey();
 $success = 0;
 $failed = 0;
 $errors = [];

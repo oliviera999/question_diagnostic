@@ -19,12 +19,9 @@ require_once(__DIR__ . '/../classes/category_manager.php');
 
 use local_question_diagnostic\category_manager;
 
-require_login();
-require_sesskey();
-
-if (!is_siteadmin()) {
-    throw new \moodle_exception('accessdenied', 'admin');
-}
+// Contrôle d'accès : capacité du plugin + administrateur du site (écriture).
+local_question_diagnostic_require_access('movecategories', true);
+// Le sesskey n'est exigé qu'à l'exécution (POST) : la confirmation s'affiche depuis un simple lien GET.
 
 $categoryid = required_param('id', PARAM_INT);
 $newparentid = required_param('parent', PARAM_INT);
@@ -41,6 +38,7 @@ $syscontext = context_system::instance();
 $PAGE->set_context($syscontext);
 
 if ($confirm && data_submitted()) {
+    require_sesskey();
     $result = category_manager::move_category($categoryid, $newparentid);
 
     if ($result === true) {
@@ -105,7 +103,6 @@ $confirmurl = new moodle_url('/local/question_diagnostic/actions/move.php', [
     'id' => $categoryid,
     'parent' => $newparentid,
     'confirm' => 1,
-    'sesskey' => sesskey(),
     'returnurl' => !empty($returnurlparam) ? $returnurlparam : null,
 ]);
 

@@ -14,13 +14,8 @@ use local_question_diagnostic\category_manager;
 use local_question_diagnostic\question_link_checker;
 use local_question_diagnostic\audit_logger;
 
-// Charger les bibliothèques Moodle nécessaires.
-require_login();
-
-// Vérification stricte : seuls les administrateurs du site peuvent accéder à cette page.
-if (!is_siteadmin()) {
-    throw new \moodle_exception('accessdenied', 'admin', '', 'Vous devez être administrateur du site pour accéder à cet outil.');
-}
+// Contrôle d'accès : capacité du plugin (consultation).
+local_question_diagnostic_require_access('view');
 
 // Définir le contexte de la page (système).
 $context = context_system::instance();
@@ -319,7 +314,10 @@ try {
 }
 
 $unhide_url = new moodle_url('/local/question_diagnostic/unhide_questions.php');
-echo html_writer::link($unhide_url, 'Gérer les questions cachées →', ['class' => 'qd-tool-button']);
+// Page d'écriture : lien réservé aux administrateurs du site.
+if (is_siteadmin()) {
+    echo html_writer::link($unhide_url, 'Gérer les questions cachées →', ['class' => 'qd-tool-button']);
+}
 
 echo html_writer::end_tag('div'); // fin qd-tool-content
 
@@ -561,7 +559,7 @@ echo html_writer::tag('p',
 echo html_writer::start_tag('div', ['class' => 'qd-tool-stats']);
 echo html_writer::tag('span', '📊 ' . $orphan_stats->total_orphans . ' fichiers orphelins', ['class' => 'qd-tool-stat-item']);
 if ($orphan_stats->total_orphans > 0) {
-    echo html_writer::tag('span', '💾 ' . $orphan_stats->total_filesize_formatted . ' d\'espace', ['class' => 'qd-tool-stat-item qd-stat-warning']);
+    echo html_writer::tag('span', '💾 ' . s($orphan_stats->total_filesize_formatted) . ' d\'espace', ['class' => 'qd-tool-stat-item qd-stat-warning']);
     if ($orphan_stats->by_age['old'] > 0) {
         echo html_writer::tag('span', '⏰ ' . $orphan_stats->by_age['old'] . ' anciens (>6 mois)', ['class' => 'qd-tool-stat-item qd-stat-danger']);
     }
@@ -571,7 +569,10 @@ if ($orphan_stats->total_orphans > 0) {
 echo html_writer::end_tag('div');
 
 $orphan_url = new moodle_url('/local/question_diagnostic/orphan_files.php');
-echo html_writer::link($orphan_url, 'Gérer les fichiers orphelins →', ['class' => 'qd-tool-button']);
+// Page d'écriture : lien réservé aux administrateurs du site.
+if (is_siteadmin()) {
+    echo html_writer::link($orphan_url, 'Gérer les fichiers orphelins →', ['class' => 'qd-tool-button']);
+}
 
 echo html_writer::end_tag('div'); // fin qd-tool-content
 

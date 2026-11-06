@@ -9,12 +9,10 @@
  */
 
 require_once(__DIR__ . '/../../config.php');
+require_once(__DIR__ . '/lib.php');
 
-require_login();
-
-if (!is_siteadmin()) {
-    throw new \moodle_exception('accessdenied', 'admin');
-}
+// Contrôle d'accès : capacité du plugin + administrateur du site (écriture).
+local_question_diagnostic_require_access('configureplugin', true);
 
 // URL de retour (page précédemment affichée).
 // Compat : le paramètre historique `return_url` est encore accepté.

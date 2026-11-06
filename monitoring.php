@@ -28,11 +28,8 @@ use local_question_diagnostic\question_analyzer;
 use local_question_diagnostic\question_link_checker;
 use local_question_diagnostic\audit_logger;
 
-require_login();
-
-if (!is_siteadmin()) {
-    throw new \moodle_exception('accessdenied', 'admin');
-}
+// Contrôle d'accès : capacité du plugin (consultation).
+local_question_diagnostic_require_access('viewmonitoring');
 
 $PAGE->set_context(context_system::instance());
 $PAGE->set_url(new moodle_url('/local/question_diagnostic/monitoring.php'));
@@ -363,12 +360,15 @@ echo html_writer::tag('h3', '🚀 Actions Rapides', ['style' => 'margin-top: 40p
 
 echo html_writer::start_div('', ['style' => 'display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 20px 0;']);
 
-// Bouton Purger caches
-echo html_writer::link(
-    new moodle_url('/admin/purgecaches.php', ['confirm' => 1, 'sesskey' => sesskey(), 'returnurl' => $PAGE->url->out_as_local_url()]),
-    '🔄 Purger tous les caches',
-    ['class' => 'btn btn-warning btn-block', 'style' => 'padding: 15px;']
-);
+// Bouton Purger caches : simple lien vers la page du cœur, qui affiche sa propre confirmation
+// (aucun sesskey dans l'URL). Réservé aux administrateurs du site.
+if (is_siteadmin()) {
+    echo html_writer::link(
+        new moodle_url('/admin/purgecaches.php', ['returnurl' => $PAGE->url->out_as_local_url()]),
+        '🔄 Purger tous les caches',
+        ['class' => 'btn btn-warning btn-block', 'style' => 'padding: 15px;']
+    );
+}
 
 // Bouton Tests PHPUnit
 echo html_writer::tag('div',

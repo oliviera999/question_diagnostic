@@ -19,7 +19,7 @@
  *
  * ⚠️ Sécurité :
  * - Admin uniquement
- * - sesskey obligatoire
+ * - sesskey et POST obligatoires pour appliquer (l'aperçu est en GET)
  * - confirmation obligatoire avant toute modification
  *
  * Corrections (ciblées, lecture/écriture minimales) :
@@ -39,12 +39,9 @@ require_once(__DIR__ . '/../classes/question_analyzer.php');
 
 use local_question_diagnostic\question_analyzer;
 
-require_login();
-require_sesskey();
-
-if (!is_siteadmin()) {
-    throw new \moodle_exception('accessdenied', 'admin');
-}
+// Contrôle d'accès : capacité du plugin + administrateur du site (écriture).
+local_question_diagnostic_require_access('deletequestions', true);
+// Le sesskey n'est exigé qu'à l'application (POST) : l'aperçu s'affiche depuis un simple lien GET.
 
 $confirm = optional_param('confirm', 0, PARAM_INT);
 $returnurlraw = optional_param('returnurl', '', PARAM_LOCALURL);
@@ -182,7 +179,7 @@ $build_plan = function(int $samplelimit = 50): \stdClass {
 
 $plan = $build_plan(50);
 
-if (!$confirm) {
+if (!$confirm || !data_submitted()) {
     $PAGE->set_title(get_string('questions_integrity_fix_confirm_title', 'local_question_diagnostic'));
     $PAGE->set_heading(get_string('questions_integrity_fix_confirm_title', 'local_question_diagnostic'));
 
@@ -260,7 +257,6 @@ if (!$confirm) {
 
     $confirmurl = new moodle_url('/local/question_diagnostic/actions/fix_questions_integrity.php', [
         'confirm' => 1,
-        'sesskey' => sesskey(),
         'returnurl' => $returnurl->out(false),
     ]);
 
@@ -278,6 +274,7 @@ if (!$confirm) {
 if (!data_submitted()) {
     throw new \moodle_exception('invalidrequest');
 }
+require_sesskey();
 $success = 0;
 $failed = 0;
 $errors = [];

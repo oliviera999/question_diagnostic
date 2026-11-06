@@ -9,12 +9,9 @@ require_once(__DIR__ . '/../classes/question_analyzer.php');
 use local_question_diagnostic\category_manager;
 use local_question_diagnostic\question_analyzer;
 
-require_login();
+// Contrôle d'accès : capacité du plugin + administrateur du site (écriture).
+local_question_diagnostic_require_access('export', true);
 require_sesskey();
-
-if (!is_siteadmin()) {
-    throw new \moodle_exception('accessdenied', 'admin');
-}
 
 // 🔧 SÉCURITÉ v1.9.28 : Limites strictes sur export CSV
 define('MAX_EXPORT_CATEGORIES', 5000);

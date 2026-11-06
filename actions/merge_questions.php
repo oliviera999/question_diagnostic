@@ -30,12 +30,9 @@ require_once(__DIR__ . '/../classes/question_merger.php');
 use local_question_diagnostic\question_analyzer;
 use local_question_diagnostic\question_merger;
 
-require_login();
-require_sesskey();
-
-if (!is_siteadmin()) {
-    throw new \moodle_exception('accessdenied', 'admin');
-}
+// Contrôle d'accès : capacité du plugin + administrateur du site (écriture).
+local_question_diagnostic_require_access('deletequestions', true);
+// Le sesskey n'est exigé qu'à l'exécution (POST) : l'aperçu s'affiche depuis un simple lien GET.
 
 $repid = required_param('repid', PARAM_INT);
 $confirm = optional_param('confirm', 0, PARAM_INT);
@@ -65,7 +62,7 @@ $options = [
 // Toujours reconstruire le plan depuis la BDD (preview ou exécution).
 $plan = question_merger::build_merge_plan((int)$repid, $options);
 
-if (!$confirm) {
+if (!$confirm || !data_submitted()) {
     echo $OUTPUT->header();
     echo local_question_diagnostic_render_version_badge();
 
@@ -219,7 +216,6 @@ if (!$confirm) {
         'repid' => $repid,
         'confirm' => 1,
         'includequiz' => $includequiz,
-        'sesskey' => sesskey(),
         'returnurl' => $returnurl->out(false),
     ]);
     echo $OUTPUT->single_button($confirmurl, get_string('question_merge_confirm_button', 'local_question_diagnostic'),

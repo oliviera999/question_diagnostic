@@ -16,6 +16,16 @@
         itemsPerPage: 50  // Par défaut, 50 items par page côté client
     };
 
+    /**
+     * Échappe une valeur pour l'insérer dans du HTML (contenu ou attribut entre guillemets).
+     * Les noms de catégories proviennent de la base : jamais insérés bruts dans innerHTML.
+     */
+    function qdEscape(value) {
+        const div = document.createElement('div');
+        div.textContent = value === null || value === undefined ? '' : String(value);
+        return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
     // Initialisation au chargement du DOM
     document.addEventListener('DOMContentLoaded', function() {
         initializeTable();
@@ -379,12 +389,12 @@
         
         let html = '<option value="">-- Sélectionner une catégorie destination --</option>';
         categories.forEach(cat => {
-            html += `<option value="${cat.id}">${cat.name} (ID: ${cat.id})</option>`;
+            html += `<option value="${parseInt(cat.id, 10)}">${qdEscape(cat.name)} (ID: ${parseInt(cat.id, 10)})</option>`;
         });
         select.innerHTML = html;
 
         modalBody.innerHTML = `
-            <p>Fusionner la catégorie : <strong>${sourceName}</strong> (ID: ${sourceId})</p>
+            <p>Fusionner la catégorie : <strong>${qdEscape(sourceName)}</strong> (ID: ${parseInt(sourceId, 10)})</p>
             <p>Vers la catégorie :</p>
         `;
         modalBody.appendChild(select);
@@ -404,7 +414,9 @@
                 return;
             }
 
-            const url = M.cfg.wwwroot + '/local/question_diagnostic/actions/merge.php?source=' + sourceId + '&dest=' + destId + '&sesskey=' + M.cfg.sesskey;
+            // Lien vers la page de confirmation (aucun sesskey dans l'URL) : la fusion n'est exécutée qu'en POST.
+            const url = M.cfg.wwwroot + '/local/question_diagnostic/actions/merge.php?source='
+                + encodeURIComponent(sourceId) + '&dest=' + encodeURIComponent(destId);
             window.location.href = url;
         });
 
@@ -697,7 +709,8 @@
     window.QDTool = {
         deleteCategory: function(id) {
             if (confirm('Êtes-vous sûr de vouloir supprimer cette catégorie ?')) {
-                window.location.href = M.cfg.wwwroot + '/local/question_diagnostic/actions/delete.php?id=' + id + '&sesskey=' + M.cfg.sesskey;
+                // Page de confirmation (aucun sesskey dans l'URL) : la suppression n'est exécutée qu'en POST.
+                window.location.href = M.cfg.wwwroot + '/local/question_diagnostic/actions/delete.php?id=' + encodeURIComponent(id);
             }
         },
         

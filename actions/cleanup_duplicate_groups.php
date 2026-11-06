@@ -30,13 +30,9 @@ require_once(__DIR__ . '/../classes/question_analyzer.php');
 
 use local_question_diagnostic\question_analyzer;
 
-require_login();
-
-if (!is_siteadmin()) {
-    throw new \moodle_exception('accessdenied', 'admin');
-}
-
-require_sesskey();
+// Contrôle d'accès : capacité du plugin + administrateur du site (écriture).
+local_question_diagnostic_require_access('deletequestions', true);
+// Le sesskey n'est exigé qu'à l'exécution (POST) : la confirmation s'affiche depuis un simple lien GET.
 
 // Définir le contexte de la page
 $context = context_system::instance();
@@ -80,9 +76,9 @@ if (empty($groups_to_clean)) {
 // Vérifier si c'est une confirmation ou une première demande
 $confirm = optional_param('confirm', 0, PARAM_INT);
 
-if (!$confirm) {
+if (!$confirm || !data_submitted()) {
     // ========================================
-    // ÉTAPE 1 : PAGE DE CONFIRMATION
+    // ÉTAPE 1 : PAGE DE CONFIRMATION (tout accès GET, même avec confirm=1, s'arrête ici)
     // ========================================
     
     $PAGE->set_url(new moodle_url('/local/question_diagnostic/actions/cleanup_duplicate_groups.php'));
@@ -165,7 +161,7 @@ if (!$confirm) {
         
         // Réservoirs de tirage aléatoire : ces questions ne seront pas supprimées.
         $checks = \local_question_diagnostic\local\question_deleter::check(array_map(fn($q) => (int)$q->id, $to_delete));
-        $to_delete = array_values(array_filter($to_delete, fn($q) => ($checks[(int)$q->id] ?? 'error') === null));
+        $to_delete = array_values(array_filter($to_delete, fn($q) => array_key_exists((int)$q->id, $checks) && $checks[(int)$q->id] === null));
 
         // Accumuler la liste finale à supprimer (après application de la règle "au moins 1 conservée").
         foreach ($to_delete as $q) {
@@ -261,9 +257,9 @@ if (!$confirm) {
         $q = $item->question;
         echo html_writer::start_tag('tr');
         echo html_writer::tag('td', format_string($item->groupname));
-        echo html_writer::tag('td', $q->id);
+        echo html_writer::tag('td', (int)$q->id);
         echo html_writer::tag('td', format_string($q->name));
-        echo html_writer::tag('td', $q->qtype);
+        echo html_writer::tag('td', s($q->qtype));
         echo html_writer::tag('td', userdate($q->timecreated, '%d/%m/%Y %H:%M'));
         echo html_writer::tag('td', '⚠️ Inutilisée', ['style' => 'color: #f0ad4e;']);
         echo html_writer::end_tag('tr');
@@ -320,8 +316,9 @@ if (!$confirm) {
 }
 
 // ========================================
-// ÉTAPE 2 : EXÉCUTION DU NETTOYAGE
+// ÉTAPE 2 : EXÉCUTION DU NETTOYAGE (POST + sesskey)
 // ========================================
+require_sesskey();
 
 $deleted_count = 0;
 $kept_count = 0;
@@ -368,7 +365,7 @@ if ($deleted_count > 0) {
 }
 
 if (!empty($errors)) {
-    $message .= ' | Erreurs : ' . implode(', ', $errors);
+    $message .= ' | Erreurs : ' . s(implode(', ', $errors));
     $type = \core\output\notification::NOTIFY_WARNING;
 }
 

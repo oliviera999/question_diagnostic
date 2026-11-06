@@ -23,16 +23,13 @@
  */
 
 require_once(__DIR__ . '/../../../config.php');
+require_once(__DIR__ . '/../lib.php');
 require_once(__DIR__ . '/../classes/orphan_file_detector.php');
 
 use local_question_diagnostic\orphan_file_detector;
 
-require_login();
-
-// Vérification stricte : seuls les administrateurs du site peuvent accéder à cette page.
-if (!is_siteadmin()) {
-    throw new \moodle_exception('accessdenied', 'admin');
-}
+// Contrôle d'accès : capacité du plugin + administrateur du site (écriture).
+local_question_diagnostic_require_access('export', true);
 
 require_sesskey();
 

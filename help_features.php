@@ -19,11 +19,8 @@
 require_once(__DIR__ . '/../../config.php');
 require_once(__DIR__ . '/lib.php');
 
-require_login();
-
-if (!is_siteadmin()) {
-    throw new \moodle_exception('accessdenied', 'admin');
-}
+// Contrôle d'accès : capacité du plugin (consultation).
+local_question_diagnostic_require_access('view');
 
 $PAGE->set_context(context_system::instance());
 $PAGE->set_url(new moodle_url('/local/question_diagnostic/help_features.php'));

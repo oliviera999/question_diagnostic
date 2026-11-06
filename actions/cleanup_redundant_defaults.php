@@ -26,12 +26,9 @@ require_once(__DIR__ . '/../classes/category_manager.php');
 
 use local_question_diagnostic\category_manager;
 
-require_login();
-require_sesskey();
-
-if (!is_siteadmin()) {
-    throw new \moodle_exception('accessdenied', 'admin');
-}
+// Contrôle d'accès : capacité du plugin + administrateur du site (écriture).
+local_question_diagnostic_require_access('deletecategories', true);
+// Le sesskey n'est exigé qu'à l'exécution (POST) : la confirmation s'affiche depuis un simple lien GET.
 
 $action = required_param('action', PARAM_ALPHAEXT);
 $confirm = optional_param('confirm', 0, PARAM_INT);
@@ -50,6 +47,7 @@ if ($action !== 'cleanup_all') {
 $groups = category_manager::get_redundant_default_categories();
 
 if ($confirm && data_submitted()) {
+    require_sesskey();
     $count = 0;
     $errors = [];
     foreach ($groups as $group) {
@@ -117,7 +115,6 @@ foreach ($groups as $group) {
 $confirmurl = new moodle_url('/local/question_diagnostic/actions/cleanup_redundant_defaults.php', [
     'action' => 'cleanup_all',
     'confirm' => 1,
-    'sesskey' => sesskey(),
 ]);
 echo html_writer::start_tag('div', ['style' => 'margin-top: 20px; display: flex; gap: 10px; align-items: center;']);
 echo $OUTPUT->render(new single_button($confirmurl, get_string('confirm', 'core'), 'post', single_button::BUTTON_DANGER));

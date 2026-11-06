@@ -37,13 +37,9 @@ require_once(__DIR__ . '/../classes/question_analyzer.php');
 
 use local_question_diagnostic\question_analyzer;
 
-require_login();
-
-if (!is_siteadmin()) {
-    throw new \moodle_exception('accessdenied', 'admin');
-}
-
-require_sesskey();
+// Contrôle d'accès : capacité du plugin + administrateur du site (écriture).
+local_question_diagnostic_require_access('deletequestions', true);
+// Aperçu accessible en GET sans sesskey ; export CSV et lancement : POST + sesskey uniquement.
 
 // Définir le contexte de la page
 $context = context_system::instance();
@@ -55,7 +51,8 @@ $download_csv = optional_param('download_csv', 0, PARAM_INT);
 $execute = optional_param('execute', 0, PARAM_INT);
 
 if ($download_csv) {
-    // MODE TÉLÉCHARGEMENT CSV
+    // MODE TÉLÉCHARGEMENT CSV (POST + sesskey)
+    require_sesskey();
     handle_csv_download();
     exit;
 } else if ($execute) {
@@ -66,8 +63,7 @@ if ($download_csv) {
     show_preview_page();
 } else {
     // Rediriger vers preview par défaut
-    redirect(new moodle_url('/local/question_diagnostic/actions/cleanup_all_duplicates.php', 
-             ['preview' => 1, 'sesskey' => sesskey()]));
+    redirect(new moodle_url('/local/question_diagnostic/actions/cleanup_all_duplicates.php', ['preview' => 1]));
 }
 
 /**
@@ -76,8 +72,7 @@ if ($download_csv) {
 function show_preview_page() {
     global $OUTPUT, $PAGE;
     
-    $PAGE->set_url(new moodle_url('/local/question_diagnostic/actions/cleanup_all_duplicates.php', 
-                   ['preview' => 1, 'sesskey' => sesskey()]));
+    $PAGE->set_url(new moodle_url('/local/question_diagnostic/actions/cleanup_all_duplicates.php', ['preview' => 1]));
     $PAGE->set_title(get_string('cleanup_all_preview_title', 'local_question_diagnostic'));
     $PAGE->set_heading(local_question_diagnostic_get_heading_with_version(
         get_string('cleanup_all_preview_title', 'local_question_diagnostic')
@@ -102,7 +97,7 @@ function show_preview_page() {
         
         echo html_writer::start_tag('div', ['class' => 'alert alert-danger']);
         echo html_writer::tag('h3', '⚠️ Erreur');
-        echo 'Impossible de charger les statistiques : ' . $e->getMessage();
+        echo 'Impossible de charger les statistiques : ' . s($e->getMessage());
         echo html_writer::end_tag('div');
         echo $OUTPUT->footer();
         exit;
@@ -205,7 +200,7 @@ function show_preview_page() {
         foreach ($stats->by_type as $qtype => $counts) {
             $total = $counts['to_delete'] + $counts['to_keep'];
             echo html_writer::start_tag('tr');
-            echo html_writer::tag('td', html_writer::tag('strong', ucfirst($qtype)));
+            echo html_writer::tag('td', html_writer::tag('strong', s(ucfirst($qtype))));
             echo html_writer::tag('td', $counts['to_delete'], 
                                   ['style' => 'text-align: center; color: #d9534f; font-weight: bold;']);
             echo html_writer::tag('td', $counts['to_keep'], 
@@ -244,14 +239,15 @@ function show_preview_page() {
     echo html_writer::start_tag('div', ['style' => 'text-align: center; margin: 40px 0;']);
     
     // Bouton télécharger CSV
+    // Export CSV : formulaire POST (le sesskey n'apparaît jamais dans une URL).
     $csv_url = new moodle_url('/local/question_diagnostic/actions/cleanup_all_duplicates.php', [
         'download_csv' => 1,
-        'sesskey' => sesskey()
     ]);
-    echo html_writer::link(
+    echo $OUTPUT->single_button(
         $csv_url,
         '📥 ' . get_string('cleanup_all_download_csv', 'local_question_diagnostic'),
-        ['class' => 'btn btn-info btn-lg', 'style' => 'margin-right: 10px;']
+        'post',
+        ['type' => single_button::BUTTON_SECONDARY]
     );
     
     echo '<br><br>';
@@ -289,6 +285,7 @@ function queue_cleanup_task() {
     if (!data_submitted()) {
         throw new \moodle_exception('invalidrequest');
     }
+    require_sesskey();
     $task = new \local_question_diagnostic\task\cleanup_duplicates_task();
     $task->set_userid($USER->id);
     $task->set_custom_data(['userid' => (int)$USER->id]);

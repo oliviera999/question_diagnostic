@@ -20,7 +20,7 @@
  * 🆕 v1.9.33 : Factorisation du code commun des actions (TODO MOYENNE #12)
  * 
  * Cette classe abstraite factorise la logique commune à toutes les actions :
- * - Validation de sécurité (login, sesskey, admin)
+ * - Validation de sécurité (capacité + administrateur, sesskey et POST à l'exécution)
  * - Gestion des paramètres (id, ids, confirm, return)
  * - Affichage des pages de confirmation
  * - Gestion des redirections avec messages
@@ -62,13 +62,12 @@ abstract class base_action {
     public function __construct() {
         global $PAGE;
 
-        // Vérifications de sécurité obligatoires
-        require_login();
-        require_sesskey();
+        global $CFG;
+        require_once($CFG->dirroot . '/local/question_diagnostic/lib.php');
 
-        if (!is_siteadmin()) {
-            throw new \moodle_exception('accessdenied', 'admin');
-        }
+        // Vérifications de sécurité obligatoires : capacité de l'action + administrateur du site (écriture).
+        // Le sesskey n'est exigé qu'à l'exécution (POST), la page de confirmation est accessible en GET sans sesskey.
+        local_question_diagnostic_require_access($this->get_required_capability(), true);
 
         // Récupérer les paramètres communs
         $this->item_id = optional_param('id', 0, PARAM_INT);
@@ -120,7 +119,12 @@ abstract class base_action {
             return;
         }
 
-        // Exécuter l'action
+        // Exécution : uniquement sur un formulaire POST avec sesskey (jamais sur un lien GET).
+        if (!data_submitted()) {
+            $this->show_confirmation_page();
+            return;
+        }
+        require_sesskey();
         $this->perform_action();
     }
 
@@ -283,6 +287,15 @@ abstract class base_action {
     protected function get_return_url($page) {
         $file = ($page === 'index') ? 'index.php' : 'categories.php';
         return new \moodle_url('/local/question_diagnostic/' . $file);
+    }
+
+    /**
+     * Capacité du plugin exigée pour cette action (nom court, ex. 'deletecategories').
+     *
+     * @return string
+     */
+    protected function get_required_capability() {
+        return 'managecategories';
     }
 
     /**

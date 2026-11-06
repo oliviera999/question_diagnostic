@@ -20,12 +20,9 @@ require_once(__DIR__ . '/../classes/question_analyzer.php');
 use local_question_diagnostic\category_manager;
 use local_question_diagnostic\question_analyzer;
 
-require_login();
-require_sesskey();
-
-if (!is_siteadmin()) {
-    throw new \moodle_exception('accessdenied', 'admin');
-}
+// Contrôle d'accès : capacité du plugin + administrateur du site (écriture).
+local_question_diagnostic_require_access('mergecategories', true);
+// Le sesskey n'est exigé qu'à l'exécution (POST) : la confirmation s'affiche depuis un simple lien GET.
 
 $sourceid = required_param('source', PARAM_INT);
 $destid = required_param('dest', PARAM_INT);
@@ -35,6 +32,7 @@ $syscontext = context_system::instance();
 $PAGE->set_context($syscontext);
 
 if ($confirm && data_submitted()) {
+    require_sesskey();
     $result = category_manager::merge_categories($sourceid, $destid);
 
     if ($result === true) {
@@ -95,7 +93,6 @@ $confirmurl = new moodle_url('/local/question_diagnostic/actions/merge.php', [
     'source' => $sourceid,
     'dest' => $destid,
     'confirm' => 1,
-    'sesskey' => sesskey(),
 ]);
 
 echo html_writer::start_tag('div', ['style' => 'margin-top: 20px; display: flex; gap: 10px; align-items: center;']);

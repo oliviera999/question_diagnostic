@@ -25,7 +25,7 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'local_question_diagnostic';
-$plugin->version = 2026110600;
+$plugin->version = 2026110601;
 $plugin->requires = 2025100100; // Moodle 5.1.
 $plugin->supported = [501, 503];
 $plugin->maturity = MATURITY_STABLE;

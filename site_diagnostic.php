@@ -39,11 +39,8 @@ use local_question_diagnostic\orphan_file_detector;
 use local_question_diagnostic\category_manager;
 use local_question_diagnostic\question_analyzer;
 
-require_login();
-
-if (!is_siteadmin()) {
-    throw new \moodle_exception('accessdenied', 'admin');
-}
+// Contrôle d'accès : capacité du plugin (consultation).
+local_question_diagnostic_require_access('viewmonitoring');
 
 $context = context_system::instance();
 $PAGE->set_context($context);
@@ -54,10 +51,10 @@ $PAGE->set_heading(local_question_diagnostic_get_heading_with_version($pagetitle
 $PAGE->set_pagelayout('report');
 $PAGE->requires->css('/local/question_diagnostic/styles/main.css');
 
-// Actions (read-only): refresh local caches to force recompute on next call.
+// Action sans effet sur les données : purge des caches d'analyse du plugin pour forcer un recalcul.
+// Simple lien GET, sans sesskey (rien n'est modifié dans la banque de questions).
 $refresh = optional_param('refresh', 0, PARAM_INT);
 if ($refresh) {
-    require_sesskey();
     try {
         question_link_checker::purge_broken_links_cache();
     } catch (\Throwable $e) {
@@ -82,7 +79,7 @@ echo html_writer::end_div();
 echo html_writer::start_div('', ['style' => 'margin-bottom: 20px; display: flex; gap: 10px; flex-wrap: wrap;']);
 echo local_question_diagnostic_render_back_link('site_diagnostic.php');
 echo html_writer::link(
-    new moodle_url('/local/question_diagnostic/site_diagnostic.php', ['refresh' => 1, 'sesskey' => sesskey()]),
+    new moodle_url('/local/question_diagnostic/site_diagnostic.php', ['refresh' => 1]),
     '🔄 ' . get_string('site_diagnostic_refresh', 'local_question_diagnostic'),
     ['class' => 'btn btn-warning']
 );

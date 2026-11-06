@@ -101,6 +101,13 @@ class delete_category_action extends base_action {
     /**
      * {@inheritdoc}
      */
+    protected function get_required_capability() {
+        return 'deletecategories';
+    }
+
+    /**
+     * {@inheritdoc}
+     */
     protected function get_action_url() {
         return new \moodle_url('/local/question_diagnostic/actions/delete.php');
     }

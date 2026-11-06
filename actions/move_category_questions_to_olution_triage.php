@@ -33,12 +33,9 @@ require_once($CFG->dirroot . '/question/editlib.php');
 
 use local_question_diagnostic\olution_manager;
 
-require_login();
-require_sesskey();
-
-if (!is_siteadmin()) {
-    throw new \moodle_exception('accessdenied', 'admin');
-}
+// Contrôle d'accès : capacité du plugin + administrateur du site (écriture).
+local_question_diagnostic_require_access('movecategories', true);
+// Le sesskey n'est exigé qu'à l'exécution (POST) : la confirmation s'affiche aussi depuis un simple lien GET.
 
 $sourcecatid = required_param('sourcecatid', PARAM_INT);
 $courseid = required_param('courseid', PARAM_INT);
@@ -131,8 +128,8 @@ if (empty($questionids)) {
     );
 }
 
-// Page de confirmation.
-if (!$confirm) {
+// Page de confirmation (tout accès GET, même avec confirm=1, s'arrête ici).
+if (!$confirm || !data_submitted()) {
     echo $OUTPUT->header();
     echo local_question_diagnostic_render_version_badge();
     echo $OUTPUT->heading(get_string('tool_categories_by_context_move_questions_to_triage_title', 'local_question_diagnostic'));
@@ -158,7 +155,7 @@ if (!$confirm) {
         'returnurl' => !empty($returnurlparam) ? $returnurlparam : null,
     ]);
 
-    echo html_writer::start_div(['style' => 'margin-top: 20px;']);
+    echo html_writer::start_div('', ['style' => 'margin-top: 20px;']);
     echo $OUTPUT->single_button($confirmurl, get_string('confirm', 'core'), 'post', ['type' => single_button::BUTTON_DANGER]);
     echo html_writer::link($returnurl, get_string('cancel', 'core'), ['class' => 'btn btn-secondary btn-lg']);
     echo html_writer::end_div();
@@ -167,10 +164,11 @@ if (!$confirm) {
     exit;
 }
 
-// Exécution : uniquement en POST.
+// Exécution : uniquement en POST, avec sesskey.
 if (!data_submitted()) {
     throw new \moodle_exception('invalidrequest');
 }
+require_sesskey();
 $operations = [];
 foreach ($questionids as $qid) {
     $operations[] = [

@@ -27,11 +27,8 @@ require_once(__DIR__ . '/classes/olution_manager.php');
 
 use local_question_diagnostic\olution_manager;
 
-require_login();
-
-if (!is_siteadmin()) {
-    throw new \moodle_exception('accessdenied', 'admin');
-}
+// Contrôle d'accès : capacité du plugin (consultation).
+local_question_diagnostic_require_access('viewquestions');
 
 $PAGE->set_url(new moodle_url('/local/question_diagnostic/olution_triage.php'));
 $PAGE->set_context(context_system::instance());
@@ -102,16 +99,20 @@ echo html_writer::start_div('card qd-card');
 echo html_writer::start_div('card-body');
 echo html_writer::tag('p', get_string('olution_triage_explain', 'local_question_diagnostic'), ['class' => 'mb-3']);
 
+// Les déplacements sont des écritures : boutons réservés aux administrateurs du site (l'action revérifie).
+$qdisadmin = is_siteadmin();
 if ((int)$stats->movable_questions > 0) {
-    $move_all_url = new moodle_url('/local/question_diagnostic/actions/move_to_olution.php', [
-        'action' => 'move_triage_all',
-        'sesskey' => sesskey(),
-    ]);
-    echo html_writer::link(
-        $move_all_url,
-        get_string('olution_triage_move_all_button', 'local_question_diagnostic', (int)$stats->movable_questions),
-        ['class' => 'btn btn-primary btn-lg']
-    );
+    if ($qdisadmin) {
+        // Lien vers la page de confirmation (aucun sesskey dans l'URL : le déplacement se fait en POST).
+        $move_all_url = new moodle_url('/local/question_diagnostic/actions/move_to_olution.php', [
+            'action' => 'move_triage_all',
+        ]);
+        echo html_writer::link(
+            $move_all_url,
+            get_string('olution_triage_move_all_button', 'local_question_diagnostic', (int)$stats->movable_questions),
+            ['class' => 'btn btn-primary btn-lg']
+        );
+    }
 } else {
     echo $OUTPUT->notification(
         get_string('olution_triage_no_movable', 'local_question_diagnostic'),
@@ -158,7 +159,6 @@ if (empty($candidates)) {
             'action' => 'move_one',
             'questionid' => (int)$q->id,
             'targetcatid' => (int)$target->id,
-            'sesskey' => sesskey(),
         ]);
 
         echo html_writer::start_tag('tr');
@@ -167,7 +167,9 @@ if (empty($candidates)) {
         echo html_writer::tag('td', s($q->qtype));
         echo html_writer::tag('td', format_string($target->name) . ' (ID: ' . (int)$target->id . ')');
         echo html_writer::start_tag('td');
-        echo html_writer::link($move_url, get_string('move', 'local_question_diagnostic'), ['class' => 'btn btn-sm btn-primary']);
+        if ($qdisadmin) {
+            echo html_writer::link($move_url, get_string('move', 'local_question_diagnostic'), ['class' => 'btn btn-sm btn-primary']);
+        }
         echo html_writer::end_tag('td');
         echo html_writer::end_tag('tr');
     }

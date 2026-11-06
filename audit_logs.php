@@ -22,11 +22,8 @@ require_once(__DIR__ . '/classes/audit_logger.php');
 
 use local_question_diagnostic\audit_logger;
 
-require_login();
-
-if (!is_siteadmin()) {
-    throw new \moodle_exception('accessdenied', 'admin');
-}
+// Contrôle d'accès : capacité du plugin (consultation).
+local_question_diagnostic_require_access('viewauditlogs');
 
 $PAGE->set_context(context_system::instance());
 $PAGE->set_url(new moodle_url('/local/question_diagnostic/audit_logs.php'));
@@ -96,7 +93,7 @@ if (empty($logs)) {
             $user = \core_user::get_user($log->userid);
             echo html_writer::tag('span', s(fullname($user)));
         } catch (\Exception $e) {
-            echo 'User ' . $log->userid;
+            echo 'User ' . (int)$log->userid;
         }
         echo html_writer::end_tag('td');
         

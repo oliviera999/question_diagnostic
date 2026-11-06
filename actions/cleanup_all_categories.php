@@ -35,13 +35,9 @@ require_once(__DIR__ . '/../classes/category_manager.php');
 
 use local_question_diagnostic\category_manager;
 
-require_login();
-
-if (!is_siteadmin()) {
-    throw new \moodle_exception('accessdenied', 'admin');
-}
-
-require_sesskey();
+// Contrôle d'accès : capacité du plugin + administrateur du site (écriture).
+local_question_diagnostic_require_access('deletecategories', true);
+// Aperçu accessible en GET sans sesskey ; export CSV et lancement : POST + sesskey uniquement.
 
 $context = context_system::instance();
 $PAGE->set_context($context);
@@ -50,6 +46,7 @@ $download_csv = optional_param('download_csv', 0, PARAM_INT);
 $execute = optional_param('execute', 0, PARAM_INT);
 
 if ($download_csv) {
+    require_sesskey();
     handle_csv_download();
     exit;
 } else if ($execute) {
@@ -75,7 +72,7 @@ function show_preview_page() {
     global $OUTPUT, $PAGE;
 
     $PAGE->set_url(new moodle_url('/local/question_diagnostic/actions/cleanup_all_categories.php',
-                   ['preview' => 1, 'sesskey' => sesskey()]));
+                   ['preview' => 1]));
     $PAGE->set_title(get_string('cleanup_all_categories_preview_title', 'local_question_diagnostic'));
     $PAGE->set_heading(local_question_diagnostic_get_heading_with_version(
         get_string('cleanup_all_categories_preview_title', 'local_question_diagnostic')
@@ -159,17 +156,16 @@ function show_preview_page() {
 
     echo html_writer::start_tag('div', ['style' => 'text-align: center; margin: 30px 0; display: flex; gap: 15px; justify-content: center; flex-wrap: wrap;']);
 
+    // Export CSV : formulaire POST (le sesskey n'apparaît jamais dans une URL).
     $csv_url = new moodle_url('/local/question_diagnostic/actions/cleanup_all_categories.php', [
         'download_csv' => 1,
-        'sesskey' => sesskey(),
     ]);
-    echo html_writer::link($csv_url, '📥 ' . get_string('cleanup_all_download_csv', 'local_question_diagnostic'),
-                           ['class' => 'btn btn-info btn-lg']);
+    echo $OUTPUT->single_button($csv_url, '📥 ' . get_string('cleanup_all_download_csv', 'local_question_diagnostic'),
+        'post', ['type' => single_button::BUTTON_SECONDARY]);
 
     // Lancement : formulaire POST uniquement.
     $execute_url = new moodle_url('/local/question_diagnostic/actions/cleanup_all_categories.php', [
         'execute' => 1,
-        'sesskey' => sesskey(),
     ]);
     echo $OUTPUT->render(new single_button($execute_url,
         '🚀 ' . get_string('cleanup_all_confirm_button', 'local_question_diagnostic'), 'post', single_button::BUTTON_DANGER));
@@ -213,6 +209,7 @@ function queue_cleanup() {
     if (!data_submitted()) {
         throw new \moodle_exception('invalidrequest');
     }
+    require_sesskey();
 
     // Liste calculée une seule fois, maintenant : elle ne sera plus jamais recalculée.
     $stats = category_manager::get_cleanup_candidates();

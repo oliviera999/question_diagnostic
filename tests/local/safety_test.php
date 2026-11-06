@@ -222,6 +222,25 @@ final class safety_test extends \advanced_testcase {
         $this->assertTrue($DB->record_exists('question', ['id' => $b->id]));
     }
 
+    public function test_ui_deletion_path_deletes_unused_duplicates_only(): void {
+        global $DB;
+        $a = $this->mc();
+        $b = $this->mc();
+        $unique = $this->mc(['questiontext' => 'Unique']);
+        quiz_add_quiz_question($b->id, $this->quiz());
+
+        $checks = question_analyzer::can_delete_questions_batch([$a->id, $b->id, $unique->id]);
+        $this->assertTrue($checks[$a->id]->can_delete, $checks[$a->id]->reason);
+        $this->assertFalse($checks[$b->id]->can_delete, 'Utilisée.');
+        $this->assertFalse($checks[$unique->id]->can_delete, 'Unique et visible.');
+
+        $results = question_analyzer::delete_questions_safe([$a->id, $b->id], 'test');
+        $this->assertTrue($results[$a->id]);
+        $this->assertIsString($results[$b->id]);
+        $this->assertFalse($DB->record_exists('question', ['id' => $a->id]));
+        $this->assertTrue($DB->record_exists('question', ['id' => $b->id]));
+    }
+
     public function test_merge_remaps_references_and_keeps_pinning(): void {
         global $DB;
         $ref = $this->mc();

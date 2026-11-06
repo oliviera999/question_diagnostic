@@ -36,12 +36,9 @@ require_once(__DIR__ . '/../classes/question_merger.php');
 use local_question_diagnostic\question_analyzer;
 use local_question_diagnostic\question_merger;
 
-require_login();
-require_sesskey();
-
-if (!is_siteadmin()) {
-    throw new \moodle_exception('accessdenied', 'admin');
-}
+// Contrôle d'accès : capacité du plugin + administrateur du site (écriture).
+local_question_diagnostic_require_access('deletequestions', true);
+// Le sesskey n'est exigé qu'à l'exécution (POST) : l'aperçu s'affiche depuis un simple lien GET.
 
 $confirm = optional_param('confirm', 0, PARAM_INT);
 $includequiz = optional_param('includequiz', 1, PARAM_INT);
@@ -92,7 +89,7 @@ echo html_writer::start_tag('form', [
     'action' => (new moodle_url('/local/question_diagnostic/actions/merge_questions_batch.php'))->out(false),
     'class' => 'mb-3',
 ]);
-echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]);
+// Formulaire GET d'options d'aperçu : aucun sesskey dans l'URL.
 echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'includequiz', 'value' => (int)$includequiz]);
 echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'returnurl', 'value' => $returnurl->out(false)]);
 
@@ -271,8 +268,8 @@ foreach ($eligible as $e) {
 }
 echo html_writer::table($table);
 
-// Confirmation / exécution.
-if (!$confirm) {
+// Confirmation / exécution (tout accès GET, même avec confirm=1, reste un aperçu).
+if (!$confirm || !data_submitted()) {
     echo html_writer::start_div('alert alert-danger mt-3');
     echo html_writer::tag('h4', '⚠️ ' . get_string('warning', 'core'));
     echo html_writer::tag('p', get_string('question_merge_batch_warning', 'local_question_diagnostic'));
@@ -287,7 +284,6 @@ if (!$confirm) {
         'processall' => $processall,
         'afterrepid' => $afterrepid,
         'stoponerror' => $stoponerror,
-        'sesskey' => sesskey(),
         'returnurl' => $returnurl->out(false),
     ]);
     $confirmtext = (int)$processall === 1

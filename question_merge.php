@@ -31,11 +31,8 @@ require_once(__DIR__ . '/classes/question_merger.php');
 use local_question_diagnostic\question_analyzer;
 use local_question_diagnostic\question_merger;
 
-require_login();
-
-if (!is_siteadmin()) {
-    throw new \moodle_exception('accessdenied', 'admin');
-}
+// Contrôle d'accès : capacité du plugin (consultation).
+local_question_diagnostic_require_access('viewquestions');
 
 $page = optional_param('page', 0, PARAM_INT);
 $perpage = optional_param('perpage', 50, PARAM_INT);
@@ -65,7 +62,10 @@ echo html_writer::start_div('alert alert-info');
 echo html_writer::tag('p', get_string('question_merge_intro', 'local_question_diagnostic'));
 echo html_writer::end_div();
 
-// Actions batch.
+// Les aperçus de fusion mènent à des actions d'écriture : réservés aux administrateurs du site.
+$qdisadmin = is_siteadmin();
+
+// Actions batch (lien vers l'aperçu, sans sesskey : la fusion se fait en POST).
 echo html_writer::start_div('mb-3', ['style' => 'display:flex;gap:12px;flex-wrap:wrap;align-items:center;']);
 $batchurl = new moodle_url('/local/question_diagnostic/actions/merge_questions_batch.php', [
     'includequiz' => $includequiz,
@@ -75,9 +75,11 @@ $batchurl = new moodle_url('/local/question_diagnostic/actions/merge_questions_b
     'afterrepid' => 0,
     'stoponerror' => 1,
     'returnurl' => $PAGE->url->out(false),
-    'sesskey' => sesskey(),
 ]);
-echo html_writer::link($batchurl, get_string('question_merge_batch_preview_button', 'local_question_diagnostic'), ['class' => 'btn btn-warning']);
+if ($qdisadmin) {
+    echo html_writer::link($batchurl, get_string('question_merge_batch_preview_button', 'local_question_diagnostic'),
+        ['class' => 'btn btn-warning']);
+}
 echo html_writer::end_div();
 
 
@@ -134,11 +136,10 @@ foreach ($groups as $g) {
         'repid' => (int)$g->representative_id,
         'includequiz' => (int)$includequiz,
         'returnurl' => $PAGE->url->out(false),
-        'sesskey' => sesskey(),
     ]);
-    $actions = html_writer::link($previewurl, get_string('question_merge_preview_button', 'local_question_diagnostic'), [
+    $actions = $qdisadmin ? html_writer::link($previewurl, get_string('question_merge_preview_button', 'local_question_diagnostic'), [
         'class' => 'btn btn-primary btn-sm',
-    ]);
+    ]) : '-';
 
     $table->data[] = [
         format_string((string)($g->question_name ?? '')),
