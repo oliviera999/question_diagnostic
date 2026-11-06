@@ -5,6 +5,50 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 Le format est basé sur [Keep a Changelog](https://keepachangeable.com/fr/1.0.0/),
 et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
+## [1.15.0] - 2026-11-06
+
+Remise à niveau après l'audit de novembre 2026 (mood_prod : docs/question_diagnostic/AUDIT_2026-11.md).
+Cible : Moodle 5.1 à 5.3 (`supported = [501, 503]`), production en 5.3.
+
+### Sûreté des données
+- **Doublons** : même catégorie ET même contenu complet (empreinte de l'export XML Moodle : réponses, options,
+  sous-questions, indices, note, contenu des fichiers). Avant : type + énoncé, sur tout le site.
+- **Usage** (`local\usage_checker`) : toutes les versions de l'entrée ; tentatives lues dans `question_attempts`
+  (aperçus exclus) ; `questions_in_use()` du cœur ; versions figées et « toujours la dernière » respectées ;
+  réservoirs de tirage aléatoire (`question_set_references`, sous-catégories comprises). En cas d'erreur : utilisé.
+- **Suppression** (`local\question_deleter`) : seul point de suppression ; export XML préalable dans
+  `dataroot/local_question_diagnostic/exports/` ; toute l'entrée ; résultat vérifié (une question cachée par le
+  cœur n'est plus annoncée « supprimée »).
+- **Fusion** : référence = entrée visible avec le plus de tentatives ; fusion refusée avec tentatives, usage d'un
+  autre plugin, autre contexte, réservoir aléatoire ou version ancienne figée ; seule `question_references` est
+  remappée (épinglage conservé) ; « découverte avancée » supprimée ; verrou obligatoire ; plus de double exécution.
+- **Catégories** : API du cœur ; fusion vers un descendant, parent 0, catégorie top et catégories des tirages
+  aléatoires refusés ; transactions annulées correctement ; nettoyage global sur liste figée, sans cascade.
+- **Fichiers orphelins** : orphelin = contexte disparu ; brouillons, réponses d'élèves, devoirs jamais touchés ;
+  archive durable hors `temp/` avant suppression ; réparation réduite à une copie par l'API de fichiers.
+- **Démasquage** : « tout rendre visible » supprimé ; sélection bornée, journalisée, via le statut de version.
+- **Intégrité** : plus de suppression de versions de questions existantes (signalées seulement).
+- **Entrées orphelines** : réaffectation vérifiée (cible, idnumber), fichiers déplacés, caches vidés.
+- **Opérations sur tout le site** (doublons, fusion, catégories) : tâches adhoc avec rapport par messagerie.
+
+### Moodle 5.3
+- Banque Olution désignée par le réglage `olution_qbank_cmid` (fin de l'identifiant 9472 codé en dur et des
+  recherches en contexte système/catégorie/cours) ; plus de création de catégorie en contexte système.
+- Liens vers la banque avec `cmid` ; déplacement vers « Catégories à trier » par le droit `moodle/question:add`.
+- `settings.php` (entrée d'administration, réglages) ; chaînes `cachedef_*`.
+
+### Sécurité et RGPD
+- Confirmations en POST avec `sesskey` ; corrections XSS ; CSV protégé contre l'injection de formules.
+- Journal : événement `operation_performed` (journal standard) au lieu d'un fichier ; `privacy\provider`
+  (null_provider) ; tâche `purge_retention` (réglage `retentiondays`).
+- IA : mode lancé en POST, 20 questions au plus, politique d'usage de l'IA respectée.
+- 23 pages de test et de débogage supprimées ; documentation rangée dans `docs/`.
+
+### Qualité
+- CI : Moodle 5.1 à 5.3, PHP 8.2 à 8.4, PostgreSQL 17, MariaDB 11.4.
+- Tests PHPUnit des opérations d'écriture (doublons, usage, suppression, fusion, catégories, fichiers
+  orphelins, entrées orphelines, démasquage) ; anciens tests cassés retirés.
+
 ## [1.14.3] - 2025-12-19
 
 ### 🔒 Sécurité : Renforcement de la détection des doublons pour éviter les suppressions par erreur
