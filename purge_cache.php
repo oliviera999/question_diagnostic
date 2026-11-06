@@ -129,12 +129,6 @@ if (!$confirm) {
         echo html_writer::start_div('', ['style' => 'display: flex; gap: 15px; flex-wrap: wrap;']);
         
         echo html_writer::link(
-            new moodle_url('/local/question_diagnostic/test_function.php'),
-            get_string('purge_cache_test_functions', 'local_question_diagnostic'),
-            ['class' => 'btn btn-info', 'target' => '_blank']
-        );
-        
-        echo html_writer::link(
             new moodle_url('/local/question_diagnostic/questions_cleanup.php'),
             get_string('purge_cache_questions_tool', 'local_question_diagnostic'),
             ['class' => 'btn btn-primary']

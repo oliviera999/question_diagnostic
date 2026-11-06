@@ -359,13 +359,6 @@ if (isset($globalstats->total_protected) && $globalstats->total_protected > 0) {
     
     echo '</ul>';
     echo '<p style="margin-top: 15px;"><em>Ces protections évitent de casser la structure de votre Moodle.</em></p>';
-    echo '<p style="margin-top: 10px;"><strong>💡 Conseil :</strong> Utilisez ';
-    echo html_writer::link(
-        new moodle_url('/local/question_diagnostic/quick_check_categories.php'),
-        'quick_check_categories.php',
-        ['style' => 'font-weight: bold; text-decoration: underline;']
-    );
-    echo ' pour voir le détail des catégories protégées.</p>';
     echo html_writer::end_div();
 }
 

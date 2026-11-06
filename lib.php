@@ -891,7 +891,6 @@ function local_question_diagnostic_require_capability_or_die($permission) {
  *   ├── audit_logs.php
  *   ├── monitoring.php
  *   ├── orphan_entries.php
- *   └── test.php
  *
  * @param string $current_page Nom du fichier actuel (ex: 'categories.php', 'actions/delete.php')
  * @return moodle_url URL de la page parente
@@ -926,16 +925,10 @@ function local_question_diagnostic_get_parent_url($current_page) {
         'monitoring.php' => 'index.php',
         'site_diagnostic.php' => 'index.php',
         'orphan_entries.php' => 'index.php',
-        'test.php' => 'index.php',
-        'debug_categories.php' => 'index.php',
-        'quick_check_categories.php' => 'index.php',
-        'check_default_categories.php' => 'index.php',
-        'diagnose_dd_files.php' => 'index.php',
 
         // Olution triage → olution_duplicates.php
         'olution_triage.php' => 'olution_duplicates.php',
         'olution_auto_sort.php' => 'olution_duplicates.php',
-        'ai_debug.php' => 'olution_auto_sort.php',
         
         // index.php n'a pas de parent (racine)
         'index.php' => null,

@@ -662,31 +662,6 @@ echo html_writer::end_tag('div'); // fin qd-tool-content
 
 echo html_writer::end_tag('div'); // fin qd-tool-card
 
-// ======================================================================
-// OPTION 9 : Page de test
-// ======================================================================
-
-echo html_writer::start_tag('div', ['class' => 'qd-tool-card']);
-
-echo html_writer::start_tag('div', ['class' => 'qd-tool-icon']);
-echo '🧪';
-echo html_writer::end_tag('div');
-
-echo html_writer::start_tag('div', ['class' => 'qd-tool-content']);
-
-echo html_writer::tag('h4', get_string('test_page_title', 'local_question_diagnostic'), ['class' => 'qd-tool-title']);
-
-echo html_writer::tag('p', 
-    get_string('test_page_desc', 'local_question_diagnostic'),
-    ['class' => 'qd-tool-description']
-);
-
-$test_url = new moodle_url('/local/question_diagnostic/test.php');
-echo html_writer::link($test_url, 'Ouvrir la page de test →', ['class' => 'qd-tool-button']);
-
-echo html_writer::end_tag('div'); // fin qd-tool-content
-
-echo html_writer::end_tag('div'); // fin qd-tool-card
 
 echo html_writer::end_tag('div'); // fin qd-tools-menu
 

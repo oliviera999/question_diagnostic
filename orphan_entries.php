@@ -289,17 +289,6 @@ echo html_writer::end_div();
 // 🆕 v1.9.44 : Breadcrumb et liens utiles avec navigation hiérarchique
 echo html_writer::start_div('breadcrumb-nav', ['style' => 'margin-bottom: 20px;']);
 echo local_question_diagnostic_render_back_link('orphan_entries.php');
-echo ' | ';
-echo html_writer::link(
-    new moodle_url('/local/question_diagnostic/test.php'),
-    'Page de diagnostic'
-);
-echo ' | ';
-echo html_writer::link(
-    new moodle_url('/local/question_diagnostic/DATABASE_IMPACT.md'),
-    '🛡️ Impact Base de Données',
-    ['target' => '_blank', 'style' => 'font-weight: bold; color: #d9534f;']
-);
 echo html_writer::end_div();
 
 // Alerte de sécurité en haut de page
@@ -309,7 +298,7 @@ if ($entryid == 0) {
     echo 'Cette page permet de <strong>modifier la base de données</strong>. ';
     echo 'Avant toute action, consultez la ';
     echo html_writer::link(
-        new moodle_url('/local/question_diagnostic/DATABASE_IMPACT.md'),
+        new moodle_url('/local/question_diagnostic/help_database_impact.php'),
         'documentation des impacts sur la BDD',
         ['target' => '_blank', 'style' => 'font-weight: bold; text-decoration: underline;']
     );
@@ -1153,8 +1142,8 @@ if ($entryid > 0) {
         echo '<ol>';
         echo '<li><strong>📖 Consultez d\'abord</strong> la ';
         echo html_writer::link(
-            new moodle_url('/local/question_diagnostic/DATABASE_IMPACT.md'),
-            'documentation DATABASE_IMPACT.md',
+            new moodle_url('/local/question_diagnostic/help_database_impact.php'),
+            'documentation des impacts sur la base',
             ['target' => '_blank', 'style' => 'font-weight: bold;']
         );
         echo ' pour comprendre les impacts</li>';
