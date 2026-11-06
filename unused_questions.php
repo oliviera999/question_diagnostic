@@ -493,12 +493,11 @@ foreach ($unused_questions as $question) {
     // Catégorie cliquable
     echo html_writer::start_tag('td', ['class' => 'col-category']);
     if (isset($stats->category_id) && $stats->category_id > 0 && isset($stats->context_id)) {
-        $courseid = isset($stats->course_id) && $stats->course_id ? (int)$stats->course_id : (defined('SITEID') ? SITEID : 1);
-        $cat_url = new moodle_url('/question/edit.php', [
-            'courseid' => $courseid,
-            'cat' => $stats->category_id . ',' . $stats->context_id
-        ]);
-        $category_display = html_writer::link($cat_url, format_string($stats->category_name), ['target' => '_blank', 'title' => 'Ouvrir la catégorie dans la banque de questions']);
+        $cat_url = local_question_diagnostic_get_question_bank_url(
+            (object)['id' => (int)$stats->category_id, 'contextid' => (int)$stats->context_id]);
+        $category_display = $cat_url
+            ? html_writer::link($cat_url, format_string($stats->category_name), ['target' => '_blank', 'title' => 'Ouvrir la catégorie dans la banque de questions'])
+            : format_string($stats->category_name);
         $category_display .= ' <span style="color: #666; font-size: 11px;">(ID: ' . $stats->category_id . ')</span>';
         echo $category_display;
     } else {

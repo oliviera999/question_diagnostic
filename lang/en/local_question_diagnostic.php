@@ -875,3 +875,29 @@ $string['orphan_entry_refused'] = 'Reassignment refused: {$a}';
 $string['orphan_entry_target_context'] = 'the target category is not in a question bank (mod_qbank activity)';
 $string['orphan_entry_target_top'] = 'the target is a "top" category, whose questions are not shown';
 $string['questions_integrity_duplicate_versions_report'] = '{$a} entry(ies) have several "latest" versions: reported only, to be fixed by hand (deleting a version of an existing question would break it and its attempts).';
+$string['auditlogs_storage'] = 'Operations are recorded in the standard Moodle log (event "Question bank diagnostic operation"), with its retention settings.';
+$string['cachedef_ai_suggestions'] = 'AI suggestions';
+$string['cachedef_brokenlinks'] = 'Broken links';
+$string['cachedef_duplicates'] = 'Duplicate questions';
+$string['cachedef_globalstats'] = 'Global statistics';
+$string['cachedef_orphanfiles'] = 'Orphan files';
+$string['cachedef_questionusage'] = 'Question usage';
+$string['event_operation_performed'] = 'Question bank diagnostic operation';
+$string['olution_auto_sort_ai_notice'] = 'sends the text of at most 20 questions to the AI provider configured in Moodle';
+$string['olution_auto_sort_ai_policy'] = 'The AI mode needs you to accept the AI usage policy of the site first.';
+$string['olution_move_refused_random'] = 'Move refused: the question\'s category is used by a random question.';
+$string['privacy:metadata'] = 'The plugin stores no personal data: its operations are recorded as events in the standard Moodle log.';
+$string['setting_olution_qbank_cmid'] = 'Olution shared bank (course module id)';
+$string['setting_olution_qbank_cmid_desc'] = 'Course module id (cmid) of the mod_qbank activity that holds the Olution shared questions. Empty: the only question bank whose name contains "olution" is used.';
+$string['setting_retentiondays'] = 'Retention of exports and archives (days)';
+$string['setting_retentiondays_desc'] = 'Moodle XML exports written before each deletion and orphan file archives are deleted after this number of days (0: kept forever).';
+$string['settings'] = 'Settings';
+$string['task_purge_retention'] = 'Purge of old exports and archives (question diagnostic)';
+$string['tool_open'] = 'Question bank diagnostic';
+$string['brokenlink_error_attempts'] = 'This question version has attempts: edit it in the question bank (a new version is created) instead of changing it in place.';
+$string['brokenlink_error_field'] = 'Field not supported for repair: {$a}';
+$string['brokenlink_error_url'] = 'Replacement URL refused: only Moodle file references (@@PLUGINFILE@@/) or http(s) addresses are accepted.';
+$string['brokenlinks_report'] = 'Broken links scan of the whole question bank (latest versions):
+Questions: {$a->total_questions}
+Questions with broken links: {$a->questions_with_broken_links}
+Broken links: {$a->total_broken_links}';

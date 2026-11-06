@@ -109,7 +109,6 @@ class cache_manager {
         $success_count = count(array_filter($results));
         $total_count = count($results);
         
-        debugging("Caches purgés : $success_count/$total_count", DEBUG_DEVELOPER);
         
         return $results;
     }

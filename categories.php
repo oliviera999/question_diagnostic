@@ -1046,13 +1046,21 @@ echo html_writer::end_tag('div');
 echo html_writer::start_tag('script');
 ?>
 // Modal de déplacement
+function qdEscape(value) {
+    const div = document.createElement('div');
+    div.textContent = value === null || value === undefined ? '' : String(value);
+    return div.innerHTML;
+}
+
 function openMoveModal(categoryId, categoryName, contextId) {
+    categoryId = parseInt(categoryId, 10);
+    categoryName = qdEscape(categoryName);
     const modal = document.getElementById('move-modal');
     const body = document.getElementById('move-modal-body');
     const footer = document.getElementById('move-modal-footer');
     
     // Récupérer toutes les catégories du même contexte (pour liste des parents possibles)
-    const allCategories = <?php echo json_encode($categories_with_stats); ?>;
+    const allCategories = <?php echo json_encode($categories_with_stats, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
     const sameContext = allCategories.filter(c => c.category.contextid == contextId && c.category.id != categoryId);
     
     // Construire le contenu
@@ -1062,12 +1070,11 @@ function openMoveModal(categoryId, categoryName, contextId) {
     html += '<input type="hidden" name="id" value="' + categoryId + '">';
     html += '<input type="hidden" name="sesskey" value="<?php echo sesskey(); ?>">';
     html += '<select name="parent" class="form-control" style="width: 100%; padding: 8px; margin: 10px 0;">';
-    html += '<option value="0">→ Racine (aucun parent)</option>';
     
     sameContext.forEach(function(item) {
         if (!item.stats.is_protected || item.category.parent == 0) {
-            html += '<option value="' + item.category.id + '">';
-            html += item.category.name + ' (ID: ' + item.category.id + ')';
+            html += '<option value="' + parseInt(item.category.id, 10) + '">';
+            html += qdEscape(item.category.name) + ' (ID: ' + parseInt(item.category.id, 10) + ')';
             if (item.category.parent == 0) {
                 html += ' - RACINE';
             }

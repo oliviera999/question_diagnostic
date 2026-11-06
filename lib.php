@@ -350,106 +350,36 @@ function local_question_diagnostic_get_used_question_ids() {
  */
 function local_question_diagnostic_get_question_bank_url($category, $questionid = null) {
     global $DB;
-    
+
     try {
-        // Si la catégorie est absente/incomplète mais qu'on a un questionid,
-        // essayer de déduire la catégorie depuis l'architecture Moodle 4.x :
-        // question_versions -> question_bank_entries -> question_categories.
-        if ((!is_object($category) || empty($category->id) || empty($category->contextid)) && $questionid !== null) {
-            $qid = (int)$questionid;
-            if ($qid > 0) {
-                $sql = "SELECT qc.id, qc.contextid
-                          FROM {question_versions} qv
-                          INNER JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
-                          INNER JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
-                         WHERE qv.questionid = :qid";
-                $derived = $DB->get_record_sql($sql, ['qid' => $qid], IGNORE_MISSING);
-                if ($derived && !empty($derived->id) && !empty($derived->contextid)) {
-                    $category = $derived;
-                }
-            }
+        // Catégorie absente : la déduire de la question (question_versions -> entrée -> catégorie).
+        if ((!is_object($category) || empty($category->id) || empty($category->contextid)) && (int)$questionid > 0) {
+            $category = $DB->get_record_sql("SELECT qc.id, qc.contextid
+                  FROM {question_versions} qv
+                  JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
+                  JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
+                 WHERE qv.questionid = :qid", ['qid' => (int)$questionid], IGNORE_MISSING);
         }
-
-        // Déterminer le courseid à partir du contexte
-        if (!is_object($category) || empty($category->contextid) || empty($category->id)) {
-            // Fallback final : si on ne peut pas construire un URL "question bank", renvoyer
-            // un lien direct vers l'édition de la question (évite les liens cassés).
-            if ($questionid !== null && (int)$questionid > 0) {
-                return new moodle_url('/question/bank/editquestion/question.php', [
-                    'id' => (int)$questionid,
-                ]);
-            }
+        if (!is_object($category) || empty($category->id) || empty($category->contextid)) {
             return null;
         }
 
-        $context = context::instance_by_id($category->contextid, IGNORE_MISSING);
-        
-        if (!$context) {
-            // Si le contexte n'existe pas, retourner null
-            if ($questionid !== null && (int)$questionid > 0) {
-                return new moodle_url('/question/bank/editquestion/question.php', [
-                    'id' => (int)$questionid,
-                ]);
-            }
+        // v1.15.0 : en Moodle 5.x, une banque de questions est une activité mod_qbank (contexte de module) ; la page
+        // de la banque s'ouvre avec son cmid. Les autres contextes n'ont plus de banque : pas de lien.
+        $context = context::instance_by_id((int)$category->contextid, IGNORE_MISSING);
+        if (!$context || $context->contextlevel != CONTEXT_MODULE) {
             return null;
         }
-        
-        $courseid = 0; // Par défaut, système
-        $cmid = 0;
-        
-        // Si c'est un contexte de cours, récupérer l'ID du cours
-        if ($context->contextlevel == CONTEXT_COURSE) {
-            $courseid = $context->instanceid;
-        } else if ($context->contextlevel == CONTEXT_MODULE) {
-            // Si c'est un module, remonter au cours parent
-            $coursecontext = $context->get_course_context(false);
-            if ($coursecontext) {
-                $courseid = $coursecontext->instanceid;
-            }
-            // Pour ouvrir la banque de questions dans le contexte d'activité,
-            // Moodle utilise souvent cmid.
-            $cmid = (int)$context->instanceid;
-        } else if ($context->contextlevel == CONTEXT_SYSTEM) {
-            // 🔧 FIX: Pour contexte système, utiliser SITEID au lieu de 0
-            // courseid=0 cause l'erreur "course not found"
-            $courseid = SITEID;
-        } else {
-            // Autres contextes (ex: CONTEXT_COURSECAT) :
-            // utiliser SITEID pour permettre l'ouverture de la banque de questions avec le paramètre cat=...
-            $courseid = SITEID;
-        }
-        
-        // Vérifier que le cours existe avant de générer l'URL
-        if ($courseid > 0 && !$DB->record_exists('course', ['id' => $courseid])) {
-            // Si le cours n'existe pas, utiliser SITEID comme fallback
-            $courseid = SITEID;
-        }
-        
-        // Dernière vérification : si SITEID n'existe pas non plus (rare), retourner null
-        if (!$DB->record_exists('course', ['id' => $courseid])) {
-            return null;
-        }
-        
-        // Construire l'URL : /question/edit.php?courseid=X&cat=categoryid,contextid
         $params = [
-            'courseid' => $courseid,
-            'cat' => $category->id . ',' . $category->contextid
+            'cmid' => (int)$context->instanceid,
+            'cat' => (int)$category->id . ',' . (int)$category->contextid,
         ];
-
-        if ($cmid > 0) {
-            $params['cmid'] = $cmid;
+        if ((int)$questionid > 0) {
+            // La banque met en évidence la dernière question modifiée.
+            $params['lastchanged'] = (int)$questionid;
         }
-        
-        // Si un ID de question est fourni, l'ajouter
-        if ($questionid !== null) {
-            $params['qid'] = $questionid;
-        }
-        
-        $url = new moodle_url('/question/edit.php', $params);
-        
-        return $url;
-        
-    } catch (Exception $e) {
+        return new moodle_url('/question/edit.php', $params);
+    } catch (\Throwable $e) {
         return null;
     }
 }
@@ -1015,725 +945,65 @@ function local_question_diagnostic_render_back_link($current_page, $custom_text 
 }
 
 /**
- * Trouve la catégorie "Olution" - Support multi-contextes
- * 
- * 🆕 v1.10.4 : Fonction pour identifier la catégorie Olution
- * 🔧 v1.10.5 : Recherche intelligente et flexible
- * 🎯 v1.10.6 : PRIORITÉ MAXIMALE à "Olution" - Recherche stricte et ciblée
- * 🔄 v1.10.7 : CORRECTION MAJEURE - Olution est une catégorie de COURS, pas de questions
- * 🎯 v1.10.9 : CORRECTION FINALE - Olution est une catégorie de QUESTIONS système
- * 🔧 v1.11.1 : CORRECTION DÉFINITIVE - Olution peut être catégorie de COURS ou QUESTIONS
- * 🔧 v1.11.2 : CORRECTION FINALE - Olution est une CATÉGORIE DE COURS (ID 78) contenant d'autres cours
- * 
- * Stratégie de recherche MULTI-CONTEXTES :
- * 
- * PHASE 1 - Catégories de QUESTIONS système :
- * 1. Nom EXACT "Olution" (case-sensitive) - PRIORITÉ ABSOLUE
- * 2. Variantes de casse : "olution", "OLUTION"
- * 3. Nom commençant par "Olution " (avec espace)
- * 4. Nom se terminant par " Olution"
- * 5. Nom contenant " Olution " (entouré d'espaces)
- * 6. Nom contenant "Olution" (plus flexible)
- * 7. En dernier recours : description contenant "olution"
- * 
- * PHASE 2 - CATÉGORIE DE COURS "Olution" (si Phase 1 échoue) :
- * 1. Rechercher la catégorie de cours "Olution" (ID 78 prioritaire)
- * 2. Récupérer tous les cours dans cette catégorie de cours
- * 3. Chercher les catégories de questions dans les contextes de ces cours
- * 4. Priorité : catégorie de questions nommée "Olution" puis première catégorie du cours
- * 
- * @return object|false Objet catégorie de questions Olution ou false si non trouvée
+ * Catégorie racine de la banque partagée « Olution » (Moodle 5.x : une activité mod_qbank).
+ *
+ * v1.15.0 : la banque est désignée par le réglage « olution_qbank_cmid » (identifiant de module de l'activité
+ * mod_qbank). Sans réglage, la seule activité mod_qbank dont le nom contient « olution » est retenue (s'il y en a
+ * plusieurs, aucune : le réglage est alors obligatoire). La racine renvoyée est la catégorie « top » de cette banque ;
+ * « commun » et « Catégories à trier » sont ses descendantes. Plus aucune recherche dans les contextes système,
+ * catégorie de cours ou cours (vides depuis Moodle 5.0), plus aucun identifiant codé en dur.
+ *
+ * @return object|false catégorie racine (avec context_type, course_id, course_name, cmid) ou false
  */
 function local_question_diagnostic_find_olution_category() {
     global $DB;
-    
-    try {
-        // ==================================================================================
-        // Heuristique: sur certains sites, un "Olution" système existe mais n'est pas la source de vérité.
-        // On score les candidats (présence de "commun", taille d'arbre) et on choisit le meilleur.
-        // ==================================================================================
-        $normalize = function(string $label): string {
-            $label = trim($label);
-            if (class_exists('\\core_text')) {
-                if (method_exists('\\core_text', 'remove_accents')) {
-                    $label = \core_text::remove_accents($label);
-                } else if (method_exists('\\core_text', 'specialtoascii')) {
-                    $label = \core_text::specialtoascii($label);
-                }
-                if (method_exists('\\core_text', 'strtolower')) {
-                    $label = \core_text::strtolower($label);
-                } else {
-                    $label = strtolower($label);
-                }
-            } else {
-                $label = strtolower($label);
-            }
-            $label = preg_replace('/\s+/', ' ', $label);
-            return $label;
-        };
-
-        $scorecategory = function($cat) use ($DB, $normalize): int {
-            if (!$cat || empty($cat->id)) {
-                return 0;
-            }
-
-            $id = (int)$cat->id;
-            $score = 0;
-
-            try {
-                $children = $DB->get_records('question_categories', ['parent' => $id], 'id ASC', 'id,name');
-                $score += count($children);
-                foreach ($children as $ch) {
-                    if ($normalize((string)$ch->name) === 'commun') {
-                        // Signal très fort : sur ce site, la racine Olution a une sous-catégorie directe "commun".
-                        $score += 5000;
-                        break;
-                    }
-                }
-
-                // Taille d'arbre (si path dispo) = bon proxy de "richesse".
-                $cols = $DB->get_columns('question_categories');
-                if (isset($cols['path'])) {
-                    $root = $DB->get_record('question_categories', ['id' => $id], 'id,path', IGNORE_MISSING);
-                    if ($root && !empty($root->path)) {
-                        $params = [
-                            'id' => $id,
-                            'path' => rtrim($root->path, '/') . '/%'
-                        ];
-                        $treecount = (int)$DB->count_records_select(
-                            'question_categories',
-                            'id = :id OR ' . $DB->sql_like('path', ':path', false, false),
-                            $params
-                        );
-                        $score += $treecount;
-                    }
-                }
-            } catch (\Exception $e) {
-                // Score minimal.
-            }
-
-            return $score;
-        };
-
-        // ------------------------------------------------------------------------------
-        // Validateur strict (Phase 2) : un candidat "Olution" doit avoir une sous-catégorie
-        // directe nommée exactement "commun" (normalisée).
-        //
-        // Objectif: éviter les faux positifs (ex: sélectionner "Top" / "Default for ..." en contexte cours),
-        // qui peuvent contenir un "commun" ailleurs dans l'arborescence mais pas comme enfant direct d'Olution.
-        // ------------------------------------------------------------------------------
-        $has_direct_commun_child = function(int $categoryid, int $contextid) use ($DB, $normalize): bool {
-            $categoryid = (int)$categoryid;
-            $contextid = (int)$contextid;
-            if ($categoryid <= 0 || $contextid <= 0) {
-                return false;
-            }
-
-            try {
-                // Filtre LIKE pour limiter le volume, puis comparaison normalisée stricte.
-                $sql = "SELECT id, name
-                          FROM {question_categories}
-                         WHERE contextid = :ctxid
-                           AND parent = :parentid
-                           AND " . $DB->sql_like('name', ':pattern', false, false);
-                $children = $DB->get_records_sql($sql, [
-                    'ctxid' => $contextid,
-                    'parentid' => $categoryid,
-                    'pattern' => '%commun%',
-                ]);
-
-                foreach ($children as $child) {
-                    if ($normalize((string)$child->name) === 'commun') {
-                        return true;
-                    }
-                }
-            } catch (\Exception $e) {
-                return false;
-            }
-
-            return false;
-        };
-
-        // ------------------------------------------------------------------------------
-        // ANCRAGE (site spécifique) : si une catégorie de questions "commun" est connue par ID,
-        // on peut retrouver la racine Olution via son parent.
-        //
-        // L'utilisateur indique : "commun" a très probablement l'ID 9472 et "olution" est en minuscules.
-        // On ne hardcode pas une dépendance : si l'ID n'existe pas / n'est pas "commun", on ignore.
-        // ------------------------------------------------------------------------------
-        $forcedcommunid = 9472;
-        try {
-            $commun = $DB->get_record('question_categories', ['id' => (int)$forcedcommunid], 'id,name,parent,contextid', IGNORE_MISSING);
-            if ($commun && (int)$commun->parent > 0 && $normalize((string)$commun->name) === 'commun') {
-                $parent = $DB->get_record('question_categories', ['id' => (int)$commun->parent], '*', IGNORE_MISSING);
-                if ($parent && (int)$parent->contextid === (int)$commun->contextid) {
-                    // Vérification stricte : le parent doit bien avoir "commun" comme enfant direct.
-                    if ($has_direct_commun_child((int)$parent->id, (int)$parent->contextid)) {
-                        local_question_diagnostic_debug_log(
-                            '✅ Forced detection via commun ID ' . (int)$forcedcommunid . ' → Olution root ID ' . (int)$parent->id,
-                            DEBUG_DEVELOPER
-                        );
-                        return $parent;
-                    }
-                }
-            }
-        } catch (\Exception $e) {
-            // Ignore: fallback to heuristics.
-        }
-
-        $systemcandidate = false;
-        $coursecandidate = false;
-        $bestcoursescore = 0;
-
-        // ==================================================================================
-        // PHASE 1 : Recherche dans les catégories de QUESTIONS système
-        // ==================================================================================
-        $systemcontext = context_system::instance();
-        
-        local_question_diagnostic_debug_log('🔍 Searching for Olution category in system context (ID: ' . $systemcontext->id . ')', DEBUG_DEVELOPER);
-        
-        // Dans Moodle, la catégorie racine visible est généralement "Top" (parent=0).
-        // Les catégories réelles (ex: "Olution") sont souvent sous "Top" (parent != 0).
-        // Ne pas supposer que parent = 0 pour "Olution".
-        $roots = $DB->get_records('question_categories', [
-            'contextid' => $systemcontext->id,
-            'parent' => 0,
-        ], 'sortorder ASC, id ASC', '*', 0, 1);
-        $system_root_category = $roots ? reset($roots) : false;
-        $system_top_id = $system_root_category ? (int)$system_root_category->id : 0;
-
-        // ----------------------------------------------------------------------------------
-        // RÈGLE PRIORITAIRE (robuste) : si on trouve une catégorie nommée exactement "commun"
-        // dans le contexte système, alors son parent est un candidat "Olution" extrêmement probable.
-        //
-        // Cela corrige le cas fréquent où plusieurs catégories "Olution" existent au niveau système,
-        // dont certaines sont vides / de test, et où la "vraie" arborescence est celle qui contient "commun".
-        // ----------------------------------------------------------------------------------
-        try {
-            $communpattern = '%commun%';
-            $sqlcommun = "SELECT id, name, parent, contextid
-                            FROM {question_categories}
-                           WHERE contextid = :ctxid
-                             AND " . $DB->sql_like('name', ':pattern', false, false);
-            $communrecs = $DB->get_records_sql($sqlcommun, [
-                'ctxid' => (int)$systemcontext->id,
-                'pattern' => $communpattern,
-            ]);
-
-            $bestparent = null;
-            $bestparentscore = 0;
-            foreach ($communrecs as $rec) {
-                if (empty($rec->parent) || (int)$rec->parent <= 0) {
-                    continue;
-                }
-                if ($normalize((string)$rec->name) !== 'commun') {
-                    continue;
-                }
-
-                $parent = $DB->get_record('question_categories', ['id' => (int)$rec->parent], '*', IGNORE_MISSING);
-                if (!$parent || (int)$parent->contextid !== (int)$systemcontext->id) {
-                    continue;
-                }
-
-                // Bonus massif pour "parent de commun".
-                $score = $scorecategory($parent) + 1000;
-                if ($bestparent === null || $score > $bestparentscore) {
-                    $bestparent = $parent;
-                    $bestparentscore = $score;
-                }
-            }
-
-            if ($bestparent) {
-                local_question_diagnostic_debug_log(
-                    '✅ Found system \"commun\"; selecting its parent as Olution candidate (ID: ' . (int)$bestparent->id . ', score=' . (int)$bestparentscore . ')',
-                    DEBUG_DEVELOPER
-                );
-                $systemcandidate = $bestparent;
-            }
-        } catch (\Exception $e) {
-            // Si la recherche échoue, on continue avec les heuristiques existantes.
-        }
-        
-        // ==================================================================================
-        // PRIORITÉ 1 : Nom EXACT "Olution" (case-sensitive) au niveau SYSTÈME
-        // ==================================================================================
-        // IMPORTANT : il peut exister plusieurs catégories "Olution" dans le même contexte.
-        // On les SCORE et on choisit la meilleure (présence de "commun" / arbre le plus riche).
-        $sql = "SELECT *
-                  FROM {question_categories}
-                 WHERE contextid = :contextid
-                   AND name = :name
-              ORDER BY CASE WHEN parent = :topid THEN 0 ELSE 1 END,
-                       sortorder ASC,
-                       id ASC";
-
-        // Encapsuler la phase 1 pour pouvoir en sortir sans return().
-        do {
-            // Si on a déjà un candidat robuste via \"commun\", on évite de l'écraser.
-            if ($systemcandidate) {
-                break;
-            }
-
-            $records = $DB->get_records_sql($sql, [
-                'contextid' => $systemcontext->id,
-                'name' => 'Olution',
-                'topid' => $system_top_id,
-            ], 0, 50);
-
-            if ($records) {
-                $best = null;
-                $bestscore = 0;
-                foreach ($records as $cand) {
-                    $score = $scorecategory($cand);
-                    if ($best === null || $score > $bestscore) {
-                        $best = $cand;
-                        $bestscore = $score;
-                    }
-                }
-                if ($best) {
-                    local_question_diagnostic_debug_log('✅ Olution category found - EXACT match (best score=' . $bestscore . '): Olution (ID: ' . $best->id . ')', DEBUG_DEVELOPER);
-                    $systemcandidate = $best;
-                    break;
-                }
-            }
-        
-            local_question_diagnostic_debug_log('❌ No exact match for "Olution" found', DEBUG_DEVELOPER);
-        
-            // ==================================================================================
-            // PRIORITÉ 2 : Variantes de casse exactes (mot seul)
-            // ==================================================================================
-            $variants = ['olution', 'OLUTION'];
-        
-            foreach ($variants as $variant) {
-                $records = $DB->get_records_sql($sql, [
-                    'contextid' => $systemcontext->id,
-                    'name' => $variant,
-                    'topid' => $system_top_id,
-                ], 0, 50);
-
-                if (!$records) {
-                    continue;
-                }
-
-                $best = null;
-                $bestscore = 0;
-                foreach ($records as $cand) {
-                    $score = $scorecategory($cand);
-                    if ($best === null || $score > $bestscore) {
-                        $best = $cand;
-                        $bestscore = $score;
-                    }
-                }
-                if ($best) {
-                    local_question_diagnostic_debug_log('✅ Olution question category found - Case variant "' . $variant . '" (best score=' . $bestscore . ', ID: ' . $best->id . ')', DEBUG_DEVELOPER);
-                    $systemcandidate = $best;
-                    break;
-                }
-            }
-            if ($systemcandidate) {
-                break;
-            }
-        
-            // ==================================================================================
-            // PRIORITÉ 3 : Nom commençant par "Olution " (avec espace après)
-            // Exemples : "Olution 2024", "Olution - Questions"
-            // ==================================================================================
-            $sql = "SELECT *
-                    FROM {question_categories}
-                    WHERE contextid = :contextid
-                    AND " . $DB->sql_like('name', ':pattern', false, false) . "
-                    ORDER BY CASE WHEN parent = :topid THEN 0 ELSE 1 END, LENGTH(name) ASC
-                    LIMIT 1";
-        
-            $olution = $DB->get_record_sql($sql, [
-                'contextid' => $systemcontext->id,
-                'topid' => $system_top_id,
-                'pattern' => 'Olution %'
-            ]);
-        
-            if ($olution) {
-                local_question_diagnostic_debug_log('✅ Olution category found - Starts with "Olution ": ' . $olution->name, DEBUG_DEVELOPER);
-                $systemcandidate = $olution;
-                break;
-            }
-        
-            // ==================================================================================
-            // PRIORITÉ 4 : Nom se terminant par " Olution" (avec espace avant)
-            // Exemples : "Questions Olution", "Banque Olution"
-            // ==================================================================================
-            $sql = "SELECT *
-                    FROM {question_categories}
-                    WHERE contextid = :contextid
-                    AND " . $DB->sql_like('name', ':pattern', false, false) . "
-                    ORDER BY CASE WHEN parent = :topid THEN 0 ELSE 1 END, LENGTH(name) ASC
-                    LIMIT 1";
-        
-            $olution = $DB->get_record_sql($sql, [
-                'contextid' => $systemcontext->id,
-                'topid' => $system_top_id,
-                'pattern' => '% Olution'
-            ]);
-        
-            if ($olution) {
-                local_question_diagnostic_debug_log('✅ Olution category found - Ends with " Olution": ' . $olution->name, DEBUG_DEVELOPER);
-                $systemcandidate = $olution;
-                break;
-            }
-        
-            // ==================================================================================
-            // PRIORITÉ 5 : Nom contenant " Olution " (entouré d'espaces)
-            // Exemples : "Banque Olution 2024", "Questions Olution Partagées"
-            // ==================================================================================
-            $sql = "SELECT *
-                    FROM {question_categories}
-                    WHERE contextid = :contextid
-                    AND " . $DB->sql_like('name', ':pattern', false, false) . "
-                    ORDER BY CASE WHEN parent = :topid THEN 0 ELSE 1 END, LENGTH(name) ASC
-                    LIMIT 1";
-        
-            $olution = $DB->get_record_sql($sql, [
-                'contextid' => $systemcontext->id,
-                'topid' => $system_top_id,
-                'pattern' => '% Olution %'
-            ]);
-        
-            if ($olution) {
-                local_question_diagnostic_debug_log('✅ Olution category found - Contains " Olution ": ' . $olution->name, DEBUG_DEVELOPER);
-                $systemcandidate = $olution;
-                break;
-            }
-        
-            // ==================================================================================
-            // PRIORITÉ 6 : Nom contenant "Olution" sans espaces (plus flexible)
-            // Exemples : "OlutionQCM", "BanqueOlution"
-            // ==================================================================================
-            $sql = "SELECT *
-                    FROM {question_categories}
-                    WHERE contextid = :contextid
-                    AND " . $DB->sql_like('name', ':pattern', false, false) . "
-                    ORDER BY CASE WHEN parent = :topid THEN 0 ELSE 1 END, " . $DB->sql_position("'Olution'", 'name') . " ASC, LENGTH(name) ASC
-                    LIMIT 1";
-        
-            $olution = $DB->get_record_sql($sql, [
-                'contextid' => $systemcontext->id,
-                'topid' => $system_top_id,
-                'pattern' => '%Olution%'
-            ]);
-        
-            if ($olution) {
-                local_question_diagnostic_debug_log('⚠️ Olution category found - Contains "Olution" (flexible): ' . $olution->name, DEBUG_DEVELOPER);
-                $systemcandidate = $olution;
-                break;
-            }
-        
-            // ==================================================================================
-            // PRIORITÉ 7 : EN DERNIER RECOURS - Description contenant "olution"
-            // SEULEMENT si le nom est court et potentiellement pertinent
-            // ==================================================================================
-            $sql = "SELECT *
-                    FROM {question_categories}
-                    WHERE contextid = :contextid
-                    AND " . $DB->sql_like('info', ':pattern', false, false) . "
-                    AND LENGTH(name) <= 50
-                    ORDER BY CASE WHEN parent = :topid THEN 0 ELSE 1 END, " . $DB->sql_position("'olution'", 'info') . " ASC
-                    LIMIT 1";
-        
-            $olution = $DB->get_record_sql($sql, [
-                'contextid' => $systemcontext->id,
-                'topid' => $system_top_id,
-                'pattern' => '%olution%'
-            ]);
-        
-            if ($olution) {
-                local_question_diagnostic_debug_log('⚠️ Olution category found - Via description (last resort): ' . $olution->name, DEBUG_DEVELOPER);
-                $systemcandidate = $olution;
-                break;
-            }
-        
-            local_question_diagnostic_debug_log('❌ No Olution category found in system context after all searches', DEBUG_DEVELOPER);
-        } while (false);
-        
-        // ==================================================================================
-        // IMPORTANT : Ne pas créer automatiquement la catégorie Olution.
-        // La création automatique peut masquer un problème de configuration (ex: Olution existe sous "Top")
-        // et fausser la détection des doublons / déplacements.
-        // ==================================================================================
-        local_question_diagnostic_debug_log('ℹ️ Not auto-creating Olution category (manual setup required)', DEBUG_DEVELOPER);
-        
-        // ==================================================================================
-        // PHASE 2 : Recherche dans la CATÉGORIE DE COURS "Olution" (si besoin / meilleur score)
-        // ==================================================================================
-        local_question_diagnostic_debug_log('🔄 Trying Phase 2: Search in course category "Olution" for better match', DEBUG_DEVELOPER);
-        
-        // 1. Rechercher la catégorie de cours "Olution" (ID 78 selon l'utilisateur)
-        $course_category_sql = "SELECT id, name
-                                  FROM {course_categories}
-                                 WHERE " . $DB->sql_like($DB->sql_lower('name'), ':pattern', false, false) . "
-                                    OR id = 78
-                              ORDER BY CASE WHEN id = 78 THEN 0 ELSE 1 END,
-                                       " . $DB->sql_position("'olution'", $DB->sql_lower('name')) . " ASC,
-                                       LENGTH(name) ASC
-                                 LIMIT 1";
-
-        $olution_course_category = $DB->get_record_sql($course_category_sql, ['pattern' => '%olution%']);
-        
-        if (!$olution_course_category) {
-            local_question_diagnostic_debug_log('❌ No course category "Olution" found', DEBUG_DEVELOPER);
-        } else {
-        
-            local_question_diagnostic_debug_log('✅ Found course category "Olution": ' . $olution_course_category->name . ' (ID: ' . $olution_course_category->id . ')', DEBUG_DEVELOPER);
-
-        // 1.5) NOUVEAU : vérifier d'abord le CONTEXTE "catégorie de cours" (question bank partagée par catégorie).
-        // C'est le cas attendu par l'utilisateur : Olution est lié à une catégorie de cours (pas à un cours).
-        try {
-            $coursecatcontext = $DB->get_record('context', [
-                'contextlevel' => CONTEXT_COURSECAT,
-                'instanceid' => (int)$olution_course_category->id,
-            ], 'id,contextlevel,instanceid', IGNORE_MISSING);
-
-            if ($coursecatcontext) {
-                // Priorité A : ancrage via commun ID 9472 si ce "commun" est dans ce contexte.
-                $commun = $DB->get_record('question_categories', ['id' => (int)$forcedcommunid], 'id,name,parent,contextid', IGNORE_MISSING);
-                if ($commun && (int)$commun->contextid === (int)$coursecatcontext->id
-                    && (int)$commun->parent > 0
-                    && $normalize((string)$commun->name) === 'commun') {
-                    $parent = $DB->get_record('question_categories', ['id' => (int)$commun->parent], '*', IGNORE_MISSING);
-                    if ($parent && (int)$parent->contextid === (int)$coursecatcontext->id
-                        && $has_direct_commun_child((int)$parent->id, (int)$coursecatcontext->id)) {
-                        $parent->course_category_name = $olution_course_category->name;
-                        $parent->course_category_id = (int)$olution_course_category->id;
-                        $parent->context_type = 'course_category';
-                        local_question_diagnostic_debug_log('✅ Olution detected in course CATEGORY context via commun ID ' . (int)$forcedcommunid . ' (root ID: ' . (int)$parent->id . ')', DEBUG_DEVELOPER);
-                        $coursecandidate = $parent;
-                        $bestcoursescore = max($bestcoursescore, $scorecategory($parent) + 20000);
-                    }
-                }
-
-                // Priorité B : chercher des racines "olution" dans ce contexte (case-insensitive) qui ont "commun" enfant direct.
-                $sqlqcats = "SELECT *
-                               FROM {question_categories}
-                              WHERE contextid = :ctxid
-                                AND " . $DB->sql_like($DB->sql_lower('name'), ':pattern', false, false) . "
-                           ORDER BY LENGTH(name) ASC, id ASC";
-                $candidates = $DB->get_records_sql($sqlqcats, [
-                    'ctxid' => (int)$coursecatcontext->id,
-                    'pattern' => '%olution%',
-                ], 0, 50);
-
-                foreach ($candidates as $cand) {
-                    if (!$has_direct_commun_child((int)$cand->id, (int)$coursecatcontext->id)) {
-                        continue;
-                    }
-                    $cand->course_category_name = $olution_course_category->name;
-                    $cand->course_category_id = (int)$olution_course_category->id;
-                    $cand->context_type = 'course_category';
-                    $score = $scorecategory($cand) + 15000;
-                    if ($score > $bestcoursescore) {
-                        $bestcoursescore = $score;
-                        $coursecandidate = $cand;
-                    }
-                }
-            }
-        } catch (\Exception $e) {
-            // Continuer : fallback cours ci-dessous.
-        }
-        
-        // 2. Rechercher tous les cours dans cette catégorie (et ses sous-catégories).
-        // 🔧 v1.11.8 : Utiliser la recherche récursive (la catégorie "Olution" peut contenir des sous-catégories).
-        $courses = local_question_diagnostic_get_courses_in_category_recursive($olution_course_category->id);
-        
-        local_question_diagnostic_debug_log('🔍 Found ' . count($courses) . ' courses in Olution course category (recursive) (ID: ' . $olution_course_category->id . ')', DEBUG_DEVELOPER);
-        
-            $fallbackfirst = false;
-            foreach ($courses as $course) {
-                local_question_diagnostic_debug_log('🎯 Checking course: ' . $course->fullname . ' (ID: ' . $course->id . ')', DEBUG_DEVELOPER);
-            
-                // 3. Récupérer le contexte de ce cours
-                $course_context = $DB->get_record('context', [
-                    'contextlevel' => CONTEXT_COURSE,
-                    'instanceid' => $course->id
-                ]);
-            
-                if (!$course_context) {
-                    continue;
-                }
-
-                // 4. Détection robuste dans le contexte de cours :
-                // - Chercher une catégorie nommée exactement "commun" (case/accents-insensitive) et prendre son parent
-                //   comme candidat "Olution" (signal fort, comme en Phase 1).
-                // - Chercher toute catégorie dont le nom contient "olution" (sans supposer parent=0).
-                // - Fallback: première catégorie racine du cours (souvent "Top").
-
-                // 4.a) Heuristique "commun" → parent.
-                try {
-                    $communpattern = '%commun%';
-                    $sqlcommun = "SELECT id, name, parent, contextid
-                                    FROM {question_categories}
-                                   WHERE contextid = :ctxid
-                                     AND " . $DB->sql_like('name', ':pattern', false, false);
-                    $communrecs = $DB->get_records_sql($sqlcommun, [
-                        'ctxid' => (int)$course_context->id,
-                        'pattern' => $communpattern,
-                    ]);
-
-                    foreach ($communrecs as $rec) {
-                        if (empty($rec->parent) || (int)$rec->parent <= 0) {
-                            continue;
-                        }
-                        if ($normalize((string)$rec->name) !== 'commun') {
-                            continue;
-                        }
-
-                        $parent = $DB->get_record('question_categories', ['id' => (int)$rec->parent], '*', IGNORE_MISSING);
-                        if (!$parent || (int)$parent->contextid !== (int)$course_context->id) {
-                            continue;
-                        }
-
-                        // IMPORTANT: En contexte cours, "commun" peut exister sous d'autres catégories.
-                        // Pour éviter de sélectionner une mauvaise racine (ex: "Top"), on exige que le parent
-                        // ait un nom contenant "Olution" (normalisé).
-                        $parentnorm = $normalize((string)$parent->name);
-                        if (strpos($parentnorm, 'olution') === false) {
-                            continue;
-                        }
-                        // Vérification stricte : "commun" doit être une sous-catégorie DIRECTE d'Olution.
-                        if (!$has_direct_commun_child((int)$parent->id, (int)$course_context->id)) {
-                            continue;
-                        }
-
-                        // Enrichir + scorer.
-                        $parent->course_name = $course->fullname;
-                        $parent->course_id = (int)$course->id;
-                        $parent->course_category_name = $olution_course_category->name;
-                        $parent->course_category_id = (int)$olution_course_category->id;
-                        $parent->context_type = 'course_category';
-
-                        $score = $scorecategory($parent) + 1000; // bonus massif pour "parent de commun"
-                        if ($score > $bestcoursescore) {
-                            $bestcoursescore = $score;
-                            $coursecandidate = $parent;
-                        }
-                    }
-                } catch (\Exception $e) {
-                    // Continuer avec les heuristiques suivantes.
-                }
-
-                // 4.b) Recherche de catégories dont le nom contient "olution" (dans TOUT le contexte du cours).
-                try {
-                    $sql = "SELECT *
-                              FROM {question_categories}
-                             WHERE contextid = :contextid
-                               AND " . $DB->sql_like('name', ':pattern', false, false) . "
-                          ORDER BY LENGTH(name) ASC, id ASC";
-                    $coursecats = $DB->get_records_sql($sql, [
-                        'contextid' => (int)$course_context->id,
-                        'pattern' => '%Olution%',
-                    ], 0, 50);
-
-                    local_question_diagnostic_debug_log('📂 Found ' . count($coursecats) . ' question categories matching "%Olution%" in course context', DEBUG_DEVELOPER);
-
-                    foreach ($coursecats as $cat) {
-                        // Vérification stricte : la racine Olution doit avoir "commun" comme enfant direct.
-                        if (!$has_direct_commun_child((int)$cat->id, (int)$course_context->id)) {
-                            continue;
-                        }
-
-                        // Ajouter des informations sur le cours et la catégorie de cours parent.
-                        $cat->course_name = $course->fullname;
-                        $cat->course_id = (int)$course->id;
-                        $cat->course_category_name = $olution_course_category->name;
-                        $cat->course_category_id = (int)$olution_course_category->id;
-                        $cat->context_type = 'course_category';
-
-                        $score = $scorecategory($cat);
-                        if ($score > $bestcoursescore) {
-                            $bestcoursescore = $score;
-                            $coursecandidate = $cat;
-                        }
-                    }
-                } catch (\Exception $e) {
-                    // Continuer.
-                }
-
-                // 4.c) Fallback: première catégorie racine du cours (souvent "Top"), si aucune n'a été retenue.
-                if (!$fallbackfirst) {
-                    try {
-                        $roots = $DB->get_records('question_categories', [
-                            'contextid' => (int)$course_context->id,
-                            'parent' => 0,
-                        ], 'sortorder ASC, id ASC', '*', 0, 1);
-                        $firstroot = $roots ? reset($roots) : false;
-                        if ($firstroot) {
-                            // Ne pas prendre un fallback générique ("Top"/"Default for ...") : on valide strictement.
-                            $rootnorm = $normalize((string)$firstroot->name);
-                            if (strpos($rootnorm, 'olution') === false) {
-                                continue;
-                            }
-                            if (!$has_direct_commun_child((int)$firstroot->id, (int)$course_context->id)) {
-                                continue;
-                            }
-
-                            local_question_diagnostic_debug_log('✅ Using first root question category from course in Olution (fallback): ' . $firstroot->name . ' (Course: ' . $course->fullname . ')', DEBUG_DEVELOPER);
-
-                            $firstroot->course_name = $course->fullname;
-                            $firstroot->course_id = (int)$course->id;
-                            $firstroot->course_category_name = $olution_course_category->name;
-                            $firstroot->course_category_id = (int)$olution_course_category->id;
-                            $firstroot->context_type = 'course_category';
-
-                            $fallbackfirst = $firstroot;
-                        }
-                    } catch (\Exception $e) {
-                        // Ignorer.
-                    }
-                }
-            }
-
-            // Si aucune catégorie "Olution" n'a été trouvée mais un fallback existe, on le score.
-            if (!$coursecandidate && $fallbackfirst) {
-                $coursecandidate = $fallbackfirst;
-                $bestcoursescore = $scorecategory($fallbackfirst);
-            }
-        }
-
-        // ==================================================================================
-        // Choix final : meilleur score entre système et cours.
-        // ==================================================================================
-        $systemscore = $systemcandidate ? $scorecategory($systemcandidate) : 0;
-        $coursescore = $coursecandidate ? $scorecategory($coursecandidate) : 0;
-
-        // Priorité absolue à un candidat qui respecte la structure attendue (enfant direct "commun").
-        $systemhascommun = false;
-        $coursehascommun = false;
-        if ($systemcandidate && !empty($systemcandidate->contextid)) {
-            $systemhascommun = $has_direct_commun_child((int)$systemcandidate->id, (int)$systemcandidate->contextid);
-        }
-        if ($coursecandidate && !empty($coursecandidate->contextid)) {
-            $coursehascommun = $has_direct_commun_child((int)$coursecandidate->id, (int)$coursecandidate->contextid);
-        }
-
-        if ($coursecandidate && $coursehascommun && !$systemhascommun) {
-            local_question_diagnostic_debug_log('✅ Selected Olution candidate from course category (valid commun child; system candidate invalid)', DEBUG_DEVELOPER);
-            return $coursecandidate;
-        }
-
-        if ($coursecandidate && $coursescore > $systemscore) {
-            local_question_diagnostic_debug_log('✅ Selected Olution candidate from course category (score ' . $coursescore . ' > ' . $systemscore . ')', DEBUG_DEVELOPER);
-            return $coursecandidate;
-        }
-
-        if ($systemcandidate) {
-            local_question_diagnostic_debug_log('✅ Selected Olution candidate from system (score ' . $systemscore . ')', DEBUG_DEVELOPER);
-            return $systemcandidate;
-        }
-
-        local_question_diagnostic_debug_log('❌ No Olution category found in any context', DEBUG_DEVELOPER);
-        return false;
-        
-    } catch (Exception $e) {
-        local_question_diagnostic_debug_log('Error finding Olution category: ' . $e->getMessage(), DEBUG_DEVELOPER);
-        return false;
+    static $cache = null;
+    if ($cache !== null && !(defined('PHPUNIT_TEST') && PHPUNIT_TEST)) {
+        return $cache;
     }
+
+    global $CFG;
+    require_once($CFG->libdir . '/questionlib.php');
+    $cm = local_question_diagnostic_get_olution_qbank_cm();
+    if (!$cm) {
+        return $cache = false;
+    }
+    $context = \context_module::instance($cm->id, IGNORE_MISSING);
+    if (!$context) {
+        return $cache = false;
+    }
+    $root = question_get_top_category($context->id, false);
+    if (!$root) {
+        return $cache = false;
+    }
+    $course = $DB->get_record('course', ['id' => $cm->course], 'id, fullname', IGNORE_MISSING);
+    $root->context_type = 'qbank';
+    $root->cmid = (int)$cm->id;
+    $root->course_id = $course ? (int)$course->id : 0;
+    $root->course_name = $course ? $course->fullname : '';
+    return $cache = $root;
+}
+
+/**
+ * Module de cours (mod_qbank) de la banque partagée Olution.
+ *
+ * @return \stdClass|null enregistrement course_modules, ou null
+ */
+function local_question_diagnostic_get_olution_qbank_cm(): ?\stdClass {
+    global $DB;
+    $cmid = (int)get_config('local_question_diagnostic', 'olution_qbank_cmid');
+    if ($cmid > 0) {
+        $cm = get_coursemodule_from_id('qbank', $cmid, 0, false, IGNORE_MISSING);
+        return $cm ?: null;
+    }
+    $candidates = $DB->get_records_sql("
+        SELECT cm.*
+          FROM {course_modules} cm
+          JOIN {modules} m ON m.id = cm.module AND m.name = 'qbank'
+          JOIN {qbank} qb ON qb.id = cm.instance
+         WHERE " . $DB->sql_like('qb.name', ':name', false, false) . "
+           AND cm.deletioninprogress = 0", ['name' => '%olution%']);
+    return count($candidates) === 1 ? reset($candidates) : null;
 }
 
 /**
@@ -1997,93 +1267,6 @@ function local_question_diagnostic_render_category_hierarchy($hierarchy, $level 
     return $html;
 }
 
-/**
- * Crée automatiquement la catégorie Olution au niveau système
- * 
- * 🔧 v1.11.14 : NOUVELLE FONCTION - Création automatique de la catégorie Olution
- * Cette fonction crée automatiquement une catégorie système "Olution" si elle n'existe pas.
- * 
- * @return object|false Objet catégorie créée ou false en cas d'échec
- */
-function local_question_diagnostic_create_olution_category() {
-    global $DB;
-    
-    try {
-        local_question_diagnostic_debug_log('🆕 Creating Olution category in system context', DEBUG_DEVELOPER);
-        
-        // Récupérer le contexte système
-        $systemcontext = context_system::instance();
-        
-        // Déterminer la catégorie racine ("Top") pour créer Olution au bon endroit.
-        $roots = $DB->get_records('question_categories', [
-            'contextid' => $systemcontext->id,
-            'parent' => 0,
-        ], 'sortorder ASC, id ASC', '*', 0, 1);
-        $system_root_category = $roots ? reset($roots) : false;
-        $system_top_id = $system_root_category ? (int)$system_root_category->id : 0;
-        
-        // Vérifier qu'une catégorie Olution n'existe pas déjà
-        $sql = "SELECT *
-                  FROM {question_categories}
-                 WHERE contextid = :contextid
-                   AND name = :name
-              ORDER BY CASE WHEN parent = :topid THEN 0 ELSE 1 END,
-                       sortorder ASC,
-                       id ASC";
-        $records = $DB->get_records_sql($sql, [
-            'contextid' => $systemcontext->id,
-            'name' => 'Olution',
-            'topid' => $system_top_id,
-        ], 0, 1);
-        $existing = $records ? reset($records) : false;
-        
-        if ($existing) {
-            local_question_diagnostic_debug_log('⚠️ Olution category already exists (ID: ' . $existing->id . ')', DEBUG_DEVELOPER);
-            return $existing;
-        }
-        
-        // Créer la nouvelle catégorie
-        $new_category = new stdClass();
-        $new_category->name = 'Olution';
-        $new_category->info = 'Catégorie système pour les questions partagées Olution. Créée automatiquement par le plugin Question Diagnostic.';
-        $new_category->infoformat = FORMAT_HTML;
-        $new_category->contextid = $systemcontext->id;
-        // Créer sous "Top" si possible (comportement Moodle standard), sinon fallback racine.
-        $new_category->parent = $system_top_id > 0 ? $system_top_id : 0;
-        $new_category->sortorder = 999; // À la fin
-        
-        // Insérer dans la base de données
-        $new_category->id = $DB->insert_record('question_categories', $new_category);
-        
-        if ($new_category->id) {
-            local_question_diagnostic_debug_log('✅ Olution category created successfully (ID: ' . $new_category->id . ')', DEBUG_DEVELOPER);
-            
-            // Log d'audit
-            require_once(__DIR__ . '/classes/audit_logger.php');
-            if (class_exists('local_question_diagnostic\\audit_logger')) {
-                audit_logger::log_action(
-                    'olution_category_created',
-                    [
-                        'category_id' => $new_category->id,
-                        'category_name' => $new_category->name,
-                        'context_id' => $systemcontext->id,
-                        'message' => 'Catégorie Olution créée automatiquement'
-                    ],
-                    $new_category->id
-                );
-            }
-            
-            return $new_category;
-        } else {
-            local_question_diagnostic_debug_log('❌ Failed to insert Olution category', DEBUG_DEVELOPER);
-            return false;
-        }
-        
-    } catch (Exception $e) {
-        local_question_diagnostic_debug_log('❌ Error creating Olution category: ' . $e->getMessage(), DEBUG_DEVELOPER);
-        return false;
-    }
-}
 
 /**
  * Récupère tous les cours dans une catégorie de cours et ses sous-catégories (récursif)
@@ -2385,4 +1568,19 @@ function local_question_diagnostic_get_question_categories_by_course_category($c
     }
 }
 
+/**
+ * Cellule CSV entre guillemets, protégée contre l'injection de formules (tableur).
+ *
+ * Une valeur qui commence par =, +, -, @, une tabulation ou un retour chariot est préfixée d'une apostrophe.
+ *
+ * @param mixed $value
+ * @return string
+ */
+function local_question_diagnostic_csv_cell($value): string {
+    $value = (string)$value;
+    if ($value !== '' && strpbrk($value[0], "=+-@\t\r") !== false) {
+        $value = "'" . $value;
+    }
+    return '"' . str_replace('"', '""', $value) . '"';
+}
 

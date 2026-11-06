@@ -60,8 +60,15 @@ class scan_broken_links extends \core\task\scheduled_task {
             question_link_checker::purge_broken_links_cache();
             mtrace('✓ Cache purgé');
             
-            // Obtenir les statistiques
-            $stats = question_link_checker::get_global_stats();
+            // v1.15.0 : toute la banque (dernières versions), pas seulement les 1000 questions les plus récentes.
+            \core_php_time_limit::raise();
+            $broken = question_link_checker::get_questions_with_broken_links(false, 0);
+            $stats = (object)[
+                'total_questions' => (int)$DB->count_records_sql("SELECT COUNT(DISTINCT questionbankentryid)
+                    FROM {question_versions}"),
+                'questions_with_broken_links' => count($broken),
+                'total_broken_links' => array_sum(array_map(fn($b) => (int)$b->broken_count, $broken)),
+            ];
             
             mtrace('');
             mtrace('Résultats du scan :');
@@ -111,50 +118,12 @@ class scan_broken_links extends \core\task\scheduled_task {
      * @param object $stats Statistiques des liens cassés
      */
     private function send_alert_email($stats) {
-        global $CFG, $DB;
-        
-        try {
-            // Récupérer tous les admins site
-            $admins = get_admins();
-            
-            if (empty($admins)) {
-                mtrace('  ⚠️  Aucun administrateur site trouvé pour envoi email');
-                return;
-            }
-            
-            // Préparer le message
-            $subject = '[Moodle] Question Diagnostic : ' . $stats->questions_with_broken_links . ' question(s) avec liens cassés';
-            
-            $message_html = '<h2>🔍 Scan Automatique des Liens Cassés</h2>';
-            $message_html .= '<p><strong>Un scan automatique a détecté des liens cassés dans votre banque de questions.</strong></p>';
-            $message_html .= '<hr>';
-            $message_html .= '<h3>📊 Résultats :</h3>';
-            $message_html .= '<ul>';
-            $message_html .= '<li><strong>Total questions :</strong> ' . $stats->total_questions . '</li>';
-            $message_html .= '<li><strong>Questions avec liens cassés :</strong> <span style="color: #d9534f; font-weight: bold;">' . $stats->questions_with_broken_links . '</span></li>';
-            $message_html .= '<li><strong>Total liens cassés :</strong> ' . $stats->total_broken_links . '</li>';
-            $message_html .= '</ul>';
-            $message_html .= '<hr>';
-            $message_html .= '<p><strong>Action recommandée :</strong> Consultez la page de vérification des liens pour identifier et corriger les problèmes.</p>';
-            $message_html .= '<p><a href="' . $CFG->wwwroot . '/local/question_diagnostic/broken_links.php" style="display: inline-block; padding: 10px 20px; background: #0f6cbf; color: white; text-decoration: none; border-radius: 5px;">→ Consulter les liens cassés</a></p>';
-            $message_html .= '<hr>';
-            $message_html .= '<p style="font-size: 12px; color: #666;">Ce message est envoyé automatiquement par le plugin Question Diagnostic.<br>';
-            $message_html .= 'Pour désactiver ces alertes, allez dans Administration → Plugins → Tâches planifiées.</p>';
-            
-            $message_text = strip_tags(str_replace(['<br>', '</p>', '</li>'], ["\n", "\n", "\n"], $message_html));
-            
-            // Envoyer à chaque admin
-            $sent_count = 0;
-            foreach ($admins as $admin) {
-                if (email_to_user($admin, \core_user::get_noreply_user(), $subject, $message_text, $message_html)) {
-                    $sent_count++;
-                }
-            }
-            
-            mtrace('  ✓ Email d\'alerte envoyé à ' . $sent_count . ' administrateur(s)');
-            
-        } catch (\Exception $e) {
-            mtrace('  ⚠️  Erreur envoi email : ' . $e->getMessage());
+        // v1.15.0 : messagerie Moodle (fournisseur « operationreport »), chaque administrateur règle ses préférences.
+        $body = get_string('brokenlinks_report', 'local_question_diagnostic', $stats);
+        $url = new \moodle_url('/local/question_diagnostic/broken_links.php');
+        foreach (get_admins() as $admin) {
+            \local_question_diagnostic\local\notifier::send((int)$admin->id,
+                get_string('task_scan_broken_links', 'local_question_diagnostic'), $body, $url);
         }
     }
 }

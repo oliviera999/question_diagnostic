@@ -57,27 +57,22 @@ class audit_logger {
      * @return bool Succès
      */
     public static function log_action($action, $details = [], $objectid = null) {
-        global $USER;
-        
         try {
-            // Préparer les données du log
-            $log_data = [
-                'userid' => $USER->id,
-                'action' => $action,
-                'component' => 'local_question_diagnostic',
-                'details' => json_encode($details),
-                'objectid' => $objectid,
-                'timestamp' => time()
-            ];
-            
-            
-            // Optionnel : Enregistrer dans un fichier de log personnalisé
-            self::write_to_file($log_data);
-            
+            // v1.15.0 : événement Moodle (journal standard) au lieu d'un fichier dans dataroot.
+            $details = json_decode(json_encode($details), true);
+            $event = \local_question_diagnostic\event\operation_performed::create([
+                'context' => \context_system::instance(),
+                'objectid' => null,
+                'other' => [
+                    'action' => (string)$action,
+                    'objectid' => $objectid === null ? null : (int)$objectid,
+                    'details' => is_array($details) ? $details : [],
+                ],
+            ]);
+            $event->trigger();
             return true;
-            
-        } catch (\Exception $e) {
-            debugging('Erreur lors de l\'enregistrement du log d\'audit: ' . $e->getMessage(), DEBUG_DEVELOPER);
+        } catch (\Throwable $e) {
+            debugging('audit_logger::log_action : ' . $e->getMessage(), DEBUG_DEVELOPER);
             return false;
         }
     }
@@ -204,138 +199,77 @@ class audit_logger {
     }
 
     /**
-     * Écrit le log dans un fichier personnalisé
-     * 
-     * Fichier : moodledata/local_question_diagnostic/audit_log_YYYY-MM.txt
-     * 
-     * @param array $log_data Données du log
-     * @return bool
-     */
-    private static function write_to_file($log_data) {
-        global $CFG;
-        
-        try {
-            // Créer le dossier si nécessaire
-            $log_dir = $CFG->dataroot . '/local_question_diagnostic';
-            if (!is_dir($log_dir)) {
-                mkdir($log_dir, 0755, true);
-            }
-            
-            // Fichier de log mensuel
-            $log_file = $log_dir . '/audit_log_' . date('Y-m') . '.txt';
-            
-            // Formater la ligne de log
-            $log_line = sprintf(
-                "[%s] User:%d Action:%s ObjectID:%s Details:%s\n",
-                date('Y-m-d H:i:s', $log_data['timestamp']),
-                $log_data['userid'],
-                $log_data['action'],
-                $log_data['objectid'] ?? 'N/A',
-                $log_data['details']
-            );
-            
-            // Écrire dans le fichier
-            file_put_contents($log_file, $log_line, FILE_APPEND | LOCK_EX);
-            
-            return true;
-            
-        } catch (\Exception $e) {
-            debugging('Erreur écriture log fichier: ' . $e->getMessage(), DEBUG_DEVELOPER);
-            return false;
-        }
-    }
-
-    /**
-     * Récupère les logs récents pour consultation
-     * 
-     * @param int $limit Nombre de logs à récupérer
-     * @param int $days Nombre de jours à inclure (30 par défaut)
-     * @return array Tableau des logs
+     * Opérations récentes, lues dans le journal standard de Moodle.
+     *
+     * @param int $limit Nombre maximal d'entrées
+     * @param int $days Nombre de jours à inclure
+     * @return array
      */
     public static function get_recent_logs($limit = 100, $days = 30) {
-        global $CFG;
-        
+        global $DB;
         $logs = [];
-        
         try {
-            $log_dir = $CFG->dataroot . '/local_question_diagnostic';
-            
-            if (!is_dir($log_dir)) {
+            if (!$DB->get_manager()->table_exists('logstore_standard_log')) {
                 return [];
             }
-            
-            // Lire les fichiers de log du mois actuel et précédent
-            $current_month = date('Y-m');
-            $previous_month = date('Y-m', strtotime('-1 month'));
-            
-            $log_files = [
-                $log_dir . '/audit_log_' . $current_month . '.txt',
-                $log_dir . '/audit_log_' . $previous_month . '.txt'
-            ];
-            
-            foreach ($log_files as $file) {
-                if (file_exists($file)) {
-                    $lines = file($file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-                    
-                    // Parser les lignes (format: [date] User:X Action:Y ...)
-                    foreach (array_reverse($lines) as $line) {
-                        if (preg_match('/\[(.*?)\] User:(\d+) Action:(.*?) ObjectID:(.*?) Details:(.*)/', $line, $matches)) {
-                            $logs[] = (object)[
-                                'timestamp' => strtotime($matches[1]),
-                                'date' => $matches[1],
-                                'userid' => (int)$matches[2],
-                                'action' => $matches[3],
-                                'objectid' => $matches[4] !== 'N/A' ? (int)$matches[4] : null,
-                                'details' => json_decode($matches[5], true)
-                            ];
-                            
-                            if (count($logs) >= $limit) {
-                                break 2;
-                            }
-                        }
-                    }
+            $records = $DB->get_records_select('logstore_standard_log',
+                'eventname = :eventname AND timecreated >= :since',
+                [
+                    'eventname' => '\\local_question_diagnostic\\event\\operation_performed',
+                    'since' => time() - (int)$days * DAYSECS,
+                ], 'id DESC', 'id, userid, timecreated, other', 0, (int)$limit);
+            foreach ($records as $r) {
+                $other = json_decode((string)$r->other, true);
+                if (!is_array($other)) {
+                    $other = [];
                 }
+                $logs[] = (object)[
+                    'timestamp' => (int)$r->timecreated,
+                    'date' => userdate((int)$r->timecreated, get_string('strftimedatetimeshort', 'core_langconfig')),
+                    'userid' => (int)$r->userid,
+                    'action' => (string)($other['action'] ?? ''),
+                    'objectid' => $other['objectid'] ?? null,
+                    'details' => is_array($other['details'] ?? null) ? $other['details'] : [],
+                ];
             }
-            
-        } catch (\Exception $e) {
-            debugging('Erreur lecture logs: ' . $e->getMessage(), DEBUG_DEVELOPER);
+        } catch (\Throwable $e) {
+            debugging('audit_logger::get_recent_logs : ' . $e->getMessage(), DEBUG_DEVELOPER);
         }
-        
         return $logs;
     }
 
     /**
-     * Nettoie les anciens logs (>90 jours)
-     * 
-     * @return int Nombre de fichiers supprimés
+     * Supprime les fichiers écrits par le plugin dans dataroot au-delà de la durée de conservation : anciens journaux
+     * (format antérieur à 1.15.0), exports XML avant suppression, archives de fichiers orphelins.
+     *
+     * @param int|null $days durée de conservation (réglage retentiondays par défaut)
+     * @return int nombre de fichiers supprimés
      */
-    public static function cleanup_old_logs() {
+    public static function cleanup_old_logs(?int $days = null) {
         global $CFG;
-        
-        $deleted = 0;
-        
-        try {
-            $log_dir = $CFG->dataroot . '/local_question_diagnostic';
-            
-            if (!is_dir($log_dir)) {
-                return 0;
-            }
-            
-            $files = glob($log_dir . '/audit_log_*.txt');
-            $cutoff = strtotime('-90 days');
-            
-            foreach ($files as $file) {
-                if (filemtime($file) < $cutoff) {
-                    unlink($file);
-                    $deleted++;
-                }
-            }
-            
-        } catch (\Exception $e) {
-            debugging('Erreur nettoyage logs: ' . $e->getMessage(), DEBUG_DEVELOPER);
+        if ($days === null) {
+            $days = (int)get_config('local_question_diagnostic', 'retentiondays');
         }
-        
+        if ($days <= 0) {
+            return 0;
+        }
+        $root = $CFG->dataroot . '/local_question_diagnostic';
+        if (!is_dir($root)) {
+            return 0;
+        }
+        $cutoff = time() - $days * DAYSECS;
+        $deleted = 0;
+        $iterator = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($root, \FilesystemIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::CHILD_FIRST);
+        foreach ($iterator as $item) {
+            if ($item->isDir()) {
+                // Dossier vidé : supprimé (sauf la racine).
+                @rmdir($item->getPathname());
+            } else if ($item->getMTime() < $cutoff && @unlink($item->getPathname())) {
+                $deleted++;
+            }
+        }
         return $deleted;
     }
 }
-

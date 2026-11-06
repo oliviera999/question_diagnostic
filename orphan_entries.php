@@ -329,13 +329,13 @@ if ($entryid > 0) {
     echo '<table class="generaltable">';
     echo '<tr><th style="width: 200px;">Entry ID</th><td>' . $entry->id . '</td></tr>';
     echo '<tr><th>Catégorie ID (inexistante)</th><td style="color: red; font-weight: bold;">' . $entry->questioncategoryid . ' ❌</td></tr>';
-    echo '<tr><th>ID Number</th><td>' . ($entry->idnumber ?: '-') . '</td></tr>';
+    echo '<tr><th>ID Number</th><td>' . s($entry->idnumber ?: '-') . '</td></tr>';
     
     // Propriétaire
     if ($entry->ownerid) {
         $owner = $DB->get_record('user', ['id' => $entry->ownerid], 'firstname, lastname, email');
         if ($owner) {
-            echo '<tr><th>Propriétaire</th><td>' . fullname($owner) . ' (' . $owner->email . ')</td></tr>';
+            echo '<tr><th>Propriétaire</th><td>' . s(fullname($owner)) . '</td></tr>';
         } else {
             echo '<tr><th>Propriétaire</th><td>ID: ' . $entry->ownerid . ' (utilisateur introuvable)</td></tr>';
         }

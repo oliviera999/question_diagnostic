@@ -345,6 +345,7 @@ if ($randomtest && confirm_sesskey()) {
                 'data-type' => $q->qtype,
                 'data-category' => isset($stats->category_name) ? $stats->category_name : 'N/A',
                 'data-context' => isset($stats->context_name) ? strip_tags($stats->context_name) : 'N/A',
+                'data-bankurl' => (string)(local_question_diagnostic_get_question_bank_url(null, (int)$q->id) ?: ''),
                 'data-quiz' => isset($stats->quiz_count) ? $stats->quiz_count : 0,
                 'data-attempts' => isset($stats->attempt_count) ? $stats->attempt_count : 0,
                 'data-created' => $q->timecreated
@@ -358,11 +359,11 @@ if ($randomtest && confirm_sesskey()) {
             // Catégorie cliquable
             echo html_writer::start_tag('td');
             if (isset($stats->category_id) && $stats->category_id > 0 && isset($stats->context_id)) {
-                $cat_url = new moodle_url('/question/edit.php', [
-                    'courseid' => 1,
-                    'cat' => $stats->category_id . ',' . $stats->context_id
-                ]);
-                $category_display = html_writer::link($cat_url, format_string($stats->category_name), ['target' => '_blank', 'title' => 'Ouvrir la catégorie dans la banque de questions']);
+                $cat_url = local_question_diagnostic_get_question_bank_url(
+                    (object)['id' => (int)$stats->category_id, 'contextid' => (int)$stats->context_id]);
+                $category_display = $cat_url
+                    ? html_writer::link($cat_url, format_string($stats->category_name), ['target' => '_blank', 'title' => 'Ouvrir la catégorie dans la banque de questions'])
+                    : format_string($stats->category_name);
                 $category_display .= ' <span style="color: #666; font-size: 11px;">(ID: ' . $stats->category_id . ')</span>';
                 echo $category_display;
             } else {
@@ -724,6 +725,7 @@ if ($randomtest_used && confirm_sesskey()) {
             'data-type' => $q->qtype,
             'data-category' => isset($stats->category_name) ? $stats->category_name : 'N/A',
             'data-context' => isset($stats->context_name) ? strip_tags($stats->context_name) : '-',
+            'data-bankurl' => (string)(local_question_diagnostic_get_question_bank_url(null, (int)$q->id) ?: ''),
             'data-course' => isset($stats->course_name) ? strip_tags($stats->course_name) : '-',
             'data-quiz' => $quiz_count,
             'data-usages' => $total_usages,
@@ -751,11 +753,11 @@ if ($randomtest_used && confirm_sesskey()) {
         // Catégorie cliquable
         echo html_writer::start_tag('td');
         if (isset($stats->category_id) && $stats->category_id > 0 && isset($stats->context_id)) {
-            $cat_url = new moodle_url('/question/edit.php', [
-                'courseid' => 1,
-                'cat' => $stats->category_id . ',' . $stats->context_id
-            ]);
-            $category_display = html_writer::link($cat_url, format_string($stats->category_name), ['target' => '_blank', 'title' => 'Ouvrir la catégorie dans la banque de questions']);
+            $cat_url = local_question_diagnostic_get_question_bank_url(
+                (object)['id' => (int)$stats->category_id, 'contextid' => (int)$stats->context_id]);
+            $category_display = $cat_url
+                ? html_writer::link($cat_url, format_string($stats->category_name), ['target' => '_blank', 'title' => 'Ouvrir la catégorie dans la banque de questions'])
+                : format_string($stats->category_name);
             $category_display .= ' <span style="color: #666; font-size: 11px;">(ID: ' . $stats->category_id . ')</span>';
             echo $category_display;
         } else {
@@ -1908,7 +1910,15 @@ function sortTableByColumn(table, column, direction) {
 // MODAL DES DOUBLONS
 // ======================================================================
 
+function qdEscape(value) {
+    const div = document.createElement('div');
+    div.textContent = value === null || value === undefined ? '' : String(value);
+    return div.innerHTML;
+}
+
 function showDuplicatesModal(questionId, questionName, duplicateIds) {
+    questionId = parseInt(questionId, 10);
+    questionName = qdEscape(questionName);
     const modal = document.getElementById('duplicates-modal');
     const modalBody = document.getElementById('duplicates-modal-body');
     
@@ -1924,16 +1934,19 @@ function showDuplicatesModal(questionId, questionName, duplicateIds) {
     duplicateIds.forEach(function(dupId) {
         const dupRow = document.querySelector('tr[data-id="' + dupId + '"]');
         if (dupRow) {
-            const dupName = dupRow.getAttribute('data-name');
-            const dupType = dupRow.getAttribute('data-type');
-            const dupCategory = dupRow.getAttribute('data-category');
+            const dupName = qdEscape(dupRow.getAttribute('data-name'));
+            const dupType = qdEscape(dupRow.getAttribute('data-type'));
+            const dupCategory = qdEscape(dupRow.getAttribute('data-category'));
+            const dupUrl = dupRow.getAttribute('data-bankurl');
             
             content += '<tr>';
-            content += '<td>' + dupId + '</td>';
+            content += '<td>' + parseInt(dupId, 10) + '</td>';
             content += '<td>';
             content += '<strong>' + dupName + '</strong><br>';
             content += '<small>Type: ' + dupType + ' | Catégorie: ' + dupCategory + '</small><br>';
-            content += '<a href="' + M.cfg.wwwroot + '/question/edit.php?courseid=1&qid=' + dupId + '" target="_blank" class="btn btn-sm btn-primary" style="margin-top: 5px;">👁️ Voir</a>';
+            if (dupUrl) {
+                content += '<a href="' + qdEscape(dupUrl) + '" target="_blank" class="btn btn-sm btn-primary" style="margin-top: 5px;">👁️ Voir</a>';
+            }
             content += '</td>';
             content += '</tr>';
         }

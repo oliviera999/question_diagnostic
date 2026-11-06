@@ -88,45 +88,13 @@ if (!$coursecontext) {
 }
 
 $targetctxid = (int)$triagecat->contextid;
-$accessible = false;
-$method = '';
-try {
-    if (class_exists('\\question_edit_contexts')) {
-        $qec = new \question_edit_contexts($coursecontext);
-        if (method_exists($qec, 'all')) {
-            $contexts = $qec->all();
-            $method = 'question_edit_contexts::all';
-        } else if (method_exists($qec, 'get_contexts')) {
-            $contexts = $qec->get_contexts();
-            $method = 'question_edit_contexts::get_contexts';
-        } else {
-            $contexts = [];
-        }
-        foreach ($contexts as $ctx) {
-            if (!empty($ctx->id) && (int)$ctx->id === $targetctxid) {
-                $accessible = true;
-                break;
-            }
-        }
-    }
-} catch (Exception $e) {
-    // fallback ci-dessous
-}
-
-if (!$accessible && function_exists('question_get_editing_contexts')) {
-    try {
-        $contexts = question_get_editing_contexts($coursecontext);
-        $method = 'question_get_editing_contexts';
-        foreach ($contexts as $ctx) {
-            if (!empty($ctx->id) && (int)$ctx->id === $targetctxid) {
-                $accessible = true;
-                break;
-            }
-        }
-    } catch (Exception $e) {
-        // ignore
-    }
-}
+// v1.15.0 : en Moodle 5.x, la banque partagée est le contexte d'une activité mod_qbank d'un AUTRE cours ; elle n'est
+// jamais parmi les « contextes d'édition » du cours source. On vérifie donc directement le droit d'ajouter des
+// questions dans le contexte cible.
+$method = 'has_capability(moodle/question:add)';
+$targetcontext = context::instance_by_id($targetctxid, IGNORE_MISSING);
+$accessible = $targetcontext && $targetcontext->contextlevel == CONTEXT_MODULE
+    && has_capability('moodle/question:add', $targetcontext);
 
 if (!$accessible) {
     $msg = get_string('tool_categories_by_context_move_questions_to_triage_not_accessible', 'local_question_diagnostic', (object)[
@@ -187,12 +155,11 @@ if (!$confirm) {
         'sourcecatid' => $sourcecatid,
         'courseid' => $courseid,
         'confirm' => 1,
-        'sesskey' => sesskey(),
         'returnurl' => !empty($returnurlparam) ? $returnurlparam : null,
     ]);
 
     echo html_writer::start_div(['style' => 'margin-top: 20px;']);
-    echo html_writer::link($confirmurl, get_string('confirm', 'core'), ['class' => 'btn btn-danger btn-lg mr-2']);
+    echo $OUTPUT->single_button($confirmurl, get_string('confirm', 'core'), 'post', ['type' => single_button::BUTTON_DANGER]);
     echo html_writer::link($returnurl, get_string('cancel', 'core'), ['class' => 'btn btn-secondary btn-lg']);
     echo html_writer::end_div();
 
@@ -200,7 +167,10 @@ if (!$confirm) {
     exit;
 }
 
-// Exécution.
+// Exécution : uniquement en POST.
+if (!data_submitted()) {
+    throw new \moodle_exception('invalidrequest');
+}
 $operations = [];
 foreach ($questionids as $qid) {
     $operations[] = [

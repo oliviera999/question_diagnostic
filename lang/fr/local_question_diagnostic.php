@@ -875,3 +875,29 @@ $string['orphan_entry_refused'] = 'Réaffectation refusée : {$a}';
 $string['orphan_entry_target_context'] = 'la catégorie cible n\'est pas dans une banque de questions (activité mod_qbank)';
 $string['orphan_entry_target_top'] = 'la cible est une catégorie « top », dont les questions ne sont pas affichées';
 $string['questions_integrity_duplicate_versions_report'] = '{$a} entrée(s) ont plusieurs « dernières » versions : signalées seulement, à corriger à la main (supprimer une version d\'une question existante la casserait, avec ses tentatives).';
+$string['auditlogs_storage'] = 'Les opérations sont enregistrées dans le journal standard de Moodle (événement « Opération du diagnostic de la banque de questions »), avec sa durée de conservation.';
+$string['cachedef_ai_suggestions'] = 'Suggestions de l\'IA';
+$string['cachedef_brokenlinks'] = 'Liens cassés';
+$string['cachedef_duplicates'] = 'Questions en doublon';
+$string['cachedef_globalstats'] = 'Statistiques globales';
+$string['cachedef_orphanfiles'] = 'Fichiers orphelins';
+$string['cachedef_questionusage'] = 'Usage des questions';
+$string['event_operation_performed'] = 'Opération du diagnostic de la banque de questions';
+$string['olution_auto_sort_ai_notice'] = 'envoie le texte de 20 questions au plus au fournisseur d\'IA configuré dans Moodle';
+$string['olution_auto_sort_ai_policy'] = 'Le mode IA demande d\'abord d\'accepter la politique d\'usage de l\'IA du site.';
+$string['olution_move_refused_random'] = 'Déplacement refusé : la catégorie de la question sert à un tirage aléatoire.';
+$string['privacy:metadata'] = 'Le plugin ne stocke aucune donnée personnelle : ses opérations sont enregistrées comme événements dans le journal standard de Moodle.';
+$string['setting_olution_qbank_cmid'] = 'Banque partagée Olution (identifiant de module)';
+$string['setting_olution_qbank_cmid_desc'] = 'Identifiant de module (cmid) de l\'activité mod_qbank qui contient les questions partagées Olution. Vide : la seule banque de questions dont le nom contient « olution » est utilisée.';
+$string['setting_retentiondays'] = 'Conservation des exports et archives (jours)';
+$string['setting_retentiondays_desc'] = 'Les exports XML Moodle écrits avant chaque suppression et les archives de fichiers orphelins sont supprimés après ce nombre de jours (0 : conservés).';
+$string['settings'] = 'Réglages';
+$string['task_purge_retention'] = 'Purge des anciens exports et archives (diagnostic des questions)';
+$string['tool_open'] = 'Diagnostic de la banque de questions';
+$string['brokenlink_error_attempts'] = 'Cette version de la question a des tentatives : modifiez-la dans la banque de questions (une nouvelle version est créée) au lieu de la changer sur place.';
+$string['brokenlink_error_field'] = 'Champ non pris en charge pour la réparation : {$a}';
+$string['brokenlink_error_url'] = 'URL de remplacement refusée : seules les références de fichier Moodle (@@PLUGINFILE@@/) ou les adresses http(s) sont acceptées.';
+$string['brokenlinks_report'] = 'Analyse des liens cassés de toute la banque de questions (dernières versions) :
+Questions : {$a->total_questions}
+Questions avec liens cassés : {$a->questions_with_broken_links}
+Liens cassés : {$a->total_broken_links}';

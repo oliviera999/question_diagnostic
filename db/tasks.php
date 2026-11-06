@@ -27,6 +27,15 @@ $tasks = [
         'day' => '*',
         'dayofweek' => '0',  // Dimanche
         'month' => '*'
-    ]
+    ],
+    [
+        'classname' => 'local_question_diagnostic\task\purge_retention',
+        'blocking' => 0,
+        'minute' => '17',
+        'hour' => '4',
+        'day' => '*',
+        'dayofweek' => '*',
+        'month' => '*'
+    ],
 ];
 

@@ -2244,22 +2244,21 @@ class question_analyzer {
             $q = $item->question;
             $s = $item->stats;
             
-            $csv .= sprintf(
-                "%d,\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",%d,%d,%d\n",
-                $q->id,
-                str_replace('"', '""', $q->name),
+            $csv .= implode(',', array_map('local_question_diagnostic_csv_cell', [
+                (int)$q->id,
+                $q->name,
                 $q->qtype,
-                str_replace('"', '""', $s->category_name),
-                str_replace('"', '""', $s->context_name),
-                str_replace('"', '""', $s->creator_name),
+                $s->category_name,
+                $s->context_name,
+                $s->creator_name,
                 $s->created_formatted,
                 $s->modified_formatted,
                 $s->is_hidden ? 'Non' : 'Oui',
                 $s->is_used ? 'Oui' : 'Non',
-                $s->used_in_quizzes,
-                $s->attempt_count,
-                $s->duplicate_count
-            );
+                (int)$s->used_in_quizzes,
+                (int)$s->attempt_count,
+                (int)$s->duplicate_count,
+            ])) . "\n";
         }
         
         return $csv;

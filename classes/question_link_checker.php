@@ -41,28 +41,31 @@ class question_link_checker {
             }
         }
 
-        // Limiter le nombre de questions pour éviter timeout/memory
-        if ($limit > 0) {
-            $questions = $DB->get_records('question', null, 'id DESC', '*', 0, $limit);
-        } else {
-            $questions = $DB->get_records('question', null, 'id DESC');
-        }
-        
-        $broken = [];
+        // v1.15.0 : dernière version de chaque entrée seulement (les anciennes versions et les sous-questions
+        // Cloze ne sont pas affichées aux élèves), lues par recordset. $limit = 0 : toute la banque.
+        $sql = "SELECT q.*, qc.id AS qd_catid, qc.name AS qd_catname, qc.contextid AS qd_catcontextid,
+                       qc.parent AS qd_catparent
+                  FROM {question} q
+                  JOIN {question_versions} qv ON qv.questionid = q.id
+                  JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
+                  JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
+                 WHERE q.parent = 0
+                   AND qv.version = (SELECT MAX(v2.version) FROM {question_versions} v2
+                                      WHERE v2.questionbankentryid = qv.questionbankentryid)
+              ORDER BY q.id DESC";
+        $rs = $DB->get_recordset_sql($sql, [], 0, $limit > 0 ? (int)$limit : 0);
 
-        foreach ($questions as $question) {
+        $broken = [];
+        foreach ($rs as $question) {
+            $category = (object)[
+                'id' => (int)$question->qd_catid,
+                'name' => $question->qd_catname,
+                'contextid' => (int)$question->qd_catcontextid,
+                'parent' => (int)$question->qd_catparent,
+            ];
+            unset($question->qd_catid, $question->qd_catname, $question->qd_catcontextid, $question->qd_catparent);
             $broken_links = self::check_question_links($question);
-            
             if (!empty($broken_links)) {
-                // Récupérer la catégorie via question_bank_entries (Moodle 4.x)
-                $category_sql = "SELECT qc.* 
-                                FROM {question_categories} qc
-                                INNER JOIN {question_bank_entries} qbe ON qbe.questioncategoryid = qc.id
-                                INNER JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
-                                WHERE qv.questionid = :questionid
-                                LIMIT 1";
-                $category = $DB->get_record_sql($category_sql, ['questionid' => $question->id]);
-                
                 $broken[] = (object)[
                     'question' => $question,
                     'category' => $category,
@@ -71,6 +74,7 @@ class question_link_checker {
                 ];
             }
         }
+        $rs->close();
 
         // Mettre en cache pour 1 heure
         if ($use_cache) {
@@ -1195,6 +1199,32 @@ class question_link_checker {
     }
 
     /**
+     * Contrôles communs avant de modifier le texte d'une question pour un lien cassé (v1.15.0).
+     *
+     * - champ limité à questiontext, generalfeedback, answer_<id> ou feedback_<id> d'une réponse DE cette question ;
+     * - version sans tentative : modifier une version déjà tentée changerait ce que les élèves ont vu (il faut alors
+     *   passer par la banque de questions, qui crée une nouvelle version).
+     *
+     * @param int $questionid
+     * @param string $field
+     * @return string|null message d'erreur, ou null si la modification est permise
+     */
+    private static function edit_guard(int $questionid, string $field): ?string {
+        global $DB;
+        if (preg_match('/^(answer|feedback)_(\d+)$/', $field, $m)) {
+            if (!$DB->record_exists('question_answers', ['id' => (int)$m[2], 'question' => $questionid])) {
+                return get_string('brokenlink_error_field', 'local_question_diagnostic', s($field));
+            }
+        } else if (!in_array($field, ['questiontext', 'generalfeedback'], true)) {
+            return get_string('brokenlink_error_field', 'local_question_diagnostic', s($field));
+        }
+        if (\local_question_diagnostic\local\usage_checker::has_attempts([$questionid])) {
+            return get_string('brokenlink_error_attempts', 'local_question_diagnostic');
+        }
+        return null;
+    }
+
+    /**
      * Applique une réparation de type "remplacement d'URL" (ex: par URL d'un doublon strict).
      *
      * @param int $questionid
@@ -1212,6 +1242,13 @@ class question_link_checker {
         $broken_url = (string)$broken_url;
         $replacement_url = (string)$replacement_url;
 
+        if ($problem = self::edit_guard($questionid, $field)) {
+            return $problem;
+        }
+        // Seules les URL de fichier Moodle ou http(s) sont acceptées (jamais javascript:, data:…).
+        if (!preg_match('~^(@@PLUGINFILE@@/|https?://)~i', $replacement_url)) {
+            return get_string('brokenlink_error_url', 'local_question_diagnostic');
+        }
         // Vérifier que l'URL de remplacement correspond à un fichier existant (sinon on remplace par une autre URL cassée).
         if (strpos($replacement_url, 'pluginfile.php') !== false) {
             if (!self::pluginfile_url_exists_in_files($replacement_url)) {
@@ -1256,6 +1293,8 @@ class question_link_checker {
                 $question->$field = $after;
                 $DB->update_record('question', $question);
             }
+
+            \question_bank::notify_question_edited($questionid);
 
             // Optionnel: audit/debug.
             if ($sourcequestionid) {
@@ -1523,26 +1562,10 @@ class question_link_checker {
         try {
             $question = $DB->get_record('question', ['id' => $questionid], '*', MUST_EXIST);
             
-            // Cas particuliers : certains "liens cassés" ne sont pas dans du HTML, mais dans des champs qtype_*.
-            // Exemple: bgimage manquante pour ddimageortext / ddmarker.
-            if (is_string($field) && stripos($field, 'bgimage') !== false) {
-                if ($question->qtype === 'ddimageortext') {
-                    // Champ bgimage dans la table qtype_ddimageortext.
-                    if ($DB->record_exists('qtype_ddimageortext', ['questionid' => $questionid])) {
-                        $DB->set_field('qtype_ddimageortext', 'bgimage', 0, ['questionid' => $questionid]);
-                        return true;
-                    }
-                    return 'Aucun enregistrement trouvé dans qtype_ddimageortext pour cette question.';
-                } else if ($question->qtype === 'ddmarker') {
-                    // Champ bgimage dans la table qtype_ddmarker.
-                    if ($DB->record_exists('qtype_ddmarker', ['questionid' => $questionid])) {
-                        $DB->set_field('qtype_ddmarker', 'bgimage', 0, ['questionid' => $questionid]);
-                        return true;
-                    }
-                    return 'Aucun enregistrement trouvé dans qtype_ddmarker pour cette question.';
-                }
-                // Autres qtypes : pas supporté (ne pas faire semblant de réussir).
-                return 'Suppression automatique non supportée pour ce type de question (bgimage).';
+            // v1.15.0 : les images de fond (bgimage) des types glisser-déposer ne sont plus « réparées » ici
+            // (colonne inexistante en 5.x) ; seuls les champs de texte sont modifiables.
+            if ($problem = self::edit_guard((int)$questionid, (string)$field)) {
+                return $problem;
             }
 
             // Déterminer quel champ modifier
@@ -1582,7 +1605,8 @@ class question_link_checker {
                 $question->$field = $after;
                 $DB->update_record('question', $question);
             }
-            
+
+            \question_bank::notify_question_edited((int)$questionid);
             return true;
             
         } catch (\Exception $e) {

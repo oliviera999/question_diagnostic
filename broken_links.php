@@ -476,12 +476,9 @@ if (empty($broken_questions)) {
         // Catégorie
         echo html_writer::start_tag('td');
         if ($category) {
-            $cat_url = new moodle_url('/question/edit.php', [
-                'courseid' => 0,
-                'cat' => $category->id . ',' . $category->contextid
-            ]);
-            $cat_name = format_string($category->name) . ' <span style="color: #666; font-size: 11px;">(ID: ' . $category->id . ')</span>';
-            echo html_writer::link($cat_url, $cat_name, ['target' => '_blank']);
+            $cat_url = local_question_diagnostic_get_question_bank_url($category);
+            $cat_name = format_string($category->name) . ' <span style="color: #666; font-size: 11px;">(ID: ' . (int)$category->id . ')</span>';
+            echo $cat_url ? html_writer::link($cat_url, $cat_name, ['target' => '_blank']) : $cat_name;
         } else {
             echo '-';
         }

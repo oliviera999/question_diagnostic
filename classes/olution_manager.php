@@ -2003,49 +2003,19 @@ class olution_manager {
                 return 'La question est déjà dans la catégorie cible';
             }
             
+            // v1.15.0 : ne pas vider un réservoir de tirage aléatoire.
+            $inpool = \local_question_diagnostic\local\usage_checker::questions_in_random_pool([(int)$questionid]);
+            if (!empty($inpool[(int)$questionid])) {
+                return get_string('olution_move_refused_random', 'local_question_diagnostic');
+            }
+
             // Démarrer une transaction
             $transaction = $DB->start_delegated_transaction();
-            
+
             try {
-                // Utiliser l'API native Moodle pour déplacer la question
-                // Cette fonction gère automatiquement les événements, les contextes et les entrées/versions
-                if (function_exists('question_move_questions_to_category')) {
-                    // Moodle 4.x standard API
-                    // question_move_questions_to_category(array $questionids, int $newcategoryid)
-                    question_move_questions_to_category([$questionid], $target_category_id);
-                    local_question_diagnostic_debug_log('✅ Moved using native question_move_questions_to_category', DEBUG_DEVELOPER);
-                } else {
-                    // Fallback manuel si la fonction n'existe pas (versions très anciennes ou modifiées)
-                    // ⚠️ MOODLE 5.1: Cette fonction question_move_questions_to_category() devrait exister.
-                    // Si ce fallback s'exécute, cela indique un problème d'environnement Moodle.
-                    // Mettre à jour question_bank_entries (Moodle 4.x/5.1)
-                    $sql_update = "UPDATE {question_bank_entries}
-                                  SET questioncategoryid = :newcatid
-                                  WHERE id IN (
-                                      SELECT questionbankentryid
-                                      FROM {question_versions}
-                                      WHERE questionid = :questionid
-                                  )";
-                    
-                    $affected_rows = $DB->execute($sql_update, [
-                        'newcatid' => $target_category_id,
-                        'questionid' => $questionid
-                    ]);
-                    
-                    local_question_diagnostic_debug_log('✅ Updated ' . $affected_rows . ' question_bank_entries (Manual fallback)', DEBUG_DEVELOPER);
-                    
-                    // Déclencher l'événement manuellement car on n'a pas utilisé l'API
-                    $event = \core\event\question_moved::create([
-                        'objectid' => $questionid,
-                        'context' => \context::instance_by_id($current_category->contextid),
-                        'other' => [
-                            'oldcategoryid' => $current_category->id,
-                            'newcategoryid' => $target_category_id
-                        ]
-                    ]);
-                    $event->trigger();
-                }
-                
+                // API du cœur uniquement : entrée (toutes versions), fichiers, idnumber, événements.
+                question_move_questions_to_category([$questionid], $target_category_id);
+
                 // Vérifier que la mise à jour a fonctionné
                 $verify_sql = "SELECT qc.id as category_id, qc.name as category_name
                               FROM {question_categories} qc
@@ -2084,12 +2054,12 @@ class olution_manager {
                 local_question_diagnostic_debug_log('✅ Question successfully moved to Olution: ' . $target_category->name, DEBUG_DEVELOPER);
                 return true;
                 
-            } catch (\Exception $inner_e) {
-                local_question_diagnostic_debug_log('❌ Error in transaction: ' . $inner_e->getMessage(), DEBUG_DEVELOPER);
-                throw $inner_e;
+            } catch (\Throwable $inner_e) {
+                // Rollback() annule le déplacement puis relance l'exception (traitée ci-dessous).
+                $transaction->rollback($inner_e);
             }
             
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             local_question_diagnostic_debug_log('❌ Error in move_question_to_olution: ' . $e->getMessage(), DEBUG_DEVELOPER);
             return 'Erreur lors du déplacement : ' . $e->getMessage();
         }
@@ -2130,156 +2100,4 @@ class olution_manager {
         ];
     }
 
-    /**
-     * Teste le déplacement automatique vers Olution
-     * 
-     * 🔧 v1.11.13 : NOUVELLE FONCTION - Test du déplacement automatique
-     * Cette fonction permet de tester le déplacement automatique vers Olution
-     * en utilisant des questions réelles de la base de données.
-     * 
-     * @param int $limit Nombre maximum de questions à tester (défaut: 3)
-     * @return array Résultats du test
-     */
-    public static function test_automatic_movement_to_olution($limit = 3) {
-        global $DB;
-        
-        try {
-            local_question_diagnostic_debug_log('🧪 Starting test_automatic_movement_to_olution with limit: ' . $limit, DEBUG_DEVELOPER);
-            
-            // Vérifier que la catégorie Olution existe
-            $olution = local_question_diagnostic_find_olution_category();
-            if (!$olution) {
-                return [
-                    'success' => false,
-                    'message' => 'Catégorie Olution non trouvée',
-                    'tested_questions' => 0,
-                    'moved_questions' => 0,
-                    'failed_questions' => 0,
-                    'details' => []
-                ];
-            }
-            
-            local_question_diagnostic_debug_log('✅ Olution category found: ' . $olution->name . ' (ID: ' . $olution->id . ')', DEBUG_DEVELOPER);
-            
-            // Récupérer les sous-catégories d'Olution
-            $olution_subcategories = local_question_diagnostic_get_olution_subcategories($olution->id);
-            if (empty($olution_subcategories)) {
-                return [
-                    'success' => false,
-                    'message' => 'Aucune sous-catégorie Olution trouvée',
-                    'tested_questions' => 0,
-                    'moved_questions' => 0,
-                    'failed_questions' => 0,
-                    'details' => []
-                ];
-            }
-            
-            local_question_diagnostic_debug_log('✅ Found ' . count($olution_subcategories) . ' Olution subcategories', DEBUG_DEVELOPER);
-            
-            // Récupérer quelques questions candidates, puis filtrer en PHP avec is_in_olution()
-            // (évite le faux "hors Olution" quand la question est dans une sous-sous-catégorie).
-            $candidateslimit = max(20, (int)$limit * 20);
-            $candidates_sql = "SELECT DISTINCT q.*
-                                 FROM {question} q
-                                WHERE q.name IS NOT NULL
-                                  AND q.name != ''
-                             ORDER BY q.id DESC";
-
-            $candidate_questions = $DB->get_records_sql($candidates_sql, [], 0, $candidateslimit);
-            $candidate_ids = array_keys($candidate_questions);
-            $catsbyqid = self::get_categories_for_questions($candidate_ids);
-
-            $non_olution_questions = [];
-            foreach ($candidate_questions as $q) {
-                $qid = (int)$q->id;
-                $cat = $catsbyqid[$qid] ?? null;
-                if (!$cat) {
-                    continue;
-                }
-                if (!self::is_in_olution((int)$cat->id)) {
-                    $non_olution_questions[$qid] = $q;
-                }
-                if (count($non_olution_questions) >= (int)$limit) {
-                    break;
-                }
-            }
-            
-            if (empty($non_olution_questions)) {
-                return [
-                    'success' => false,
-                    'message' => 'Aucune question hors Olution trouvée pour le test',
-                    'tested_questions' => 0,
-                    'moved_questions' => 0,
-                    'failed_questions' => 0,
-                    'details' => []
-                ];
-            }
-            
-            local_question_diagnostic_debug_log('✅ Found ' . count($non_olution_questions) . ' questions outside Olution for testing', DEBUG_DEVELOPER);
-            
-            $test_results = [];
-            $moved_count = 0;
-            $failed_count = 0;
-            
-            foreach ($non_olution_questions as $question) {
-                // Choisir une sous-catégorie Olution aléatoire comme cible
-                $target_category = $olution_subcategories[array_rand($olution_subcategories)];
-                
-                local_question_diagnostic_debug_log('🧪 Testing move: question ' . $question->id . ' (' . $question->name . ') to ' . $target_category->name . ' (ID: ' . $target_category->id . ')', DEBUG_DEVELOPER);
-                
-                $move_result = self::move_question_to_olution($question->id, $target_category->id);
-                
-                $test_result = [
-                    'question_id' => $question->id,
-                    'question_name' => $question->name,
-                    'question_type' => $question->qtype,
-                    'target_category_id' => $target_category->id,
-                    'target_category_name' => $target_category->name,
-                    'move_result' => $move_result,
-                    'success' => ($move_result === true)
-                ];
-                
-                if ($move_result === true) {
-                    $moved_count++;
-                    local_question_diagnostic_debug_log('✅ Test successful: question ' . $question->id . ' moved to ' . $target_category->name, DEBUG_DEVELOPER);
-                } else {
-                    $failed_count++;
-                    local_question_diagnostic_debug_log('❌ Test failed: question ' . $question->id . ' - ' . $move_result, DEBUG_DEVELOPER);
-                }
-                
-                $test_results[] = $test_result;
-            }
-            
-            $overall_success = ($moved_count > 0);
-            
-            local_question_diagnostic_debug_log('🏁 Test completed: ' . $moved_count . ' moved, ' . $failed_count . ' failed', DEBUG_DEVELOPER);
-            
-            return [
-                'success' => $overall_success,
-                'message' => 'Test terminé: ' . $moved_count . ' questions déplacées, ' . $failed_count . ' échecs',
-                'tested_questions' => count($non_olution_questions),
-                'moved_questions' => $moved_count,
-                'failed_questions' => $failed_count,
-                'olution_category' => [
-                    'id' => $olution->id,
-                    'name' => $olution->name
-                ],
-                'target_subcategories' => array_map(function($cat) {
-                    return ['id' => $cat->id, 'name' => $cat->name];
-                }, $olution_subcategories),
-                'details' => $test_results
-            ];
-            
-        } catch (\Exception $e) {
-            local_question_diagnostic_debug_log('❌ Error in test_automatic_movement_to_olution: ' . $e->getMessage(), DEBUG_DEVELOPER);
-            return [
-                'success' => false,
-                'message' => 'Erreur lors du test: ' . $e->getMessage(),
-                'tested_questions' => 0,
-                'moved_questions' => 0,
-                'failed_questions' => 0,
-                'details' => []
-            ];
-        }
-    }
 }

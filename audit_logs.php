@@ -53,7 +53,7 @@ echo html_writer::tag('h2', '📊 Logs d\'Audit du Plugin');
 
 echo html_writer::start_div('alert alert-info', ['style' => 'margin: 20px 0;']);
 echo html_writer::tag('p', '<strong>🛡️ Traçabilité :</strong> Cette page affiche toutes les modifications effectuées par le plugin sur la base de données.');
-echo html_writer::tag('p', 'Les logs sont conservés pendant <strong>90 jours</strong> puis automatiquement supprimés.');
+echo html_writer::tag('p', get_string('auditlogs_storage', 'local_question_diagnostic'));
 echo html_writer::end_div();
 
 // Récupérer les logs récents
@@ -87,14 +87,14 @@ if (empty($logs)) {
         
         // Date
         echo html_writer::start_tag('td');
-        echo html_writer::tag('small', $log->date, ['style' => 'white-space: nowrap;']);
+        echo html_writer::tag('small', s($log->date), ['style' => 'white-space: nowrap;']);
         echo html_writer::end_tag('td');
         
         // Utilisateur
         echo html_writer::start_tag('td');
         try {
             $user = \core_user::get_user($log->userid);
-            echo html_writer::tag('span', fullname($user));
+            echo html_writer::tag('span', s(fullname($user)));
         } catch (\Exception $e) {
             echo 'User ' . $log->userid;
         }
@@ -130,7 +130,7 @@ if (empty($logs)) {
                 break;
             default:
                 $action_icon = '📝';
-                $action_text = $log->action;
+                $action_text = s($log->action);
         }
         echo $action_icon . ' ' . $action_text;
         echo html_writer::end_tag('td');
@@ -141,7 +141,7 @@ if (empty($logs)) {
             echo html_writer::start_tag('small');
             foreach ($log->details as $key => $value) {
                 if (!is_array($value) && !is_object($value)) {
-                    echo html_writer::tag('div', '<strong>' . $key . ':</strong> ' . $value);
+                    echo html_writer::tag('div', html_writer::tag('strong', s($key) . ' :') . ' ' . s((string)$value));
                 }
             }
             echo html_writer::end_tag('small');
