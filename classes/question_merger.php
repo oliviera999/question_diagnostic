@@ -15,17 +15,21 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Fusion sécurisée de questions strictement identiques.
+ * Fusion sûre de questions identiques (v1.15.0).
  *
- * Objectif :
- * - Choisir une question "référence" (celle avec le plus de tentatives).
- * - Remapper les références des doublons (sans tentatives) vers la référence.
- * - Supprimer les doublons via l'API Moodle (question_delete_question) via question_analyzer.
+ * Un groupe de doublons (même catégorie, même empreinte de contenu complet, voir question_analyzer) est réduit
+ * à une seule entrée de banque, la RÉFÉRENCE :
+ * - la référence est l'entrée visible (dernière version « prête ») qui a le plus de tentatives ;
+ * - une entrée n'est fusionnable que si elle n'a aucun usage autre qu'une référence directe dans
+ *   question_references (pas de tentative, pas d'usage déclaré par un autre plugin), qu'elle est dans le même
+ *   contexte que la référence, que sa catégorie n'est pas un réservoir de tirage aléatoire, et que ses
+ *   références figées visent sa dernière version (une version plus ancienne peut avoir un autre contenu) ;
+ * - seules les lignes de question_references sont remappées vers la référence. Une référence figée reste figée,
+ *   sur la dernière version de la référence ; une référence « toujours la dernière » le reste ;
+ * - les entrées fusionnées sont ensuite supprimées en entier par question_deleter (export XML préalable,
+ *   vérification) ; tout refus annule la fusion du groupe.
  *
- * ⚠️ Important :
- * - Ne JAMAIS modifier les tables d'historique de tentatives.
- * - Ne JAMAIS modifier les tables internes de définition de questions (question_* internes, qtype_*),
- *   on laisse Moodle gérer leur suppression lors du delete.
+ * Aucune autre table n'est modifiée. L'historique des tentatives n'est jamais touché.
  *
  * @package    local_question_diagnostic
  * @copyright  2025
@@ -34,1017 +38,399 @@
 
 namespace local_question_diagnostic;
 
+use local_question_diagnostic\local\question_deleter;
+use local_question_diagnostic\local\usage_checker;
+
 defined('MOODLE_INTERNAL') || die();
 
 require_once(__DIR__ . '/question_analyzer.php');
 require_once(__DIR__ . '/audit_logger.php');
 
+/**
+ * Fusion de questions identiques.
+ */
 class question_merger {
 
+    /** Seule table remappée par la fusion. */
+    const TARGET_TABLE = 'question_references';
+
     /**
-     * Construit un plan de fusion (preview / dry-run).
+     * Construit un plan de fusion (aperçu, sans écriture).
      *
-     * @param int $representativeid
-     * @param array $options
-     * @return object Plan structuré
+     * @param int $representativeid question représentative du groupe
+     * @param array $options inutilisé (compatibilité)
+     * @return object plan
      */
     public static function build_merge_plan(int $representativeid, array $options = []): object {
         global $DB;
 
-        $opts = self::normalize_options($options);
-
         $plan = (object)[
             'representative_id' => (int)$representativeid,
             'group' => null,
-            'questions' => [], // qid => info
+            'questions' => [],
             'reference_questionid' => 0,
+            'reference_entryid' => 0,
+            'reference_latestversion' => 0,
             'mergeable_questionids' => [],
             'skipped' => [
                 'has_attempts' => [],
-                'in_quiz' => [],
+                'other_usage' => [],
+                'other_context' => [],
+                'random_pool' => [],
+                'pinned_old_version' => [],
                 'not_found' => [],
             ],
-            'mappings' => (object)[
-                'questionid' => [],          // old => ref
-                'questionbankentryid' => [], // old => ref
-                'questionversionid' => [],   // old => ref
-            ],
-            'targets' => [], // list of {table, column, type}
-            'impacts' => [], // list of {table, column, type, before_count}
+            'mappings' => (object)['questionbankentryid' => []],
+            'impacts' => [],
             'warnings' => [],
             'errors' => [],
         ];
 
         if ($plan->representative_id <= 0) {
-            $plan->errors[] = 'representative_id invalide';
+            $plan->errors[] = get_string('merge_error_invalid_group', 'local_question_diagnostic');
             return $plan;
         }
 
-        // Exiger la définition "doublons certains" (cible Moodle 4.5, mais on garde une validation).
-        if (!self::can_use_strict_definition()) {
-            $plan->errors[] = 'Définition "doublons stricts" indisponible sur ce site (colonnes manquantes).';
-            return $plan;
-        }
-
-        // 1) Charger le groupe (strict).
+        // 1) Groupe : même catégorie, contenu complet identique (une question représentative par entrée).
         $questionids = question_analyzer::get_duplicate_group_question_ids_by_representative_id($plan->representative_id);
-        $questionids = array_values(array_unique(array_map('intval', (array)$questionids)));
-        $questionids = array_values(array_filter($questionids, function(int $id): bool {
-            return $id > 0;
-        }));
+        $questionids = array_values(array_unique(array_filter(array_map('intval', (array)$questionids))));
         if (count($questionids) < 2) {
-            $plan->errors[] = 'Ce groupe ne contient pas (ou plus) de doublons stricts.';
+            $plan->errors[] = get_string('merge_error_no_duplicates', 'local_question_diagnostic');
             return $plan;
         }
 
-        // 2) IMPORTANT Moodle 4.5 : travailler au niveau des "entries" (question_bank_entries),
-        // pas au niveau des versions (question.id peut représenter une version).
-        //
-        // On regroupe donc les questionids détectés par leur questionbankentryid, puis on ne garde
-        // qu'UNE "question représentative" (dernière version non-brouillon) par entry.
-        $versionsbyqid = self::get_question_versions_by_question_ids($questionids);
-        $qidsbyentry = [];
+        // 2) Une vue par entrée.
+        [$insql, $params] = $DB->get_in_or_equal($questionids, SQL_PARAMS_NAMED);
+        $rows = $DB->get_records_sql("
+            SELECT q.id, q.name, q.qtype, q.questiontextformat,
+                   qv.id AS versionid, qv.version, qv.status, qv.questionbankentryid AS entryid,
+                   qc.id AS categoryid, qc.name AS categoryname, qc.contextid
+              FROM {question} q
+              JOIN {question_versions} qv ON qv.questionid = q.id
+              JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
+              JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
+             WHERE q.id $insql", $params);
+
+        $entryids = [];
         foreach ($questionids as $qid) {
-            $v = $versionsbyqid[(int)$qid] ?? null;
-            $qbeid = (int)($v->questionbankentryid ?? 0);
-            if ($qbeid <= 0) {
+            if (!isset($rows[$qid])) {
+                $plan->skipped['not_found'][] = $qid;
                 continue;
             }
-            if (!isset($qidsbyentry[$qbeid])) {
-                $qidsbyentry[$qbeid] = [];
-            }
-            $qidsbyentry[$qbeid][] = (int)$qid;
+            $entryids[(int)$rows[$qid]->entryid] = $qid;
         }
-
-        $entryids = array_keys($qidsbyentry);
         if (count($entryids) < 2) {
-            // Ce cas est normalement exclu en amont (question_analyzer ne liste plus les doublons de versions).
-            $plan->errors[] = 'Ce groupe ne contient pas (ou plus) de doublons stricts.';
+            $plan->errors[] = get_string('merge_error_no_duplicates', 'local_question_diagnostic');
             return $plan;
         }
 
-        // Pour chaque entry, prendre la dernière version (non-draft si possible) afin de représenter l’entry.
-        $repbyentry = self::get_latest_question_versions_by_entry_ids($entryids);
-        $repqids = [];
-        foreach ($repbyentry as $entryid => $r) {
-            if (!empty($r->questionid)) {
-                $repqids[] = (int)$r->questionid;
-            }
-        }
-        $repqids = array_values(array_unique(array_filter($repqids, function(int $id): bool { return $id > 0; })));
-        if (count($repqids) < 2) {
-            $plan->errors[] = 'Impossible de déterminer une question représentative par entrée (question_versions).';
-            return $plan;
-        }
+        $attempts = self::get_attempt_counts_by_entry_ids(array_keys($entryids));
+        $refcounts = self::get_reference_counts_by_entry_ids(array_keys($entryids));
+        $latest = self::get_latest_versions_by_entry_ids(array_keys($entryids));
 
-        // Charger la question "représentative" de chaque entry + usage.
-        list($insql, $inparams) = $DB->get_in_or_equal($repqids, SQL_PARAMS_NAMED, 'qid');
-        $questions = $DB->get_records_select(
-            'question',
-            "id {$insql}",
-            $inparams,
-            '',
-            'id,name,qtype,questiontext,questiontextformat,timecreated,timemodified'
-        );
-        $usage = question_analyzer::get_questions_usage_by_ids($repqids);
-        $ctxmap = self::get_questions_context_info_by_ids($repqids);
-
-        // Tentatives au niveau ENTRY : si une ancienne version a des tentatives, l'entrée est protégée.
-        $attemptsbyentry = self::get_attempt_counts_by_entry_ids($entryids);
-
-        // 3) Construire une vue par question représentative (1 par entry).
-        foreach ($repqids as $qid) {
-            $q = $questions[$qid] ?? null;
-            if (!$q) {
-                $plan->skipped['not_found'][] = (int)$qid;
-                continue;
-            }
-            $u = $usage[$qid] ?? ['quiz_count' => 0, 'attempt_count' => 0, 'is_used' => false, 'quiz_list' => []];
-            $c = $ctxmap[$qid] ?? null;
-
-            // entryid depuis repbyentry (par questionid).
-            $entryid = 0;
-            $qv = null;
-            foreach ($repbyentry as $eid => $rep) {
-                if ((int)($rep->questionid ?? 0) === (int)$qid) {
-                    $entryid = (int)$eid;
-                    $qv = $rep;
-                    break;
-                }
-            }
-
+        foreach ($entryids as $entryid => $qid) {
+            $r = $rows[$qid];
             $plan->questions[$qid] = (object)[
                 'id' => (int)$qid,
-                'entryid' => (int)$entryid, // question_bank_entries.id (clé stable Moodle 4.5)
-                'name' => (string)($q->name ?? ''),
-                'qtype' => (string)($q->qtype ?? ''),
-                'questiontextformat' => (int)($q->questiontextformat ?? 0),
-                'attempt_count' => (int)($attemptsbyentry[$entryid] ?? 0),
-                'quiz_count' => (int)($u['quiz_count'] ?? 0),
-                'context' => $c,
-                'version' => $qv, // {id(questionversionid), questionid, questionbankentryid}
+                'entryid' => (int)$entryid,
+                'name' => (string)$r->name,
+                'qtype' => (string)$r->qtype,
+                'questiontextformat' => (int)$r->questiontextformat,
+                'status' => (string)$r->status,
+                'attempt_count' => (int)($attempts[$entryid] ?? 0),
+                'quiz_count' => (int)($refcounts[$entryid] ?? 0),
+                'latestversion' => (int)($latest[$entryid] ?? $r->version),
+                'context' => (object)[
+                    'categoryid' => (int)$r->categoryid,
+                    'categoryname' => (string)$r->categoryname,
+                    'contextid' => (int)$r->contextid,
+                ],
+                'version' => (object)[
+                    'id' => (int)$r->versionid,
+                    'questionid' => (int)$qid,
+                    'questionbankentryid' => (int)$entryid,
+                    'version' => (int)$r->version,
+                ],
             ];
         }
 
-        if (count($plan->questions) < 2) {
-            $plan->errors[] = 'Impossible de charger suffisamment de questions représentatives dans ce groupe.';
-            return $plan;
-        }
-
-        // 4) Choisir la RÉFÉRENCE au niveau ENTRY : max attempt_count, tie-breaker min entryid.
-        $bestentry = 0;
-        $bestattempts = -1;
-        foreach ($plan->questions as $qid => $info) {
-            $attempts = (int)($info->attempt_count ?? 0);
-            $entryid = (int)($info->entryid ?? 0);
-            if ($attempts > $bestattempts || ($attempts === $bestattempts && ($bestentry === 0 || $entryid < $bestentry))) {
-                $bestattempts = $attempts;
-                $bestentry = $entryid;
-            }
-        }
-        foreach ($plan->questions as $qid => $info) {
-            if ((int)($info->entryid ?? 0) === (int)$bestentry) {
-                $plan->reference_questionid = (int)$qid;
-                break;
-            }
-        }
-
-        if ($plan->reference_questionid <= 0) {
-            $plan->errors[] = 'Impossible de déterminer une question de référence.';
-            return $plan;
-        }
-
-        // 5) Déterminer les doublons fusionnables : au niveau ENTRY uniquement (attempt_count=0).
-        // Les questions déjà utilisées dans des quiz mais sans tentatives restent fusionnables,
-        // via remap question_references (+ quiz_slots si présent).
-        foreach ($plan->questions as $qid => $info) {
-            if ((int)$qid === $plan->reference_questionid) {
+        // 3) Référence : entrée visible avec le plus de tentatives (à égalité : la plus ancienne entrée).
+        $best = null;
+        foreach ($plan->questions as $info) {
+            if ($info->status !== 'ready') {
                 continue;
             }
-            if ((int)($info->attempt_count ?? 0) > 0) {
-                $plan->skipped['has_attempts'][] = (int)$qid;
+            if ($best === null || $info->attempt_count > $best->attempt_count
+                    || ($info->attempt_count === $best->attempt_count && $info->entryid < $best->entryid)) {
+                $best = $info;
+            }
+        }
+        if ($best === null) {
+            $plan->errors[] = get_string('merge_error_no_visible_reference', 'local_question_diagnostic');
+            return $plan;
+        }
+        $plan->reference_questionid = $best->id;
+        $plan->reference_entryid = $best->entryid;
+        $plan->reference_latestversion = $best->latestversion;
+
+        // 4) Entrées fusionnables.
+        $candidates = [];
+        foreach ($plan->questions as $qid => $info) {
+            if ($qid === $best->id) {
                 continue;
             }
-            $plan->mergeable_questionids[] = (int)$qid;
-        }
-
-        if (empty($plan->mergeable_questionids)) {
-            $plan->warnings[] = 'Aucun doublon fusionnable (tous ont des tentatives).';
-            // Plan vide mais valide pour preview.
-        }
-
-        // 6) Construire les mappings au niveau ENTRY (questionbankentryid).
-        // On garde aussi un mapping questionid pour compat/anciennes tables (ex: quiz_slots.questionid).
-        // IMPORTANT : certains usages peuvent pointer une ancienne version (question.id) de l’entry.
-        // On mappe donc TOUS les questionids (toutes versions) d’une entry fusionnée vers la questionid
-        // représentative de l’entry de référence.
-        $refquestionid = (int)$plan->reference_questionid;
-        $mergeableentryids = [];
-        foreach ($plan->mergeable_questionids as $oldqid) {
-            $oldqid = (int)$oldqid;
-            $oldentryid = (int)($plan->questions[$oldqid]->entryid ?? 0);
-            if ($oldentryid > 0) {
-                $mergeableentryids[] = $oldentryid;
+            if ($info->attempt_count > 0) {
+                $plan->skipped['has_attempts'][] = $qid;
+            } else if ($info->context->contextid !== $best->context->contextid) {
+                $plan->skipped['other_context'][] = $qid;
+            } else if (self::has_pinned_old_version($info->entryid, $info->latestversion)) {
+                $plan->skipped['pinned_old_version'][] = $qid;
+            } else {
+                $candidates[] = $qid;
             }
         }
-        $mergeableentryids = array_values(array_unique(array_filter($mergeableentryids, function(int $id): bool {
-            return $id > 0;
-        })));
-        $qidsbyentry = self::get_question_ids_by_entry_ids($mergeableentryids);
-        foreach ($qidsbyentry as $entryid => $qids) {
-            foreach ((array)$qids as $qid) {
-                $qid = (int)$qid;
-                if ($qid > 0 && $qid !== $refquestionid) {
-                    $plan->mappings->questionid[$qid] = $refquestionid;
+        if ($candidates) {
+            $otherusage = usage_checker::entries_used_outside_references($candidates);
+            $inpool = usage_checker::questions_in_random_pool($candidates);
+            foreach ($candidates as $qid) {
+                if (!empty($otherusage[$qid]) || !array_key_exists($qid, $otherusage)) {
+                    $plan->skipped['other_usage'][] = $qid;
+                } else if (!empty($inpool[$qid]) || !array_key_exists($qid, $inpool)) {
+                    $plan->skipped['random_pool'][] = $qid;
+                } else {
+                    $plan->mergeable_questionids[] = $qid;
+                    $plan->mappings->questionbankentryid[$plan->questions[$qid]->entryid] = $best->entryid;
                 }
             }
         }
-
-        $refv = $plan->questions[$plan->reference_questionid]->version ?? null;
-        $refqbeid = (int)($refv->questionbankentryid ?? 0);
-        $refqvid = (int)($refv->id ?? 0);
-        if ($refqbeid <= 0) {
-            $plan->warnings[] = 'Impossible de déterminer le question_bank_entry de la référence (question_versions manquant ?).';
+        if (!$plan->mergeable_questionids) {
+            $plan->warnings[] = get_string('merge_warning_nothing_mergeable', 'local_question_diagnostic');
         }
 
-        foreach ($plan->mergeable_questionids as $oldqid) {
-            $oldv = $plan->questions[$oldqid]->version ?? null;
-            $oldqbeid = (int)($oldv->questionbankentryid ?? 0);
-            $oldqvid = (int)($oldv->id ?? 0);
-            if ($oldqbeid > 0 && $refqbeid > 0 && $oldqbeid !== $refqbeid) {
-                $plan->mappings->questionbankentryid[$oldqbeid] = $refqbeid;
-            }
-            if ($oldqvid > 0 && $refqvid > 0 && $oldqvid !== $refqvid) {
-                $plan->mappings->questionversionid[$oldqvid] = $refqvid;
-            }
+        // 5) Impact : références qui seront remappées.
+        $before = 0;
+        if ($plan->mappings->questionbankentryid) {
+            [$einsql, $eparams] = $DB->get_in_or_equal(array_keys($plan->mappings->questionbankentryid));
+            $before = $DB->count_records_select(self::TARGET_TABLE, "questionbankentryid $einsql", $eparams);
         }
+        $plan->impacts = [(object)[
+            'table' => self::TARGET_TABLE,
+            'column' => 'questionbankentryid',
+            'type' => 'questionbankentryid',
+            'before_count' => $before,
+        ]];
 
-        // 7) Warnings cross-context.
-        $refctxid = (int)($plan->questions[$plan->reference_questionid]->context->contextid ?? 0);
-        foreach ($plan->mergeable_questionids as $oldqid) {
-            $oldctxid = (int)($plan->questions[$oldqid]->context->contextid ?? 0);
-            if ($refctxid > 0 && $oldctxid > 0 && $refctxid !== $oldctxid) {
-                $plan->warnings[] = 'Fusion cross-context: ' . $oldqid . ' (contextid=' . $oldctxid . ') → '
-                    . $plan->reference_questionid . ' (contextid=' . $refctxid . ').';
-            }
-        }
-
-        // 8) Déterminer les cibles de remap (whitelist + découverte contrôlée).
-        $targets = self::get_reference_update_targets($opts);
-        $plan->targets = $targets;
-
-        // 9) Calculer les impacts (COUNT avant) pour le preview.
-        $plan->impacts = self::compute_impacts($targets, $plan->mappings);
-
-        // Groupe affichable (nom/type) basé sur la référence.
-        $refinfo = $plan->questions[$plan->reference_questionid] ?? null;
         $plan->group = (object)[
-            'qtype' => $refinfo ? (string)$refinfo->qtype : '',
-            'name' => $refinfo ? (string)$refinfo->name : '',
+            'qtype' => $best->qtype,
+            'name' => $best->name,
             'size' => count($plan->questions),
         ];
-
         return $plan;
     }
 
     /**
-     * Applique un plan de fusion (exécution).
+     * Applique un plan de fusion. Le plan est recalculé depuis la base : on ne fait pas confiance au plan reçu.
      *
-     * @param object $plan
-     * @param array $options
-     * @return object Résultat {success:bool, message:string, details:array}
+     * @param object $plan plan issu de build_merge_plan()
+     * @param array $options inutilisé (compatibilité)
+     * @return object {success: bool, message: string, details: array}
      */
     public static function apply_merge_plan(object $plan, array $options = []): object {
-        global $DB;
-
-        $opts = self::normalize_options($options);
+        global $CFG, $DB;
+        require_once($CFG->dirroot . '/question/engine/bank.php');
 
         $result = (object)[
             'success' => false,
             'message' => '',
-            'details' => [
-                'updated' => [],
-                'deleted' => [],
-                'skipped' => $plan->skipped ?? [],
-                'warnings' => $plan->warnings ?? [],
-            ],
+            'details' => ['updated' => [], 'deleted' => [], 'skipped' => [], 'warnings' => [], 'exportfile' => null],
         ];
-
-        if (!is_object($plan) || empty($plan->reference_questionid)) {
-            $result->message = 'Plan invalide.';
+        if (empty($plan->representative_id)) {
+            $result->message = get_string('merge_error_invalid_group', 'local_question_diagnostic');
             return $result;
         }
 
-        if (empty((array)($plan->mappings->questionid ?? [])) && empty((array)($plan->mappings->questionbankentryid ?? []))) {
-            $result->message = 'Rien à fusionner.';
-            $result->success = true;
+        $lockfactory = \core\lock\lock_config::get_lock_factory('local_question_diagnostic');
+        $lock = $lockfactory->get_lock('question_merge', 60);
+        if (!$lock) {
+            // Sans verrou, on ne fusionne pas.
+            $result->message = get_string('merge_error_locked', 'local_question_diagnostic');
             return $result;
         }
 
-        // Lock applicatif si disponible (évite double exécution concurrente).
-        return self::with_lock(function() use ($DB, $plan, $opts, $result) {
+        try {
+            $fresh = self::build_merge_plan((int)$plan->representative_id);
+            $result->details['skipped'] = $fresh->skipped;
+            $result->details['warnings'] = $fresh->warnings;
+            if ($fresh->errors) {
+                $result->message = implode(' ', $fresh->errors);
+                return $result;
+            }
+            if (!$fresh->mergeable_questionids) {
+                $result->success = true;
+                $result->message = get_string('merge_nothing_to_do', 'local_question_diagnostic');
+                return $result;
+            }
+
             $transaction = $DB->start_delegated_transaction();
             try {
-                // 1) Mettre à jour les références (tables externes).
-                $targets = self::get_reference_update_targets($opts);
-                $updated = self::apply_reference_updates($targets, $plan->mappings);
-                $result->details['updated'] = $updated;
+                // 1) Remapper les références.
+                $result->details['updated'] = [
+                    self::TARGET_TABLE . '.questionbankentryid' => self::remap_references($fresh),
+                ];
 
-                // 2) Post-check : s'assurer qu'il ne reste aucune référence vers les anciens IDs (sur ces cibles).
-                $after = self::compute_impacts_after($targets, $plan->mappings);
-                if (!empty($after['still_referenced'])) {
-                    $details = [];
-                    foreach ((array)$after['still_referenced'] as $impact) {
-                        $details[] = (string)($impact->table ?? '?') . '.' . (string)($impact->column ?? '?')
-                            . ' (type=' . (string)($impact->type ?? '?') . ', count=' . (int)($impact->after_count ?? 0) . ')';
-                    }
-                    throw new \Exception('Post-check échoué : des références vers des doublons existent encore après remap. ' . implode(' | ', $details));
+                // 2) Contrôle : plus aucune référence vers les entrées fusionnées.
+                [$einsql, $eparams] = $DB->get_in_or_equal(array_keys($fresh->mappings->questionbankentryid));
+                $left = $DB->count_records_select(self::TARGET_TABLE, "questionbankentryid $einsql", $eparams);
+                if ($left > 0) {
+                    throw new \moodle_exception('merge_error_postcheck', 'local_question_diagnostic', '', $left);
                 }
 
-                // 3) Supprimer les doublons (API Moodle via question_analyzer).
-                foreach ((array)($plan->mergeable_questionids ?? []) as $oldqid) {
-                    $oldqid = (int)$oldqid;
-                    if ($oldqid <= 0) {
-                        continue;
+                // 3) Supprimer les entrées fusionnées (contrôle d'usage, export XML, vérification).
+                $deletion = question_deleter::delete_entries($fresh->mergeable_questionids, 'merge-duplicates');
+                $result->details['exportfile'] = $deletion->exportfile;
+                if ($deletion->skipped) {
+                    $labels = [];
+                    foreach ($deletion->skipped as $qid => $skip) {
+                        $labels[] = $qid . ' (' . question_deleter::skip_label($skip) . ')';
                     }
-                    // Idempotence : si déjà supprimée, on ignore.
-                    if (!$DB->record_exists('question', ['id' => $oldqid])) {
-                        continue;
-                    }
-                    $msg = question_analyzer::delete_question_safe($oldqid);
-                    if (!empty($msg) && is_string($msg) && stripos($msg, 'erreur') !== false) {
-                        throw new \Exception('Suppression du doublon impossible : ' . $msg);
-                    }
-                    $result->details['deleted'][] = $oldqid;
+                    throw new \moodle_exception('merge_error_delete', 'local_question_diagnostic', '',
+                        implode(', ', $labels));
                 }
-
-                // 4) Purger caches plugin + audit.
-                question_analyzer::purge_all_caches();
-                audit_logger::log_questions_merge(
-                    (int)$plan->reference_questionid,
-                    array_values(array_map('intval', (array)($plan->mergeable_questionids ?? []))),
-                    [
-                        'updated_targets' => $result->details['updated'],
-                        'options' => (array)$opts,
-                    ]
-                );
+                $result->details['deleted'] = $deletion->deleted;
 
                 $transaction->allow_commit();
-                $result->success = true;
-                $result->message = 'Fusion effectuée avec succès.';
-                return $result;
-
             } catch (\Throwable $e) {
-                $transaction->rollback($e);
-                $result->success = false;
-                $result->message = 'Erreur pendant la fusion : ' . $e->getMessage();
+                try {
+                    $transaction->rollback($e);
+                } catch (\Throwable $rethrown) {
+                    // Rollback() relance l'exception : elle est rapportée ci-dessous, jamais rejouée.
+                    unset($rethrown);
+                }
+                usage_checker::reset_caches();
+                $result->details['deleted'] = [];
+                $result->message = get_string('merge_error', 'local_question_diagnostic', $e->getMessage());
                 return $result;
             }
-        });
+
+            \question_bank::notify_question_edited($fresh->reference_questionid);
+            question_analyzer::purge_all_caches();
+            audit_logger::log_questions_merge($fresh->reference_questionid, $fresh->mergeable_questionids, [
+                'updated_targets' => $result->details['updated'],
+                'exportfile' => $result->details['exportfile'] ? basename($result->details['exportfile']) : null,
+            ]);
+            $result->success = true;
+            $result->message = get_string('merge_success', 'local_question_diagnostic');
+            return $result;
+        } finally {
+            $lock->release();
+        }
     }
 
     /**
-     * Définition "strict" disponible ?
+     * Remappe les lignes de question_references des entrées fusionnées vers la référence.
+     *
+     * Une référence figée reste figée, sur la dernière version de la référence. Une ligne qui ferait doublon
+     * avec une référence existante vers la référence (même usage) est supprimée.
+     *
+     * @param object $plan plan recalculé
+     * @return int nombre de lignes traitées
+     */
+    private static function remap_references(object $plan): int {
+        global $DB;
+        $count = 0;
+        foreach ($plan->mappings->questionbankentryid as $oldentryid => $refentryid) {
+            $rows = $DB->get_records(self::TARGET_TABLE, ['questionbankentryid' => (int)$oldentryid], 'id ASC');
+            foreach ($rows as $row) {
+                $duplicate = $DB->record_exists(self::TARGET_TABLE, [
+                    'questionbankentryid' => (int)$refentryid,
+                    'usingcontextid' => (int)$row->usingcontextid,
+                    'component' => (string)$row->component,
+                    'questionarea' => (string)$row->questionarea,
+                    'itemid' => (int)$row->itemid,
+                ]);
+                if ($duplicate) {
+                    $DB->delete_records(self::TARGET_TABLE, ['id' => (int)$row->id]);
+                } else {
+                    $DB->update_record(self::TARGET_TABLE, (object)[
+                        'id' => (int)$row->id,
+                        'questionbankentryid' => (int)$refentryid,
+                        'version' => $row->version === null ? null : (int)$plan->reference_latestversion,
+                    ]);
+                }
+                $count++;
+            }
+        }
+        return $count;
+    }
+
+    /**
+     * L'entrée a-t-elle une référence figée sur une version autre que sa dernière ?
+     *
+     * @param int $entryid
+     * @param int $latestversion
      * @return bool
      */
-    private static function can_use_strict_definition(): bool {
+    private static function has_pinned_old_version(int $entryid, int $latestversion): bool {
         global $DB;
-
-        if (!method_exists('\\local_question_diagnostic\\question_analyzer', 'get_duplicate_group_question_ids_by_representative_id')) {
-            return false;
-        }
-        try {
-            $cols = $DB->get_columns('question');
-            return isset($cols['qtype']) && isset($cols['questiontextformat']) && isset($cols['questiontext']);
-        } catch (\Throwable $e) {
-            return false;
-        }
+        return $DB->record_exists_select(self::TARGET_TABLE,
+            'questionbankentryid = ? AND version IS NOT NULL AND version <> ?', [$entryid, $latestversion]);
     }
 
     /**
-     * Normalise options.
-     * @param array $options
-     * @return object
-     */
-    private static function normalize_options(array $options): object {
-        return (object)[
-            'include_quiz_references' => !empty($options['include_quiz_references']),
-            'advanced_discovery' => !empty($options['advanced_discovery']),
-        ];
-    }
-
-    /**
-     * Récupère les infos de contexte (catégorie + context) par questionid en batch.
+     * Nombre de tentatives par entrée, toutes versions confondues.
      *
-     * @param int[] $questionids
-     * @return array<int,object>
-     */
-    private static function get_questions_context_info_by_ids(array $questionids): array {
-        global $DB;
-
-        $questionids = array_values(array_unique(array_map('intval', (array)$questionids)));
-        $questionids = array_values(array_filter($questionids, function(int $id): bool {
-            return $id > 0;
-        }));
-        if (empty($questionids)) {
-            return [];
-        }
-
-        list($insql, $params) = $DB->get_in_or_equal($questionids, SQL_PARAMS_NAMED, 'qid');
-        $sql = "SELECT qv.questionid,
-                       qc.id AS categoryid,
-                       qc.name AS categoryname,
-                       qc.contextid,
-                       ctx.contextlevel
-                  FROM {question_versions} qv
-                  INNER JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
-                  INNER JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
-                  LEFT JOIN {context} ctx ON ctx.id = qc.contextid
-                 WHERE qv.questionid {$insql}";
-
-        $records = $DB->get_records_sql($sql, $params);
-        $out = [];
-        foreach ($records as $r) {
-            $qid = (int)$r->questionid;
-            $out[$qid] = (object)[
-                'categoryid' => (int)($r->categoryid ?? 0),
-                'categoryname' => (string)($r->categoryname ?? ''),
-                'contextid' => (int)($r->contextid ?? 0),
-                'contextlevel' => isset($r->contextlevel) ? (int)$r->contextlevel : null,
-            ];
-        }
-        return $out;
-    }
-
-    /**
-     * Récupère question_versions par questionid en batch.
-     *
-     * @param int[] $questionids
-     * @return array<int,object> questionid => {id, questionbankentryid}
-     */
-    private static function get_question_versions_by_question_ids(array $questionids): array {
-        global $DB;
-
-        $questionids = array_values(array_unique(array_map('intval', (array)$questionids)));
-        $questionids = array_values(array_filter($questionids, function(int $id): bool {
-            return $id > 0;
-        }));
-        if (empty($questionids)) {
-            return [];
-        }
-
-        list($insql, $params) = $DB->get_in_or_equal($questionids, SQL_PARAMS_NAMED, 'qid');
-        // Un questionid correspond à une ligne question_versions (version spécifique).
-        $sql = "SELECT qv.id, qv.questionid, qv.questionbankentryid
-                  FROM {question_versions} qv
-                 WHERE qv.questionid {$insql}";
-        $records = $DB->get_records_sql($sql, $params);
-        $out = [];
-        foreach ($records as $r) {
-            $qid = (int)$r->questionid;
-            $out[$qid] = (object)[
-                'id' => (int)($r->id ?? 0),
-                'questionid' => $qid,
-                'questionbankentryid' => (int)($r->questionbankentryid ?? 0),
-            ];
-        }
-        return $out;
-    }
-
-    /**
-     * Récupère, pour chaque entry, la question/version la plus récente (non-draft si possible).
-     *
-     * @param int[] $entryids question_bank_entries.id
-     * @return array<int,object> entryid => {id(questionversionid), questionid, questionbankentryid}
-     */
-    private static function get_latest_question_versions_by_entry_ids(array $entryids): array {
-        global $DB;
-
-        $entryids = array_values(array_unique(array_map('intval', (array)$entryids)));
-        $entryids = array_values(array_filter($entryids, function(int $id): bool { return $id > 0; }));
-        if (empty($entryids)) {
-            return [];
-        }
-
-        list($insqlsub, $paramssub) = $DB->get_in_or_equal($entryids, SQL_PARAMS_NAMED, 'e');
-        list($insqlmain, $paramsmain) = $DB->get_in_or_equal($entryids, SQL_PARAMS_NAMED, 'e2');
-        $params = array_merge($paramssub, $paramsmain);
-
-        $qvcols = [];
-        try {
-            $qvcols = $DB->get_columns('question_versions');
-        } catch (\Throwable $e) {
-            $qvcols = [];
-        }
-        $statusfilter = '';
-        if (is_array($qvcols) && isset($qvcols['status'])) {
-            $statusfilter = " AND v.status <> 'draft' ";
-        }
-
-        $sql = "SELECT qv.id, qv.questionid, qv.questionbankentryid
-                  FROM {question_versions} qv
-                  INNER JOIN (
-                        SELECT v.questionbankentryid, MAX(v.version) AS maxversion
-                          FROM {question_versions} v
-                         WHERE v.questionbankentryid {$insqlsub} {$statusfilter}
-                      GROUP BY v.questionbankentryid
-                  ) mv ON mv.questionbankentryid = qv.questionbankentryid AND mv.maxversion = qv.version
-                 WHERE qv.questionbankentryid {$insqlmain}";
-
-        $records = $DB->get_records_sql($sql, $params);
-        $out = [];
-        foreach ($records as $r) {
-            $entryid = (int)($r->questionbankentryid ?? 0);
-            if ($entryid <= 0) {
-                continue;
-            }
-            $out[$entryid] = (object)[
-                'id' => (int)($r->id ?? 0),
-                'questionid' => (int)($r->questionid ?? 0),
-                'questionbankentryid' => $entryid,
-            ];
-        }
-        return $out;
-    }
-
-    /**
-     * Compte les tentatives au niveau ENTRY : si une version a des tentatives, l'entry est protégée.
-     *
-     * @param int[] $entryids question_bank_entries.id
-     * @return array<int,int> entryid => attempt_count
+     * @param int[] $entryids
+     * @return array<int,int>
      */
     private static function get_attempt_counts_by_entry_ids(array $entryids): array {
         global $DB;
-
-        $entryids = array_values(array_unique(array_map('intval', (array)$entryids)));
-        $entryids = array_values(array_filter($entryids, function(int $id): bool { return $id > 0; }));
-        if (empty($entryids)) {
+        if (!$entryids) {
             return [];
         }
-
-        list($insql, $params) = $DB->get_in_or_equal($entryids, SQL_PARAMS_NAMED, 'e');
-        $sql = "SELECT qv.questionbankentryid AS entryid, COUNT(DISTINCT qa.id) AS attempt_count
-                  FROM {question_attempts} qa
-                  INNER JOIN {question_versions} qv ON qv.questionid = qa.questionid
-                 WHERE qv.questionbankentryid {$insql}
-              GROUP BY qv.questionbankentryid";
-        $records = $DB->get_records_sql($sql, $params);
-        $out = [];
-        foreach ($records as $r) {
-            $out[(int)$r->entryid] = (int)($r->attempt_count ?? 0);
-        }
-        return $out;
+        [$insql, $params] = $DB->get_in_or_equal($entryids, SQL_PARAMS_NAMED);
+        return array_map('intval', $DB->get_records_sql_menu("
+            SELECT qv.questionbankentryid, COUNT(qa.id)
+              FROM {question_versions} qv
+              JOIN {question_attempts} qa ON qa.questionid = qv.questionid
+             WHERE qv.questionbankentryid $insql
+          GROUP BY qv.questionbankentryid", $params));
     }
 
     /**
-     * Liste tous les questionids (toutes versions) d’un ensemble d’entries.
+     * Nombre de références directes (question_references) par entrée.
      *
-     * @param int[] $entryids question_bank_entries.id
-     * @return array<int,int[]> entryid => [questionid...]
+     * @param int[] $entryids
+     * @return array<int,int>
      */
-    private static function get_question_ids_by_entry_ids(array $entryids): array {
+    private static function get_reference_counts_by_entry_ids(array $entryids): array {
         global $DB;
-
-        $entryids = array_values(array_unique(array_map('intval', (array)$entryids)));
-        $entryids = array_values(array_filter($entryids, function(int $id): bool { return $id > 0; }));
-        if (empty($entryids)) {
+        if (!$entryids) {
             return [];
         }
-
-        list($insql, $params) = $DB->get_in_or_equal($entryids, SQL_PARAMS_NAMED, 'e');
-        $sql = "SELECT qv.questionbankentryid AS entryid, qv.questionid
-                  FROM {question_versions} qv
-                 WHERE qv.questionbankentryid {$insql}";
-        $records = $DB->get_records_sql($sql, $params);
-        $out = [];
-        foreach ($records as $r) {
-            $entryid = (int)($r->entryid ?? 0);
-            $qid = (int)($r->questionid ?? 0);
-            if ($entryid <= 0 || $qid <= 0) {
-                continue;
-            }
-            if (!isset($out[$entryid])) {
-                $out[$entryid] = [];
-            }
-            $out[$entryid][] = $qid;
-        }
-        foreach ($out as $entryid => $qids) {
-            $out[$entryid] = array_values(array_unique(array_filter(array_map('intval', (array)$qids), function(int $id): bool {
-                return $id > 0;
-            })));
-        }
-        return $out;
+        [$insql, $params] = $DB->get_in_or_equal($entryids, SQL_PARAMS_NAMED);
+        return array_map('intval', $DB->get_records_sql_menu("
+            SELECT questionbankentryid, COUNT(id)
+              FROM {question_references}
+             WHERE questionbankentryid $insql
+          GROUP BY questionbankentryid", $params));
     }
 
     /**
-     * Détermine les tables/colonnes à mettre à jour.
+     * Dernière version (numéro) de chaque entrée, brouillons compris.
      *
-     * @param object $opts
-     * @return array<int,object>
+     * @param int[] $entryids
+     * @return array<int,int>
      */
-    private static function get_reference_update_targets(object $opts): array {
+    private static function get_latest_versions_by_entry_ids(array $entryids): array {
         global $DB;
-
-        $targets = [];
-
-        // Whitelist (core, externes aux définitions de question).
-        $whitelist = [
-            'quiz_slots' => ['questionid', 'questionbankentryid'],
-            // Moodle 4.5+ : les usages (ex: quiz) passent par question_references.
-            // NB: on ne mappe pas la "version" en dur : on remet version/questionversionid à NULL
-            // afin d'utiliser la dernière version non-brouillon (comportement core).
-            'question_references' => ['questionbankentryid'],
-            // Selon versions, question_set_references peut exposer un questionbankentryid.
-            // On applique la même logique "latest" si des colonnes version/questionversionid existent.
-            'question_set_references' => ['questionbankentryid'],
-        ];
-
-        foreach ($whitelist as $table => $cols) {
-            try {
-                $columns = $DB->get_columns($table);
-            } catch (\Throwable $e) {
-                continue;
-            }
-            foreach ($cols as $col) {
-                if (!isset($columns[$col])) {
-                    continue;
-                }
-                $type = self::guess_target_type($col);
-                if ($type === null) {
-                    continue;
-                }
-                $targets[] = (object)[
-                    'table' => $table,
-                    'column' => $col,
-                    'type' => $type,
-                ];
-            }
+        if (!$entryids) {
+            return [];
         }
-
-        // Découverte contrôlée : uniquement des tables NON internes, avec colonnes explicites.
-        if (!empty($opts->advanced_discovery)) {
-            $dbman = $DB->get_manager();
-            $tables = [];
-            try {
-                $tables = $dbman->get_tables();
-            } catch (\Throwable $e) {
-                $tables = [];
-            }
-
-            $blocked = self::blocked_tables_for_discovery();
-            foreach ($tables as $t) {
-                $t = (string)$t;
-                if ($t === '' || isset($blocked[$t])) {
-                    continue;
-                }
-                // Exclure tables internes de définition.
-                if (preg_match('/^question_/', $t) && $t !== 'question_references' && $t !== 'question_set_references') {
-                    continue;
-                }
-                if (preg_match('/^qtype_/', $t)) {
-                    continue;
-                }
-
-                try {
-                    $cols = $DB->get_columns($t);
-                } catch (\Throwable $e) {
-                    continue;
-                }
-
-                foreach (['questionid', 'questionbankentryid', 'questionversionid'] as $col) {
-                    if (!isset($cols[$col])) {
-                        continue;
-                    }
-                    // Tables spéciales : éviter d'update des colonnes version/questionid inadaptées.
-                    if ($t === 'question_references' && $col !== 'questionbankentryid') {
-                        continue;
-                    }
-                    if ($t === 'question_set_references' && $col !== 'questionbankentryid') {
-                        continue;
-                    }
-                    $type = self::guess_target_type($col);
-                    if ($type === null) {
-                        continue;
-                    }
-                    $targets[] = (object)[
-                        'table' => $t,
-                        'column' => $col,
-                        'type' => $type,
-                    ];
-                }
-            }
-        }
-
-        // Dédoublonner.
-        $uniq = [];
-        $out = [];
-        foreach ($targets as $t) {
-            $key = $t->table . '|' . $t->column;
-            if (isset($uniq[$key])) {
-                continue;
-            }
-            $uniq[$key] = true;
-            $out[] = $t;
-        }
-        return $out;
-    }
-
-    /**
-     * Tables explicitement interdites pour remap/discovery.
-     * @return array<string,bool>
-     */
-    private static function blocked_tables_for_discovery(): array {
-        return array_fill_keys([
-            // Core : définition question / versioning (ne jamais UPDATE ici).
-            'question',
-            'question_versions',
-            'question_bank_entries',
-            'question_categories',
-            // Historique tentatives (ne jamais modifier).
-            'question_attempts',
-            'question_attempt_steps',
-            'question_attempt_step_data',
-            'question_usages',
-            // Logs / caches (inutile et risqué).
-            'logstore_standard_log',
-        ], true);
-    }
-
-    /**
-     * Devine le type de mapping en fonction du nom de colonne.
-     * @param string $column
-     * @return string|null
-     */
-    private static function guess_target_type(string $column): ?string {
-        switch ($column) {
-            case 'questionid':
-                return 'questionid';
-            case 'questionbankentryid':
-                return 'questionbankentryid';
-            case 'questionversionid':
-                return 'questionversionid';
-            default:
-                return null;
-        }
-    }
-
-    /**
-     * Calcule les impacts (COUNT) pour un set de targets.
-     *
-     * @param array $targets
-     * @param object $mappings
-     * @return array<int,object>
-     */
-    private static function compute_impacts(array $targets, object $mappings): array {
-        global $DB;
-
-        $out = [];
-        foreach ($targets as $t) {
-            $map = (array)($mappings->{$t->type} ?? []);
-            // Exclure les mappings identitaires (old == ref), sinon le post-check comptera les références légitimes.
-            $keys = [];
-            foreach ($map as $old => $ref) {
-                $old = (int)$old;
-                $ref = (int)$ref;
-                if ($old > 0 && $ref > 0 && $old !== $ref) {
-                    $keys[] = $old;
-                }
-            }
-            $keys = array_values(array_unique($keys));
-            $keys = array_values(array_filter($keys, function(int $id): bool {
-                return $id > 0;
-            }));
-            if (empty($keys)) {
-                $out[] = (object)[
-                    'table' => $t->table,
-                    'column' => $t->column,
-                    'type' => $t->type,
-                    'before_count' => 0,
-                ];
-                continue;
-            }
-            $cnt = 0;
-            try {
-                list($insql, $params) = $DB->get_in_or_equal($keys, SQL_PARAMS_NAMED, 'k');
-                $cnt = (int)$DB->count_records_select($t->table, "{$t->column} {$insql}", $params);
-            } catch (\Throwable $e) {
-                $cnt = 0;
-            }
-            $out[] = (object)[
-                'table' => $t->table,
-                'column' => $t->column,
-                'type' => $t->type,
-                'before_count' => $cnt,
-            ];
-        }
-        return $out;
-    }
-
-    /**
-     * Recompte après mise à jour, et retourne les lignes encore référencées.
-     *
-     * @param array $targets
-     * @param object $mappings
-     * @return array{impacts: array<int,object>, still_referenced: array<int,object>}
-     */
-    private static function compute_impacts_after(array $targets, object $mappings): array {
-        global $DB;
-
-        $impacts = [];
-        $still = [];
-        foreach ($targets as $t) {
-            $map = (array)($mappings->{$t->type} ?? []);
-            // Exclure les mappings identitaires (old == ref) : sinon on “voit” les références de la référence elle-même.
-            $keys = [];
-            foreach ($map as $old => $ref) {
-                $old = (int)$old;
-                $ref = (int)$ref;
-                if ($old > 0 && $ref > 0 && $old !== $ref) {
-                    $keys[] = $old;
-                }
-            }
-            $keys = array_values(array_unique($keys));
-            $keys = array_values(array_filter($keys, function(int $id): bool {
-                return $id > 0;
-            }));
-            $cnt = 0;
-            if (!empty($keys)) {
-                try {
-                    list($insql, $params) = $DB->get_in_or_equal($keys, SQL_PARAMS_NAMED, 'k');
-                    $cnt = (int)$DB->count_records_select($t->table, "{$t->column} {$insql}", $params);
-                } catch (\Throwable $e) {
-                    $cnt = 0;
-                }
-            }
-            $impact = (object)[
-                'table' => $t->table,
-                'column' => $t->column,
-                'type' => $t->type,
-                'after_count' => $cnt,
-            ];
-            $impacts[] = $impact;
-            if ($cnt > 0) {
-                $still[] = $impact;
-            }
-        }
-
-        return [
-            'impacts' => $impacts,
-            'still_referenced' => $still,
-        ];
-    }
-
-    /**
-     * Applique les updates (old => ref) sur les targets.
-     *
-     * @param array $targets
-     * @param object $mappings
-     * @return array<string,int> map "table.column" => nb de mappings appliqués (best-effort)
-     */
-    private static function apply_reference_updates(array $targets, object $mappings): array {
-        global $DB;
-
-        $updated = [];
-        foreach ($targets as $t) {
-            $map = (array)($mappings->{$t->type} ?? []);
-            if (empty($map)) {
-                continue;
-            }
-
-            // Colonnes présentes (pour traitements spécifiques).
-            $tablecols = null;
-            if ($t->table === 'question_references' || $t->table === 'question_set_references') {
-                try {
-                    $tablecols = $DB->get_columns($t->table);
-                } catch (\Throwable $e) {
-                    $tablecols = null;
-                }
-            }
-
-            $sum = 0;
-            foreach ($map as $old => $ref) {
-                $old = (int)$old;
-                $ref = (int)$ref;
-                if ($old <= 0 || $ref <= 0 || $old === $ref) {
-                    continue;
-                }
-                try {
-                    // Cas spécial Moodle 4.5+ : question_references
-                    // - on remap questionbankentryid vers la référence
-                    // - on met version/questionversionid à NULL pour pointer vers la dernière version non-brouillon.
-                    if (($t->table === 'question_references' || $t->table === 'question_set_references') && $t->column === 'questionbankentryid') {
-                        // IMPORTANT (Moodle 4.5): il peut déjà exister une référence identique pointant vers $ref.
-                        // Dans ce cas, l'UPDATE pur ne suffit pas (ou peut être bloqué par une contrainte unique),
-                        // et on se retrouve avec des refs vers les anciens IDs (post-check échoue).
-                        //
-                        // On fait donc un traitement sûr, ligne par ligne :
-                        // - si une ligne équivalente existe déjà pour $ref → supprimer la ligne $old
-                        // - sinon → mettre à jour la ligne $old vers $ref (+ version/questionversionid = NULL si colonnes présentes)
-                        $hasusingctx = is_array($tablecols) && isset($tablecols['usingcontextid']);
-                        $hascomponent = is_array($tablecols) && isset($tablecols['component']);
-                        $hasquestionarea = is_array($tablecols) && isset($tablecols['questionarea']);
-                        $hasitemid = is_array($tablecols) && isset($tablecols['itemid']);
-
-                        // Champs minimaux pour pouvoir dédupliquer proprement.
-                        $fields = ['id', 'questionbankentryid'];
-                        if ($hasusingctx) {
-                            $fields[] = 'usingcontextid';
-                        }
-                        if ($hascomponent) {
-                            $fields[] = 'component';
-                        }
-                        if ($hasquestionarea) {
-                            $fields[] = 'questionarea';
-                        }
-                        if ($hasitemid) {
-                            $fields[] = 'itemid';
-                        }
-                        if (is_array($tablecols) && isset($tablecols['version'])) {
-                            $fields[] = 'version';
-                        }
-                        if (is_array($tablecols) && isset($tablecols['questionversionid'])) {
-                            $fields[] = 'questionversionid';
-                        }
-
-                        $rows = $DB->get_records($t->table, ['questionbankentryid' => $old], 'id ASC', implode(',', $fields));
-                        foreach ($rows as $row) {
-                            $existsparams = ['questionbankentryid' => $ref];
-                            if ($hasusingctx) {
-                                $existsparams['usingcontextid'] = (int)($row->usingcontextid ?? 0);
-                            }
-                            if ($hascomponent) {
-                                $existsparams['component'] = (string)($row->component ?? '');
-                            }
-                            if ($hasquestionarea) {
-                                $existsparams['questionarea'] = (string)($row->questionarea ?? '');
-                            }
-                            if ($hasitemid) {
-                                $existsparams['itemid'] = (int)($row->itemid ?? 0);
-                            }
-
-                            // Si on n'a pas les champs de déduplication, fallback : update global.
-                            $can_dedupe = $hasusingctx && $hascomponent && $hasquestionarea && $hasitemid;
-                            if ($can_dedupe && $DB->record_exists($t->table, $existsparams)) {
-                                // La référence cible existe déjà → supprimer la ligne redondante.
-                                $DB->delete_records($t->table, ['id' => (int)$row->id]);
-                                continue;
-                            }
-
-                            // Mettre à jour la ligne.
-                            $upd = new \stdClass();
-                            $upd->id = (int)$row->id;
-                            $upd->questionbankentryid = $ref;
-                            if (is_array($tablecols) && isset($tablecols['version'])) {
-                                $upd->version = null;
-                            }
-                            if (is_array($tablecols) && isset($tablecols['questionversionid'])) {
-                                $upd->questionversionid = null;
-                            }
-                            $DB->update_record($t->table, $upd);
-                        }
-                    } else {
-                        $sql = "UPDATE {" . $t->table . "} SET " . $t->column . " = :ref WHERE " . $t->column . " = :old";
-                        $DB->execute($sql, ['ref' => $ref, 'old' => $old]);
-                    }
-                    $sum++;
-                } catch (\Throwable $e) {
-                    // Sur les tables d'usages Moodle 4.5, on ne peut pas continuer si l'UPDATE échoue.
-                    if ($t->table === 'question_references' || $t->table === 'question_set_references') {
-                        throw $e;
-                    }
-                    // Sinon, laisser le caller décider via post-check (plus fiable).
-                }
-            }
-            $updated[$t->table . '.' . $t->column] = $sum;
-        }
-        return $updated;
-    }
-
-    /**
-     * Exécute une fonction sous lock Moodle si disponible.
-     *
-     * @param callable $fn
-     * @return mixed
-     */
-    private static function with_lock(callable $fn) {
-        // Moodle lock API (si disponible).
-        if (class_exists('\\core\\lock\\lock_config')) {
-            try {
-                $factory = \core\lock\lock_config::get_lock_factory('local_question_diagnostic');
-                if ($factory) {
-                    $lock = $factory->get_lock('question_merge', 60);
-                    if ($lock) {
-                        try {
-                            return $fn();
-                        } finally {
-                            $lock->release();
-                        }
-                    }
-                }
-            } catch (\Throwable $e) {
-                // fallback sans lock
-            }
-        }
-        return $fn();
+        [$insql, $params] = $DB->get_in_or_equal($entryids, SQL_PARAMS_NAMED);
+        return array_map('intval', $DB->get_records_sql_menu("
+            SELECT questionbankentryid, MAX(version)
+              FROM {question_versions}
+             WHERE questionbankentryid $insql
+          GROUP BY questionbankentryid", $params));
     }
 }

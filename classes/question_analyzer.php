@@ -266,13 +266,7 @@ class question_analyzer {
                 // Vérifier que toutes les questions trouvées sont vraiment identiques
                 if (count($ids) >= 2) {
                     $verified_ids = self::verify_duplicates_strict($ids, $rep);
-                    if (count($verified_ids) >= 2) {
-                        debugging('get_duplicate_group_question_ids_for_question: Found ' . count($verified_ids) . ' verified duplicates (strict check)', DEBUG_DEVELOPER);
-                        return $verified_ids;
-                    } else {
-                        debugging('get_duplicate_group_question_ids_for_question: SQL found ' . count($ids) . ' but strict verification reduced to ' . count($verified_ids) . ' - NOT returning as duplicates', DEBUG_DEVELOPER);
-                        return [];
-                    }
+                    return count($verified_ids) >= 2 ? $verified_ids : [];
                 }
                 return [];
             } catch (\Throwable $e) {
@@ -340,8 +334,6 @@ class question_analyzer {
                     $q_format === $ref_format && 
                     $q_text === $ref_text) {
                     $verified_ids[] = (int)$q->id;
-                } else {
-                    debugging('verify_duplicates_strict: Question ID ' . $q->id . ' does not match reference (qtype: ' . $q_qtype . ' vs ' . $ref_qtype . ', format: ' . $q_format . ' vs ' . $ref_format . ', text length: ' . strlen($q_text) . ' vs ' . strlen($ref_text) . ')', DEBUG_DEVELOPER);
                 }
             }
             

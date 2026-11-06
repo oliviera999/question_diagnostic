@@ -20,7 +20,7 @@ namespace local_question_diagnostic\local;
  * Usage des questions et des catégories, selon les règles du cœur de Moodle 5.x.
  *
  * Une question est « utilisée » dès que l'une des versions de son entrée l'est :
- * - tentative (question_attempts),
+ * - tentative (question_attempts, quel que soit le composant, aperçus exclus),
  * - référence directe (question_references : emplacement de test, version figée ou « toujours la dernière »),
  * - tout plugin qui implémente le rappel questions_in_use (offlinequiz, studentquiz…).
  * C'est la fonction questions_in_use() du cœur qui fait foi.
@@ -87,6 +87,32 @@ class usage_checker {
     }
 
     /**
+     * L'une de ces versions a-t-elle une tentative enregistrée (hors aperçus, que le cœur supprime avec la question) ?
+     *
+     * question_engine::questions_in_use() sans condition renvoie toujours false : les tentatives ne sont vues par
+     * le cœur que via les rappels des plugins (le test ne compte que ses tentatives hors aperçu). On regarde donc
+     * directement question_attempts, quel que soit le composant.
+     *
+     * @param int[] $versionids
+     * @return bool
+     */
+    public static function has_attempts(array $versionids): bool {
+        global $DB;
+        $versionids = self::clean_ids($versionids);
+        if (!$versionids) {
+            return false;
+        }
+        [$insql, $params] = $DB->get_in_or_equal($versionids, SQL_PARAMS_NAMED);
+        $params['preview'] = 'core_question_preview';
+        return $DB->record_exists_sql("
+            SELECT 1
+              FROM {question_attempts} qa
+              JOIN {question_usages} qu ON qu.id = qa.questionusageid
+             WHERE qa.questionid $insql
+               AND qu.component <> :preview", $params);
+    }
+
+    /**
      * Indique, pour chaque question, si son entrée est utilisée (au sens du cœur, toutes versions confondues).
      *
      * @param int[] $questionids
@@ -102,7 +128,7 @@ class usage_checker {
         try {
             $versions = self::get_entry_versions($questionids);
             foreach ($versions as $qid => $versionids) {
-                $out[$qid] = questions_in_use($versionids);
+                $out[$qid] = self::has_attempts($versionids) || questions_in_use($versionids);
             }
         } catch (\Throwable $e) {
             debugging('usage_checker::entries_in_use : ' . $e->getMessage(), DEBUG_DEVELOPER);
@@ -120,6 +146,50 @@ class usage_checker {
     public static function entry_in_use(int $questionid): bool {
         $res = self::entries_in_use([$questionid]);
         return $res[$questionid] ?? true;
+    }
+
+    /**
+     * Pour chaque question, son entrée est-elle utilisée AUTREMENT que par une référence directe
+     * (question_references) ? C'est-à-dire : tentative, ou usage déclaré par un plugin (rappel questions_in_use).
+     *
+     * Sert à la fusion, qui sait remapper les références directes mais rien d'autre.
+     *
+     * @param int[] $questionids
+     * @return array<int,bool> questionid => utilisée autrement (true aussi en cas d'erreur)
+     */
+    public static function entries_used_outside_references(array $questionids): array {
+        self::require_libs();
+        $questionids = self::clean_ids($questionids);
+        if (!$questionids) {
+            return [];
+        }
+        try {
+            $callbacks = [];
+            foreach (get_plugins_with_function('questions_in_use') as $bytype) {
+                foreach ($bytype as $function) {
+                    $callbacks[] = $function;
+                }
+            }
+            foreach (get_plugin_list_with_function('mod', 'question_list_instances') as $function) {
+                // Ancien rappel : on ne sait pas l'interpréter finement, on bloque.
+                return array_fill_keys($questionids, true);
+            }
+            $out = [];
+            foreach (self::get_entry_versions($questionids) as $qid => $versionids) {
+                $used = self::has_attempts($versionids);
+                foreach ($callbacks as $function) {
+                    if ($used) {
+                        break;
+                    }
+                    $used = (bool)$function($versionids);
+                }
+                $out[$qid] = $used;
+            }
+            return $out;
+        } catch (\Throwable $e) {
+            debugging('usage_checker::entries_used_outside_references : ' . $e->getMessage(), DEBUG_DEVELOPER);
+            return array_fill_keys($questionids, true);
+        }
     }
 
     /**

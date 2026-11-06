@@ -45,7 +45,6 @@ if (!is_siteadmin()) {
 
 $confirm = optional_param('confirm', 0, PARAM_INT);
 $includequiz = optional_param('includequiz', 1, PARAM_INT);
-$discovery = optional_param('discovery', 0, PARAM_INT);
 $limit = optional_param('limit', 200, PARAM_INT); // taille du lot (nb de groupes scannés par itération)
 $offset = optional_param('offset', 0, PARAM_INT); // compat ancienne pagination
 $processall = optional_param('processall', 0, PARAM_INT); // option : 1 = traiter tout le site par lots
@@ -53,7 +52,7 @@ $afterrepid = optional_param('afterrepid', 0, PARAM_INT); // pagination stable (
 $stoponerror = optional_param('stoponerror', 1, PARAM_INT);
 $returnurlparam = optional_param('returnurl', '', PARAM_LOCALURL);
 
-$limit = max(1, min(1000, (int)$limit));
+$limit = max(1, min(100, (int)$limit)); // v1.15.0 : fenêtre traitée dans la requête, donc bornée.
 $offset = max(0, (int)$offset);
 $afterrepid = max(0, (int)$afterrepid);
 
@@ -65,7 +64,6 @@ $PAGE->set_context(context_system::instance());
 $PAGE->set_url(new moodle_url('/local/question_diagnostic/actions/merge_questions_batch.php', [
     'confirm' => $confirm,
     'includequiz' => $includequiz,
-    'discovery' => $discovery,
     'limit' => $limit,
     'offset' => $offset,
     'processall' => $processall,
@@ -81,7 +79,6 @@ $options = [
     // include_quiz_references est toujours actif : les questions utilisées dans des quiz
     // mais sans tentatives sont fusionnables et les références quiz seront remappées.
     'include_quiz_references' => true,
-    'advanced_discovery' => (int)$discovery === 1,
 ];
 
 echo $OUTPUT->header();
@@ -97,7 +94,6 @@ echo html_writer::start_tag('form', [
 ]);
 echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]);
 echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'includequiz', 'value' => (int)$includequiz]);
-echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'discovery', 'value' => (int)$discovery]);
 echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'returnurl', 'value' => $returnurl->out(false)]);
 
 echo html_writer::start_div('form-inline', ['style' => 'display:flex;gap:16px;flex-wrap:wrap;align-items:center;']);
@@ -123,7 +119,7 @@ echo html_writer::empty_tag('input', [
     'name' => 'limit',
     'id' => 'qd-merge-batch-limit',
     'min' => 1,
-    'max' => 1000,
+    'max' => 100,
     'value' => (int)$limit,
     'style' => 'width:100px;',
 ]);
@@ -286,7 +282,6 @@ if (!$confirm) {
     $confirmurl = new moodle_url('/local/question_diagnostic/actions/merge_questions_batch.php', [
         'confirm' => 1,
         'includequiz' => $includequiz,
-        'discovery' => $discovery,
         'limit' => $limit,
         'offset' => $offset,
         'processall' => $processall,
@@ -296,9 +291,9 @@ if (!$confirm) {
         'returnurl' => $returnurl->out(false),
     ]);
     $confirmtext = (int)$processall === 1
-        ? 'Fusionner tout le site (tout ce qui est fusionnable)'
+        ? get_string('question_merge_batch_confirm_all', 'local_question_diagnostic')
         : get_string('question_merge_batch_confirm_button', 'local_question_diagnostic');
-    echo html_writer::link($confirmurl, $confirmtext, ['class' => 'btn btn-danger']);
+    echo $OUTPUT->single_button($confirmurl, $confirmtext, 'post', ['type' => single_button::BUTTON_DANGER]);
     echo html_writer::link($returnurl, get_string('cancel', 'core'), ['class' => 'btn btn-secondary']);
     echo html_writer::end_div();
 
@@ -306,8 +301,23 @@ if (!$confirm) {
     exit;
 }
 
-// confirm=1 : exécution.
+// confirm=1 : exécution, uniquement en POST.
 require_sesskey();
+if (!data_submitted()) {
+    throw new \moodle_exception('invalidrequest');
+}
+
+// v1.15.0 : « tout le site » tourne en tâche de fond (curseur, rapport par message), jamais dans la requête.
+if ((int)$processall === 1) {
+    $task = new \local_question_diagnostic\task\merge_duplicates_task();
+    $task->set_userid($USER->id);
+    $task->set_custom_data(['userid' => (int)$USER->id]);
+    \core\task\manager::queue_adhoc_task($task, true);
+    \local_question_diagnostic\audit_logger::log_action('merge_all_duplicates_queued', []);
+    redirect($returnurl, get_string('question_merge_batch_queued', 'local_question_diagnostic'), null,
+        \core\output\notification::NOTIFY_SUCCESS);
+}
+\core_php_time_limit::raise(300);
 
 $results = [
     'success_groups' => 0,
@@ -323,9 +333,7 @@ $results = [
 // Exécuter soit uniquement la fenêtre preview, soit tout le site par lots.
 $loopafter = (int)$afterrepid;
 do {
-    $batchgroups = (int)$processall === 1
-        ? question_analyzer::get_duplicate_groups_seek((int)$limit, (int)$loopafter)
-        : $groups;
+    $batchgroups = $groups;
 
     if (empty($batchgroups)) {
         break;

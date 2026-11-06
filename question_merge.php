@@ -40,13 +40,11 @@ if (!is_siteadmin()) {
 $page = optional_param('page', 0, PARAM_INT);
 $perpage = optional_param('perpage', 50, PARAM_INT);
 $includequiz = optional_param('includequiz', 1, PARAM_INT);
-$discovery = optional_param('discovery', 0, PARAM_INT);
 
 $PAGE->set_url(new moodle_url('/local/question_diagnostic/question_merge.php', [
     'page' => $page,
     'perpage' => $perpage,
     'includequiz' => $includequiz,
-    'discovery' => $discovery,
 ]));
 $PAGE->set_context(context_system::instance());
 $PAGE->set_title(get_string('question_merge_title', 'local_question_diagnostic'));
@@ -71,7 +69,6 @@ echo html_writer::end_div();
 echo html_writer::start_div('mb-3', ['style' => 'display:flex;gap:12px;flex-wrap:wrap;align-items:center;']);
 $batchurl = new moodle_url('/local/question_diagnostic/actions/merge_questions_batch.php', [
     'includequiz' => $includequiz,
-    'discovery' => $discovery,
     'limit' => 200,
     // Par défaut, ne pas forcer "tout le site" : l'option est disponible sur la page batch.
     'processall' => 0,
@@ -83,43 +80,6 @@ $batchurl = new moodle_url('/local/question_diagnostic/actions/merge_questions_b
 echo html_writer::link($batchurl, get_string('question_merge_batch_preview_button', 'local_question_diagnostic'), ['class' => 'btn btn-warning']);
 echo html_writer::end_div();
 
-// Options.
-$optionsurl = new moodle_url('/local/question_diagnostic/question_merge.php');
-echo html_writer::start_tag('form', [
-    'method' => 'get',
-    'action' => $optionsurl->out(false),
-    'class' => 'mb-3',
-]);
-echo html_writer::start_div('form-inline', ['style' => 'display:flex;gap:16px;flex-wrap:wrap;align-items:center;']);
-
-// includequiz est toujours actif : une question utilisée dans un quiz mais sans tentatives est fusionnable
-// (les références quiz sont remappées). On garde le paramètre en compat, mais on ne l'expose pas en UI.
-
-echo html_writer::start_div();
-echo html_writer::empty_tag('input', [
-    'type' => 'checkbox',
-    'name' => 'discovery',
-    'value' => '1',
-    'id' => 'qd-merge-discovery',
-    'checked' => (int)$discovery === 1 ? 'checked' : null,
-]);
-echo html_writer::tag('label', ' ' . get_string('question_merge_discovery', 'local_question_diagnostic'), [
-    'for' => 'qd-merge-discovery',
-    'style' => 'margin-left:6px;',
-]);
-echo html_writer::end_div();
-
-echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'perpage', 'value' => (int)$perpage]);
-echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'page', 'value' => 0]);
-
-echo html_writer::empty_tag('input', [
-    'type' => 'submit',
-    'value' => get_string('applyfilters', 'core'),
-    'class' => 'btn btn-secondary',
-]);
-
-echo html_writer::end_div();
-echo html_writer::end_tag('form');
 
 $offset = max(0, (int)$page) * (int)$perpage;
 $totalgroups = (int)question_analyzer::count_duplicate_groups(false, false);
@@ -129,7 +89,6 @@ $groups = question_analyzer::get_duplicate_groups((int)$perpage, (int)$offset, f
 // (Sinon, ces groupes ne doivent pas apparaître dans la liste.)
 $options = [
     'include_quiz_references' => true,
-    'advanced_discovery' => (int)$discovery === 1,
 ];
 $eligiblegroups = [];
 foreach ((array)$groups as $g) {
@@ -174,7 +133,6 @@ foreach ($groups as $g) {
     $previewurl = new moodle_url('/local/question_diagnostic/actions/merge_questions.php', [
         'repid' => (int)$g->representative_id,
         'includequiz' => (int)$includequiz,
-        'discovery' => (int)$discovery,
         'returnurl' => $PAGE->url->out(false),
         'sesskey' => sesskey(),
     ]);
@@ -198,7 +156,6 @@ echo html_writer::table($table);
 $baseurl = new moodle_url('/local/question_diagnostic/question_merge.php', [
     'perpage' => $perpage,
     'includequiz' => $includequiz,
-    'discovery' => $discovery,
 ]);
 echo $OUTPUT->paging_bar($totalgroups, $page, $perpage, $baseurl);
 

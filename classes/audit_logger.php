@@ -70,15 +70,6 @@ class audit_logger {
                 'timestamp' => time()
             ];
             
-            // Utiliser debugging pour tracer l'action
-            $debug_msg = sprintf(
-                'AUDIT LOG [%s]: User %d - %s - Details: %s',
-                $action,
-                $USER->id,
-                $objectid ? "Object ID: $objectid" : 'No object ID',
-                json_encode($details)
-            );
-            debugging($debug_msg, DEBUG_DEVELOPER);
             
             // Optionnel : Enregistrer dans un fichier de log personnalisé
             self::write_to_file($log_data);

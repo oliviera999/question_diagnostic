@@ -83,7 +83,6 @@ class cache_manager {
         try {
             $cache = self::get_cache($cache_name);
             $cache->purge();
-            debugging('Cache purgé : ' . $cache_name, DEBUG_DEVELOPER);
             return true;
         } catch (\Exception $e) {
             debugging('Erreur purge cache ' . $cache_name . ': ' . $e->getMessage(), DEBUG_DEVELOPER);
