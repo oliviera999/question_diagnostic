@@ -21,6 +21,9 @@ require_once($CFG->dirroot . '/question/editlib.php');
  */
 class question_analyzer {
 
+    /** Nombre maximal de questions rendues visibles en une opération. */
+    const UNHIDE_MAX = 200;
+
     /**
      * Cache des colonnes de la table {question} (runtime).
      *
@@ -2035,64 +2038,44 @@ class question_analyzer {
      * @return bool|string True si succès, message d'erreur sinon
      */
     public static function unhide_question($questionid) {
-        global $DB;
-        
+        global $CFG, $DB;
+        require_once($CFG->dirroot . '/question/engine/bank.php');
+
+        $questionid = (int)$questionid;
         try {
-            // Vérifier que la question existe (avant de démarrer la transaction)
             $question = $DB->get_record('question', ['id' => $questionid]);
             if (!$question) {
-                debugging('unhide_question: Question not found (ID: ' . $questionid . ')', DEBUG_DEVELOPER);
-                return 'Question non trouvée (ID: ' . $questionid . ')';
+                return get_string('unhide_error_notfound', 'local_question_diagnostic', $questionid);
             }
-            
-            // 🔧 v1.14.2 : Vérifier d'abord si la question est cachée (avant transaction)
-            $hidden_versions = $DB->get_records('question_versions', [
+            $version = $DB->get_record('question_versions', ['questionid' => $questionid]);
+            if (!$version || $version->status !== 'hidden') {
+                return get_string('unhide_error_nothidden', 'local_question_diagnostic', $questionid);
+            }
+
+            // v1.15.0 : statut modifié comme le fait le cœur (qbank_editquestion), avec cache, événement et
+            // trace de l'état précédent (pour pouvoir revenir en arrière).
+            $DB->set_field('question_versions', 'status', 'ready', ['id' => $version->id]);
+            \question_bank::notify_question_edited($questionid);
+            $contextid = (int)$DB->get_field_sql('SELECT qc.contextid
+                  FROM {question_bank_entries} qbe
+                  JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
+                 WHERE qbe.id = ?', [$version->questionbankentryid]);
+            if ($contextid) {
+                $question->contextid = $contextid;
+                $question->category = (int)$DB->get_field('question_bank_entries', 'questioncategoryid',
+                    ['id' => $version->questionbankentryid]);
+                $event = \core\event\question_updated::create_from_question_instance($question,
+                    \context::instance_by_id($contextid));
+                $event->trigger();
+            }
+            audit_logger::log_action('question_unhidden', [
                 'questionid' => $questionid,
-                'status' => 'hidden'
-            ]);
-            
-            $versions_hidden = count($hidden_versions);
-            debugging('unhide_question ID ' . $questionid . ': Found ' . $versions_hidden . ' hidden version(s)', DEBUG_DEVELOPER);
-            
-            if ($versions_hidden == 0) {
-                return 'Question non cachée (ID: ' . $questionid . ')';
-            }
-            
-            // Démarrer la transaction seulement si on a des versions à mettre à jour
-            $transaction = $DB->start_delegated_transaction();
-            
-            // 🔧 v1.14.2 : Mettre à jour chaque version individuellement pour garantir la mise à jour
-            $updated_count = 0;
-            foreach ($hidden_versions as $version) {
-                $version->status = 'ready';
-                if ($DB->update_record('question_versions', $version)) {
-                    $updated_count++;
-                } else {
-                    debugging('unhide_question ID ' . $questionid . ': Failed to update version ID ' . $version->id, DEBUG_DEVELOPER);
-                }
-            }
-            
-            // Valider la transaction
-            $transaction->allow_commit();
-            
-            // Vérifier si la mise à jour a fonctionné
-            $still_hidden = $DB->count_records('question_versions', [
-                'questionid' => $questionid,
-                'status' => 'hidden'
-            ]);
-            
-            if ($still_hidden == 0 && $updated_count == $versions_hidden) {
-                debugging('unhide_question ID ' . $questionid . ': SUCCESS - ' . $updated_count . ' version(s) made visible', DEBUG_DEVELOPER);
-                // Purger le cache (la méthode purge_all_caches() est suffisante)
-                return true;
-            } else {
-                debugging('unhide_question ID ' . $questionid . ': PARTIAL - Updated ' . $updated_count . ' of ' . $versions_hidden . ', still ' . $still_hidden . ' hidden', DEBUG_DEVELOPER);
-                return 'Échec partiel : ' . $still_hidden . ' version(s) encore cachée(s) sur ' . $versions_hidden . ' trouvée(s)';
-            }
-            
-        } catch (\Exception $e) {
-            debugging('unhide_question ID ' . $questionid . ': ERROR - ' . $e->getMessage(), DEBUG_DEVELOPER);
-            return 'Erreur lors du changement de statut : ' . $e->getMessage();
+                'versionid' => (int)$version->id,
+                'previousstatus' => 'hidden',
+            ], $questionid);
+            return true;
+        } catch (\Throwable $e) {
+            return get_string('unhide_error', 'local_question_diagnostic', $e->getMessage());
         }
     }
 
@@ -2111,8 +2094,9 @@ class question_analyzer {
         $protected = 0;
         $errors = [];
 
-        // Normaliser / dédupliquer
+        // Normaliser / dédupliquer. v1.15.0 : une sélection explicite, bornée (plus de « tout rendre visible »).
         $ids = array_values(array_unique(array_filter(array_map('intval', (array)$questionids))));
+        $ids = array_slice($ids, 0, self::UNHIDE_MAX);
         if (empty($ids)) {
             return [
                 'success' => 0,

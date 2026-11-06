@@ -39,6 +39,10 @@ $entryid = optional_param('id', 0, PARAM_INT);
 $action = optional_param('action', '', PARAM_ALPHANUMEXT); // ALPHANUMEXT permet les underscores
 $targetcategoryid = optional_param('targetcategory', 0, PARAM_INT);
 $confirm = optional_param('confirm', 0, PARAM_INT);
+// v1.15.0 : une action confirmée n'est acceptée qu'en POST.
+if ($confirm && !data_submitted()) {
+    throw new \moodle_exception('invalidrequest');
+}
 $selectedentries = optional_param_array('entries', [], PARAM_INT); // Pour sélection multiple
 
 // Configuration de la page
@@ -74,27 +78,10 @@ if ($action === 'bulk_reassign' && !empty($selectedentries) && $targetcategoryid
                     continue;
                 }
                 
-                // Vérifier que l'entry est toujours orpheline
-                $old_category_exists = $DB->record_exists('question_categories', ['id' => $entry->questioncategoryid]);
-                
-                if (!$old_category_exists) {
-                    // Compter les questions avant réassignation
-                    $question_count = $DB->count_records_sql("
-                        SELECT COUNT(DISTINCT q.id)
-                        FROM {question} q
-                        INNER JOIN {question_versions} qv ON qv.questionid = q.id
-                        WHERE qv.questionbankentryid = :entryid
-                    ", ['entryid' => $entry_id]);
-                    
-                    // Réassigner l'entry vers la nouvelle catégorie
-                    $entry->questioncategoryid = $targetcategoryid;
-                    $DB->update_record('question_bank_entries', $entry);
-                    
-                    $success_count++;
-                    $total_questions += $question_count;
-                } else {
-                    $errors[] = "Entry #{$entry_id} : n'est plus orpheline";
-                }
+                // v1.15.0 : réaffectation sûre (cible valide, idnumber, fichiers, caches, événement).
+                $total_questions += \local_question_diagnostic\local\orphan_entry_repairer::reassign(
+                    (int)$entry_id, (int)$targetcategoryid);
+                $success_count++;
             } catch (Exception $e) {
                 $errors[] = "Entry #{$entry_id} : " . $e->getMessage();
             }
@@ -106,7 +93,7 @@ if ($action === 'bulk_reassign' && !empty($selectedentries) && $targetcategoryid
         }
         
         // Message de résultat
-        $message = "{$success_count} entry(ies) réassignée(s) avec succès vers '{$target_category->name}'. ";
+        $message = "{$success_count} entry(ies) réassignée(s) avec succès vers '" . format_string($target_category->name) . "'. ";
         $message .= "{$total_questions} question(s) récupérée(s).";
         
         if (!empty($errors)) {
@@ -139,9 +126,6 @@ if ($action === 'bulk_delete_empty' && !empty($selectedentries)) {
         // Pas de confirmation, afficher la page de confirmation plus bas
     } else {
     
-    // ⚠️ MOODLE 5.1 : Transaction SQL pour garantir l'intégrité des suppressions
-    $transaction = $DB->start_delegated_transaction();
-    
     try {
         $success_count = 0;
         $errors = [];
@@ -154,39 +138,16 @@ if ($action === 'bulk_delete_empty' && !empty($selectedentries)) {
                     continue;
                 }
                 
-                // Vérifier que l'entry est bien orpheline
-                $old_category_exists = $DB->record_exists('question_categories', ['id' => $entry->questioncategoryid]);
-                
-                if (!$old_category_exists) {
-                    // SÉCURITÉ : Vérifier que l'entry est bien VIDE (0 questions)
-                    $question_count = $DB->count_records_sql("
-                        SELECT COUNT(DISTINCT q.id)
-                        FROM {question} q
-                        INNER JOIN {question_versions} qv ON qv.questionid = q.id
-                        WHERE qv.questionbankentryid = :entryid
-                    ", ['entryid' => $entry_id]);
-                    
-                    if ($question_count == 0) {
-                        // Supprimer les versions liées (si existantes, normalement aucune)
-                        $DB->delete_records('question_versions', ['questionbankentryid' => $entry_id]);
-                        
-                        // Supprimer l'entry
-                        $DB->delete_records('question_bank_entries', ['id' => $entry_id]);
-                        
-                        $success_count++;
-                    } else {
-                        $errors[] = "Entry #{$entry_id} : contient {$question_count} question(s), NON SUPPRIMÉE par sécurité";
-                    }
+                // v1.15.0 : uniquement vide, orpheline et non référencée.
+                if (\local_question_diagnostic\local\orphan_entry_repairer::delete_empty((int)$entry_id)) {
+                    $success_count++;
                 } else {
-                    $errors[] = "Entry #{$entry_id} : n'est plus orpheline";
+                    $errors[] = get_string('orphan_entry_not_deletable', 'local_question_diagnostic', (int)$entry_id);
                 }
             } catch (Exception $e) {
                 $errors[] = "Entry #{$entry_id} : " . $e->getMessage();
             }
         }
-        
-        // ✅ COMMIT si tout OK
-        $transaction->allow_commit();
         
         // Purger le cache après modification
         if ($success_count > 0) {
@@ -230,29 +191,22 @@ if ($action === 'reassign' && $entryid && $targetcategoryid) {
         // Vérifier que la catégorie cible existe
         $target_category = $DB->get_record('question_categories', ['id' => $targetcategoryid], '*', MUST_EXIST);
         
-        // Vérifier que l'entry existe et est bien orpheline
+        // v1.15.0 : réaffectation sûre (cible valide, idnumber, fichiers, caches, événement).
         $entry = $DB->get_record('question_bank_entries', ['id' => $entryid], '*', MUST_EXIST);
         $old_category_exists = $DB->record_exists('question_categories', ['id' => $entry->questioncategoryid]);
-        
+
         if (!$old_category_exists) {
-            // Réassigner l'entry vers la nouvelle catégorie
-            $entry->questioncategoryid = $targetcategoryid;
-            $DB->update_record('question_bank_entries', $entry);
-            
-            // Compter les questions concernées
-            $question_count = $DB->count_records_sql("
-                SELECT COUNT(DISTINCT q.id)
-                FROM {question} q
-                INNER JOIN {question_versions} qv ON qv.questionid = q.id
-                WHERE qv.questionbankentryid = :entryid
-            ", ['entryid' => $entryid]);
-            
-            // Purger le cache après modification
+            $question_count = \local_question_diagnostic\local\orphan_entry_repairer::reassign(
+                (int)$entryid, (int)$targetcategoryid);
             question_analyzer::purge_all_caches();
-            
+
             redirect(
                 new moodle_url('/local/question_diagnostic/orphan_entries.php'),
-                "Entry #{$entryid} réassignée avec succès vers '{$target_category->name}' ({$question_count} question(s) récupérée(s))",
+                get_string('orphan_entry_reassigned', 'local_question_diagnostic', (object)[
+                    'id' => (int)$entryid,
+                    'category' => format_string($target_category->name),
+                    'count' => (int)$question_count,
+                ]),
                 null,
                 \core\output\notification::NOTIFY_SUCCESS
             );
@@ -479,16 +433,16 @@ if ($entryid > 0) {
             
             // Boutons
             echo html_writer::start_div('', ['style' => 'margin-top: 20px;']);
-            echo html_writer::link(
+            echo $OUTPUT->single_button(
                 new moodle_url('/local/question_diagnostic/orphan_entries.php', [
                     'id' => $entryid,
                     'action' => 'reassign',
                     'targetcategory' => $targetcategoryid,
                     'confirm' => 1,
-                    'sesskey' => sesskey()
                 ]),
                 '✅ Confirmer la réassignation',
-                ['class' => 'btn btn-danger', 'style' => 'margin-right: 10px;']
+                'post',
+                ['type' => single_button::BUTTON_DANGER]
             );
             echo html_writer::link(
                 new moodle_url('/local/question_diagnostic/orphan_entries.php', ['id' => $entryid]),
