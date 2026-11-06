@@ -5,6 +5,25 @@
 // it under the terms of the GNU General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
+//
+// Moodle is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
+
+/**
+ * Archivage (copie durable, sans suppression) de fichiers orphelins.
+ *
+ * GET / POST sans confirmation : page de confirmation (aucune modification).
+ * POST + sesskey + confirm=1 : exécution.
+ *
+ * @package    local_question_diagnostic
+ * @copyright  2025
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ */
 
 require_once(__DIR__ . '/../../../config.php');
 require_once(__DIR__ . '/../classes/orphan_file_detector.php');
@@ -18,217 +37,98 @@ if (!is_siteadmin()) {
     throw new \moodle_exception('accessdenied', 'admin');
 }
 
-require_sesskey();
-
 $context = context_system::instance();
 $PAGE->set_context($context);
 $PAGE->set_url(new moodle_url('/local/question_diagnostic/actions/orphan_archive.php'));
-$PAGE->set_title(get_string('archive_orphan', 'local_question_diagnostic'));
+$PAGE->set_title(get_string('archive_orphans', 'local_question_diagnostic'));
+$PAGE->set_heading(get_string('orphan_files_heading', 'local_question_diagnostic'));
 $PAGE->set_pagelayout('admin');
 
-// Récupérer les paramètres
-$single_id = optional_param('id', 0, PARAM_INT);
-$multiple_ids = optional_param_array('ids', [], PARAM_INT);
-$confirm = optional_param('confirm', 0, PARAM_INT);
+$returnurl = new moodle_url('/local/question_diagnostic/orphan_files.php');
 
-// Déterminer les IDs à traiter
-$ids_to_archive = [];
-if ($single_id > 0) {
-    $ids_to_archive = [$single_id];
-} else if (!empty($multiple_ids)) {
-    $ids_to_archive = $multiple_ids;
-}
+$singleid = optional_param('id', 0, PARAM_INT);
+$multipleids = optional_param_array('ids', [], PARAM_INT);
+$confirm = optional_param('confirm', 0, PARAM_BOOL);
 
-if (empty($ids_to_archive)) {
-    redirect(
-        new moodle_url('/local/question_diagnostic/orphan_files.php'),
-        get_string('archive_error', 'local_question_diagnostic'),
-        null,
-        \core\output\notification::NOTIFY_ERROR
-    );
-}
+$requestedids = $singleid > 0 ? [$singleid] : $multipleids;
+$requestedids = array_slice(array_values(array_unique(array_filter(array_map('intval', $requestedids)))),
+    0, orphan_file_detector::MAX_BATCH);
 
-// Limiter à 100 fichiers pour sécurité
-if (count($ids_to_archive) > 100) {
-    $ids_to_archive = array_slice($ids_to_archive, 0, 100);
-}
-
-// Récupérer les détails des fichiers
-$files_details = [];
-$total_size = 0;
-foreach ($ids_to_archive as $id) {
-    $file_record = $DB->get_record('files', ['id' => $id]);
-    if ($file_record) {
-        $files_details[] = $file_record;
-        $total_size += $file_record->filesize;
-    }
-}
-
-if (empty($files_details)) {
-    redirect(
-        new moodle_url('/local/question_diagnostic/orphan_files.php'),
-        get_string('archive_error', 'local_question_diagnostic') . ' - Aucun fichier trouvé',
-        null,
-        \core\output\notification::NOTIFY_ERROR
-    );
-}
-
-// Formater la taille totale
-function format_filesize_local($bytes) {
-    if ($bytes >= 1073741824) {
-        return number_format($bytes / 1073741824, 2) . ' GB';
-    } else if ($bytes >= 1048576) {
-        return number_format($bytes / 1048576, 2) . ' MB';
-    } else if ($bytes >= 1024) {
-        return number_format($bytes / 1024, 2) . ' KB';
-    } else {
-        return $bytes . ' bytes';
-    }
-}
-
-$total_size_formatted = format_filesize_local($total_size);
-
-// ======================================================================
-// PAGE DE CONFIRMATION
-// ======================================================================
-
-if (!$confirm) {
-    echo $OUTPUT->header();
-    
-    // Titre
-    echo html_writer::tag('h2', get_string('archive_orphans', 'local_question_diagnostic'));
-    
-    // Message de confirmation
-    echo html_writer::tag('p', 'Vous êtes sur le point d\'archiver ' . count($files_details) . ' fichier(s) orphelin(s).', 
-                          ['style' => 'font-size: 16px;']);
-    
-    // Informations sur l'archivage
-    echo html_writer::start_div('alert alert-info', ['style' => 'margin: 20px 0;']);
-    echo '<strong>📚 À propos de l\'archivage :</strong><br>';
-    echo '• Les fichiers seront copiés dans un dossier temporaire<br>';
-    echo '• Durée de rétention : ' . get_string('archive_retention_days', 'local_question_diagnostic', 30) . '<br>';
-    echo '• Vous pourrez les restaurer si nécessaire<br>';
-    echo '• Les fichiers ne seront PAS supprimés de la base de données';
-    echo html_writer::end_div();
-    
-    // Tableau récapitulatif (max 20 fichiers affichés)
-    echo html_writer::tag('h4', 'Fichiers qui seront archivés :');
-    echo html_writer::start_tag('div', ['class' => 'qd-table-wrapper', 'style' => 'max-height: 400px; overflow-y: auto;']);
-    echo html_writer::start_tag('table', ['class' => 'table table-sm']);
-    echo html_writer::start_tag('thead');
-    echo html_writer::start_tag('tr');
-    echo html_writer::tag('th', 'ID');
-    echo html_writer::tag('th', 'Nom du fichier');
-    echo html_writer::tag('th', 'Composant');
-    echo html_writer::tag('th', 'Taille');
-    echo html_writer::end_tag('tr');
-    echo html_writer::end_tag('thead');
-    echo html_writer::start_tag('tbody');
-    
-    $displayed = 0;
-    foreach ($files_details as $file) {
-        if ($displayed >= 20) {
-            echo html_writer::start_tag('tr');
-            echo html_writer::tag('td', '...', ['colspan' => 4, 'style' => 'text-align: center; font-style: italic;']);
-            echo html_writer::end_tag('tr');
-            echo html_writer::start_tag('tr');
-            echo html_writer::tag('td', 'Et ' . (count($files_details) - 20) . ' autres fichiers', ['colspan' => 4, 'style' => 'text-align: center; font-weight: bold;']);
-            echo html_writer::end_tag('tr');
-            break;
-        }
-        
-        echo html_writer::start_tag('tr');
-        echo html_writer::tag('td', $file->id);
-        echo html_writer::tag('td', htmlspecialchars($file->filename));
-        echo html_writer::tag('td', htmlspecialchars($file->component));
-        echo html_writer::tag('td', format_filesize_local($file->filesize));
-        echo html_writer::end_tag('tr');
-        
-        $displayed++;
-    }
-    
-    echo html_writer::end_tag('tbody');
-    echo html_writer::end_tag('table');
-    echo html_writer::end_tag('div');
-    
-    // Statistiques
-    echo html_writer::start_div('alert alert-success', ['style' => 'margin: 20px 0;']);
-    echo '<strong>Récapitulatif :</strong><br>';
-    echo '• Nombre de fichiers : ' . count($files_details) . '<br>';
-    echo '• Taille totale : ' . $total_size_formatted . '<br>';
-    echo html_writer::end_div();
-    
-    // Boutons d'action
-    echo html_writer::start_div('', ['style' => 'margin: 30px 0; display: flex; gap: 10px;']);
-    
-    // Bouton Confirmer
-    $confirm_params = ['confirm' => 1, 'sesskey' => sesskey()];
-    if ($single_id > 0) {
-        $confirm_params['id'] = $single_id;
-    } else {
-        foreach ($ids_to_archive as $id) {
-            $confirm_params['ids[]'] = $id;
-        }
-    }
-    
-    echo html_writer::link(
-        new moodle_url('/local/question_diagnostic/actions/orphan_archive.php', $confirm_params),
-        '🗄️ ' . get_string('confirm', 'core') . ' et archiver',
-        ['class' => 'btn btn-warning btn-lg']
-    );
-    
-    // Bouton Annuler
-    echo html_writer::link(
-        new moodle_url('/local/question_diagnostic/orphan_files.php'),
-        get_string('cancel', 'core'),
-        ['class' => 'btn btn-secondary btn-lg']
-    );
-    
-    echo html_writer::end_div();
-    
-    echo $OUTPUT->footer();
-    exit;
+if (empty($requestedids)) {
+    redirect($returnurl, get_string('archive_error', 'local_question_diagnostic'), null,
+        \core\output\notification::NOTIFY_ERROR);
 }
 
 // ======================================================================
-// EXÉCUTION DE L'ARCHIVAGE (après confirmation)
+// EXÉCUTION (POST + sesskey + confirmation uniquement)
 // ======================================================================
+if ($confirm && data_submitted()) {
+    require_sesskey();
 
-$success_count = 0;
-$error_count = 0;
-$archive_path = '';
-
-foreach ($ids_to_archive as $id) {
-    $result = orphan_file_detector::archive_orphan_file($id);
-    
-    if ($result['success']) {
-        $success_count++;
-        if (empty($archive_path)) {
-            $archive_path = dirname($result['archive_path']);
-        }
-    } else {
-        $error_count++;
-    }
+    // archive_multiple_orphans revérifie que chaque fichier est bien orphelin.
+    $results = orphan_file_detector::archive_multiple_orphans($requestedids);
+    $a = (object)['success' => $results['success'], 'failed' => $results['failed'], 'archive' => $results['archive_dir']];
+    $message = get_string('orphan_archive_result', 'local_question_diagnostic', $a);
+    $type = $results['success'] > 0 ? \core\output\notification::NOTIFY_SUCCESS : \core\output\notification::NOTIFY_ERROR;
+    redirect($returnurl, s($message), null, $type);
 }
 
-// Message de résultat
-if ($success_count > 0) {
-    $message = get_string('archive_success', 'local_question_diagnostic', $archive_path) . 
-               ' (' . $success_count . ' fichier(s))';
-    if ($error_count > 0) {
-        $message .= ' - ' . $error_count . ' erreur(s)';
-    }
-    $notification_type = \core\output\notification::NOTIFY_SUCCESS;
-} else {
-    $message = get_string('archive_error', 'local_question_diagnostic') . ' - ' . $error_count . ' échec(s)';
-    $notification_type = \core\output\notification::NOTIFY_ERROR;
+// ======================================================================
+// PAGE DE CONFIRMATION (aucune modification)
+// ======================================================================
+$orphans = orphan_file_detector::get_orphans_by_ids($requestedids);
+if (empty($orphans)) {
+    redirect($returnurl, get_string('orphan_none_orphan', 'local_question_diagnostic'), null,
+        \core\output\notification::NOTIFY_ERROR);
 }
 
-// Redirection avec message
-redirect(
-    new moodle_url('/local/question_diagnostic/orphan_files.php'),
-    $message,
-    null,
-    $notification_type
-);
+$totalsize = 0;
+foreach ($orphans as $orphan) {
+    $totalsize += (int)$orphan->file->filesize;
+}
 
+echo $OUTPUT->header();
+echo $OUTPUT->heading(get_string('archive_orphans', 'local_question_diagnostic'));
+
+echo $OUTPUT->notification(s(get_string('orphan_archive_notice', 'local_question_diagnostic',
+    (object)['count' => count($orphans), 'dir' => orphan_file_detector::get_archive_dir(),
+        'size' => orphan_file_detector::format_filesize($totalsize)])),
+    \core\output\notification::NOTIFY_INFO, false);
+
+$ignored = count($requestedids) - count($orphans);
+if ($ignored > 0) {
+    echo $OUTPUT->notification(s(get_string('orphan_delete_skipped', 'local_question_diagnostic', $ignored)),
+        \core\output\notification::NOTIFY_INFO, false);
+}
+
+$table = new html_table();
+$table->attributes['class'] = 'table table-sm generaltable';
+$table->head = [
+    get_string('orphan_file_id', 'local_question_diagnostic'),
+    get_string('orphan_filename', 'local_question_diagnostic'),
+    get_string('orphan_component', 'local_question_diagnostic'),
+    get_string('orphan_filearea', 'local_question_diagnostic'),
+    get_string('orphan_filesize', 'local_question_diagnostic'),
+];
+$displayed = 0;
+foreach ($orphans as $orphan) {
+    if ($displayed++ >= 20) {
+        $cell = new html_table_cell(s(get_string('orphan_more_files', 'local_question_diagnostic', count($orphans) - 20)));
+        $cell->colspan = 5;
+        $table->data[] = new html_table_row([$cell]);
+        break;
+    }
+    $f = $orphan->file;
+    $table->data[] = [(int)$f->id, s($f->filename), s($f->component), s($f->filearea), s($orphan->filesize_formatted)];
+}
+echo html_writer::div(html_writer::table($table), 'qd-table-wrapper', ['style' => 'max-height: 400px; overflow-y: auto;']);
+
+$actionurl = new moodle_url('/local/question_diagnostic/actions/orphan_archive.php');
+echo html_writer::start_div('my-4');
+echo orphan_file_detector::render_post_button($actionurl,
+    ['ids' => array_map('intval', array_keys($orphans)), 'confirm' => 1],
+    get_string('orphan_archive_confirm_button', 'local_question_diagnostic'), 'btn btn-warning');
+echo html_writer::link($returnurl, get_string('cancel'), ['class' => 'btn btn-secondary']);
+echo html_writer::end_div();
+
+echo $OUTPUT->footer();

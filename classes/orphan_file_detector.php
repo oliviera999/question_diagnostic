@@ -5,6 +5,14 @@
 // it under the terms of the GNU General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
+//
+// Moodle is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 namespace local_question_diagnostic;
 
@@ -13,10 +21,19 @@ defined('MOODLE_INTERNAL') || die();
 require_once($CFG->libdir . '/filelib.php');
 
 /**
- * Détecteur de fichiers orphelins dans Moodle
+ * Détecteur de fichiers orphelins dans Moodle.
  *
- * Cette classe permet de détecter les fichiers orphelins dans la base de données
- * et dans le système de fichiers (moodledata/filedir/).
+ * Définition (volontairement stricte) : un fichier est orphelin UNIQUEMENT si son
+ * contexte (files.contextid) n'existe plus dans {context}. Aucune comparaison n'est
+ * faite entre files.itemid et l'id de la table « principale » d'un composant : la
+ * signification de itemid dépend de la zone de fichiers (question_answers.id,
+ * question_hints.id, question_attempt_steps.id, forum_posts.id, book_chapters.id,
+ * course_sections.id, identifiant de brouillon…) et cette comparaison signalait
+ * comme « orphelins » des fichiers bien vivants (travaux d'élèves, images de réponses).
+ *
+ * Certaines zones sont en outre exclues de toute suppression ou réparation
+ * (signalement uniquement) : brouillons utilisateur, réponses aux questions
+ * (response_*), remises et feedbacks de devoirs, sauvegardes.
  *
  * @package    local_question_diagnostic
  * @copyright  2025
@@ -24,523 +41,544 @@ require_once($CFG->libdir . '/filelib.php');
  */
 class orphan_file_detector {
 
-    /**
-     * Composants supportés pour la vérification des fichiers orphelins
-     * Format: component => [table_parent, id_field]
-     */
-    const SUPPORTED_COMPONENTS = [
-        'question' => ['question', 'id'],
-        'mod_label' => ['label', 'id'],
-        'mod_resource' => ['resource', 'id'],
-        'mod_page' => ['page', 'id'],
-        'mod_forum' => ['forum', 'id'],
-        'mod_book' => ['book', 'id'],
-        'course' => ['course', 'id'],
-        'user' => ['user', 'id'],
-    ];
+    /** @var string Seul type d'orphelin reconnu : contexte disparu. */
+    const TYPE_CONTEXT_MISSING = 'context_missing';
+
+    /** @var int Nombre maximal de fichiers traités par lot (suppression, archivage). */
+    const MAX_BATCH = 100;
+
+    /** @var string Sous-dossier de moodledata (hors temp/, donc non purgé par le cron). */
+    const ARCHIVE_SUBDIR = 'local_question_diagnostic/orphan_archive';
+
+    /** @var string[] Préfixes de composants protégés (travaux et feedbacks de devoirs). */
+    const PROTECTED_COMPONENT_PREFIXES = ['assignsubmission_', 'assignfeedback_'];
+
+    /** @var string[] Composants protégés (sauvegardes). */
+    const PROTECTED_COMPONENTS = ['backup'];
 
     /**
-     * Récupère tous les fichiers orphelins (BDD uniquement)
+     * Fragment SQL commun : fichiers dont le contexte n'existe plus (hors entrées de dossier).
+     *
+     * @return string
+     */
+    private static function orphan_from_where_sql(): string {
+        return "FROM {files} f
+           LEFT JOIN {context} ctx ON ctx.id = f.contextid
+               WHERE ctx.id IS NULL
+                 AND f.filename <> '.'";
+    }
+
+    /**
+     * Ouvre un recordset sur les fichiers orphelins (contexte disparu), du plus récent au plus ancien.
+     *
+     * @param int $limitfrom Décalage (pagination)
+     * @param int $limitnum Nombre maximal d'enregistrements (0 = tous)
+     * @return \moodle_recordset
+     */
+    public static function get_orphan_recordset(int $limitfrom = 0, int $limitnum = 0): \moodle_recordset {
+        global $DB;
+        $sql = "SELECT f.* " . self::orphan_from_where_sql() . " ORDER BY f.timecreated DESC, f.id DESC";
+        return $DB->get_recordset_sql($sql, [], $limitfrom, $limitnum);
+    }
+
+    /**
+     * Parcourt les fichiers orphelins sous forme d'objets enrichis (générateur, mémoire constante).
+     *
+     * @param int $limit Limite (0 = tous)
+     * @param int $offset Décalage
+     * @return \Generator
+     */
+    public static function iterate_orphans(int $limit = 0, int $offset = 0): \Generator {
+        $rs = self::get_orphan_recordset($offset, $limit);
+        try {
+            foreach ($rs as $file) {
+                yield self::create_orphan_object($file);
+            }
+        } finally {
+            $rs->close();
+        }
+    }
+
+    /**
+     * Récupère les fichiers orphelins (contexte disparu).
      *
      * @param bool $use_cache Utiliser le cache
      * @param int $limit Limite de résultats (0 = tous)
-     * @return array Tableau d'objets orphelin
+     * @param int $offset Décalage (pagination)
+     * @return \stdClass[] Objets orphelins
      */
-    public static function get_orphan_files($use_cache = true, $limit = 1000) {
-        global $DB;
-
-        // Essayer le cache d'abord
+    public static function get_orphan_files($use_cache = true, $limit = 1000, $offset = 0) {
         require_once(__DIR__ . '/cache_manager.php');
-        $cache_key = 'orphan_files_list_' . $limit;
+        $limit = max(0, (int)$limit);
+        $offset = max(0, (int)$offset);
+        $cache_key = 'orphan_files_v2_' . $limit . '_' . $offset;
         if ($use_cache) {
             $cached = cache_manager::get(cache_manager::CACHE_ORPHANFILES, $cache_key);
-            if ($cached !== false) {
+            if ($cached !== false && is_array($cached)) {
                 return $cached;
             }
         }
 
-        $orphans = [];
+        $orphans = iterator_to_array(self::iterate_orphans($limit, $offset), false);
 
-        // Type 1: Fichiers avec contexte invalide
-        $orphans = array_merge($orphans, self::get_orphans_invalid_context($limit));
-
-        // Type 2: Fichiers avec parent supprimé (par composant)
-        foreach (self::SUPPORTED_COMPONENTS as $component => $config) {
-            $component_orphans = self::get_orphans_missing_parent($component, $config, $limit);
-            $orphans = array_merge($orphans, $component_orphans);
-        }
-
-        // Limiter le nombre total si nécessaire
-        if ($limit > 0 && count($orphans) > $limit) {
-            $orphans = array_slice($orphans, 0, $limit);
-        }
-
-        // Mettre en cache pour 1 heure
         if ($use_cache) {
             cache_manager::set(cache_manager::CACHE_ORPHANFILES, $cache_key, $orphans);
         }
-
         return $orphans;
     }
 
     /**
-     * Détecte les fichiers dont le contexte n'existe plus
+     * Récupère, parmi une liste d'ids, ceux qui sont réellement orphelins (revérification en base).
      *
-     * @param int $limit Limite de résultats
-     * @return array Tableau de fichiers orphelins
+     * @param int[] $fileids
+     * @return \stdClass[] Objets orphelins indexés par id de fichier
      */
-    private static function get_orphans_invalid_context($limit = 0) {
+    public static function get_orphans_by_ids(array $fileids): array {
         global $DB;
-
-        $sql = "SELECT f.* 
-                FROM {files} f
-                LEFT JOIN {context} c ON c.id = f.contextid
-                WHERE c.id IS NULL 
-                  AND f.filename != '.'
-                  AND f.component != ''
-                ORDER BY f.timecreated DESC";
-
-        if ($limit > 0) {
-            $files = $DB->get_records_sql($sql, [], 0, $limit);
-        } else {
-            $files = $DB->get_records_sql($sql);
-        }
-
-        $orphans = [];
-        foreach ($files as $file) {
-            $orphans[] = self::create_orphan_object($file, 'context_invalid', 'Contexte invalide (ID: ' . $file->contextid . ')');
-        }
-
-        return $orphans;
-    }
-
-    /**
-     * Détecte les fichiers dont l'élément parent a été supprimé
-     *
-     * @param string $component Composant à vérifier
-     * @param array $config Configuration [table, id_field]
-     * @param int $limit Limite de résultats
-     * @return array Tableau de fichiers orphelins
-     */
-    private static function get_orphans_missing_parent($component, $config, $limit = 0) {
-        global $DB;
-
-        list($table, $idfield) = $config;
-
-        // Vérifier que la table existe
-        $dbman = $DB->get_manager();
-        if (!$dbman->table_exists($table)) {
+        $fileids = array_values(array_unique(array_filter(array_map('intval', $fileids))));
+        if (empty($fileids)) {
             return [];
         }
-
-        $sql = "SELECT f.* 
-                FROM {files} f
-                WHERE f.component = :component
-                  AND f.filename != '.'
-                  AND f.itemid != 0
-                  AND NOT EXISTS (
-                      SELECT 1 FROM {{$table}} t 
-                      WHERE t.{$idfield} = f.itemid
-                  )
-                ORDER BY f.timecreated DESC";
-
-        if ($limit > 0) {
-            $files = $DB->get_records_sql($sql, ['component' => $component], 0, $limit);
-        } else {
-            $files = $DB->get_records_sql($sql, ['component' => $component]);
+        $result = [];
+        foreach (array_chunk($fileids, 500) as $chunk) {
+            [$insql, $params] = $DB->get_in_or_equal($chunk, SQL_PARAMS_NAMED, 'fid');
+            $sql = "SELECT f.* " . self::orphan_from_where_sql() .
+                   " AND f.id {$insql} ORDER BY f.timecreated DESC, f.id DESC";
+            $rs = $DB->get_recordset_sql($sql, $params);
+            foreach ($rs as $file) {
+                $result[$file->id] = self::create_orphan_object($file);
+            }
+            $rs->close();
         }
-
-        $orphans = [];
-        foreach ($files as $file) {
-            $reason = 'Élément parent supprimé (' . $component . ' ID: ' . $file->itemid . ')';
-            $orphans[] = self::create_orphan_object($file, 'parent_deleted', $reason);
-        }
-
-        return $orphans;
+        return $result;
     }
 
     /**
-     * Crée un objet orphelin avec métadonnées enrichies
+     * Crée un objet orphelin enrichi.
      *
-     * @param object $file Objet fichier depuis mdl_files
-     * @param string $orphan_type Type d'orphelin (context_invalid, parent_deleted, unreferenced)
-     * @param string $reason Raison détaillée
-     * @return object Objet orphelin enrichi
+     * @param \stdClass $file Enregistrement de {files}
+     * @return \stdClass
      */
-    private static function create_orphan_object($file, $orphan_type, $reason) {
+    private static function create_orphan_object($file) {
+        $exclusion = self::get_exclusion_reason($file);
         return (object)[
             'file' => $file,
-            'orphan_type' => $orphan_type,
-            'reason' => $reason,
+            'orphan_type' => self::TYPE_CONTEXT_MISSING,
+            'reason' => get_string('orphan_reason_context_missing', 'local_question_diagnostic', (int)$file->contextid),
+            'deletable' => ($exclusion === null),
+            'exclusion' => $exclusion,
             'filesize_formatted' => self::format_filesize($file->filesize),
             'timecreated_formatted' => userdate($file->timecreated, get_string('strftimedatetime', 'langconfig')),
-            'age_days' => floor((time() - $file->timecreated) / (60 * 60 * 24)),
+            'age_days' => (int)floor((time() - $file->timecreated) / DAYSECS),
         ];
     }
 
     /**
-     * Obtient les statistiques globales sur les fichiers orphelins
+     * Statistiques globales (requêtes agrégées, sans plafond de 1000 fichiers).
      *
      * @param bool $use_cache Utiliser le cache
-     * @return object Statistiques
+     * @return \stdClass
      */
     public static function get_global_stats($use_cache = true) {
         global $DB;
 
-        // Essayer le cache d'abord
         require_once(__DIR__ . '/cache_manager.php');
         if ($use_cache) {
-            $cached_stats = cache_manager::get(cache_manager::CACHE_ORPHANFILES, 'global_stats');
-            if ($cached_stats !== false) {
-                return $cached_stats;
+            $cached = cache_manager::get(cache_manager::CACHE_ORPHANFILES, 'global_stats_v2');
+            if ($cached !== false && is_object($cached)) {
+                return $cached;
             }
         }
+
+        $now = time();
+        $sql = "SELECT f.component, f.filearea,
+                       COUNT(1) AS cnt,
+                       SUM(f.filesize) AS totalsize,
+                       SUM(CASE WHEN f.timecreated > :recentlimit THEN 1 ELSE 0 END) AS recent,
+                       SUM(CASE WHEN f.timecreated <= :oldlimit THEN 1 ELSE 0 END) AS old
+                " . self::orphan_from_where_sql() . "
+              GROUP BY f.component, f.filearea";
+        $params = ['recentlimit' => $now - 30 * DAYSECS, 'oldlimit' => $now - 180 * DAYSECS];
 
         $stats = new \stdClass();
-        
-        // Récupérer tous les orphelins
-        $orphans = self::get_orphan_files($use_cache);
-        $stats->total_orphans = count($orphans);
-
-        // Calculer l'espace disque total
+        $stats->total_orphans = 0;
         $stats->total_filesize = 0;
+        $stats->deletable = 0;
+        $stats->protected = 0;
         $stats->by_component = [];
-        $stats->by_type = [];
-        $stats->by_age = ['recent' => 0, 'medium' => 0, 'old' => 0]; // <1 mois, 1-6 mois, >6 mois
+        $stats->by_type = [self::TYPE_CONTEXT_MISSING => 0];
+        $stats->by_age = ['recent' => 0, 'medium' => 0, 'old' => 0];
 
-        foreach ($orphans as $orphan) {
-            $file = $orphan->file;
-            
-            // Taille totale
-            $stats->total_filesize += $file->filesize;
-
-            // Par composant
-            if (!isset($stats->by_component[$file->component])) {
-                $stats->by_component[$file->component] = 0;
-            }
-            $stats->by_component[$file->component]++;
-
-            // Par type d'orphelin
-            if (!isset($stats->by_type[$orphan->orphan_type])) {
-                $stats->by_type[$orphan->orphan_type] = 0;
-            }
-            $stats->by_type[$orphan->orphan_type]++;
-
-            // Par âge
-            if ($orphan->age_days < 30) {
-                $stats->by_age['recent']++;
-            } else if ($orphan->age_days < 180) {
-                $stats->by_age['medium']++;
+        $rs = $DB->get_recordset_sql($sql, $params);
+        foreach ($rs as $row) {
+            $cnt = (int)$row->cnt;
+            $stats->total_orphans += $cnt;
+            $stats->total_filesize += (int)$row->totalsize;
+            $stats->by_type[self::TYPE_CONTEXT_MISSING] += $cnt;
+            $component = (string)$row->component;
+            $stats->by_component[$component] = ($stats->by_component[$component] ?? 0) + $cnt;
+            $stats->by_age['recent'] += (int)$row->recent;
+            $stats->by_age['old'] += (int)$row->old;
+            $stats->by_age['medium'] += $cnt - (int)$row->recent - (int)$row->old;
+            $probe = (object)['component' => $row->component, 'filearea' => $row->filearea, 'filename' => 'x'];
+            if (self::get_exclusion_reason($probe) === null) {
+                $stats->deletable += $cnt;
             } else {
-                $stats->by_age['old']++;
+                $stats->protected += $cnt;
             }
         }
+        $rs->close();
+        arsort($stats->by_component);
 
         $stats->total_filesize_formatted = self::format_filesize($stats->total_filesize);
 
-        // Mettre en cache pour 30 minutes
         if ($use_cache) {
-            cache_manager::set(cache_manager::CACHE_ORPHANFILES, 'global_stats', $stats);
+            cache_manager::set(cache_manager::CACHE_ORPHANFILES, 'global_stats_v2', $stats);
         }
-
         return $stats;
     }
 
     /**
-     * Vérifie si un fichier est sûr à supprimer
+     * Indique si le fichier appartient à une zone protégée (jamais supprimée ni réparée).
      *
-     * @param object $file Objet fichier
-     * @return bool True si sûr à supprimer
+     * @param \stdClass $file Enregistrement de {files} (component, filearea, filename)
+     * @return string|null Code de la raison d'exclusion, ou null si le fichier n'est pas protégé
      */
-    public static function is_safe_to_delete($file) {
-        global $DB;
+    public static function get_exclusion_reason($file): ?string {
+        $component = (string)($file->component ?? '');
+        $filearea = (string)($file->filearea ?? '');
 
-        // 1. Vérifier que ce n'est pas un fichier système important
-        if (self::is_system_file($file)) {
+        if (($file->filename ?? '') === '.') {
+            return 'directory';
+        }
+        if ($component === '') {
+            return 'nocomponent';
+        }
+        if ($component === 'user' && $filearea === 'draft') {
+            return 'draft';
+        }
+        if (strpos($filearea, 'response_') === 0) {
+            return 'response';
+        }
+        foreach (self::PROTECTED_COMPONENT_PREFIXES as $prefix) {
+            if (strpos($component, $prefix) === 0) {
+                return 'assign';
+            }
+        }
+        if (in_array($component, self::PROTECTED_COMPONENTS, true)) {
+            return 'backup';
+        }
+        return null;
+    }
+
+    /**
+     * Indique si un fichier est orphelin : son contexte n'existe plus (vérification en base, à l'instant T).
+     *
+     * @param \stdClass $file Enregistrement de {files}
+     * @return bool
+     */
+    public static function is_orphan($file): bool {
+        global $DB;
+        if (empty($file) || ($file->filename ?? '.') === '.') {
             return false;
         }
-
-        // 2. Vérifier le contexte
-        $context_exists = $DB->record_exists('context', ['id' => $file->contextid]);
-        if (!$context_exists) {
-            return true; // Contexte invalide → sûr à supprimer
-        }
-
-        // 3. Vérifier le parent selon le composant
-        if (isset(self::SUPPORTED_COMPONENTS[$file->component])) {
-            list($table, $idfield) = self::SUPPORTED_COMPONENTS[$file->component];
-            
-            $dbman = $DB->get_manager();
-            if ($dbman->table_exists($table)) {
-                $parent_exists = $DB->record_exists($table, [$idfield => $file->itemid]);
-                if (!$parent_exists) {
-                    return true; // Parent n'existe pas → sûr à supprimer
-                }
-            }
-        }
-
-        // 4. Si le fichier a un parent existant, ne pas supprimer
-        return false;
+        return !$DB->record_exists('context', ['id' => (int)$file->contextid]);
     }
 
     /**
-     * Vérifie si un fichier est un fichier système (à ne jamais supprimer)
+     * Vérifie qu'un fichier peut être supprimé : orphelin ET hors zones protégées.
      *
-     * @param object $file Objet fichier
-     * @return bool True si fichier système
+     * @param \stdClass $file Enregistrement de {files}
+     * @return bool
      */
-    private static function is_system_file($file) {
-        // Fichiers avec component vide ou '.'
-        if (empty($file->component) || $file->filename === '.') {
-            return true;
+    public static function is_safe_to_delete($file) {
+        if (empty($file)) {
+            return false;
         }
-
-        // Composants système critiques
-        $system_components = ['core', 'theme', 'block', 'backup'];
-        foreach ($system_components as $comp) {
-            if (strpos($file->component, $comp) === 0) {
-                return true;
-            }
+        if (self::get_exclusion_reason($file) !== null) {
+            return false;
         }
-
-        return false;
+        return self::is_orphan($file);
     }
 
     /**
-     * Supprime un fichier orphelin de manière sécurisée
+     * Supprime un fichier orphelin après l'avoir copié dans l'archive durable.
      *
      * @param int $fileid ID du fichier
-     * @param bool $dry_run Mode simulation (ne supprime pas réellement)
+     * @param bool $dry_run Mode simulation (rien n'est écrit ni supprimé)
      * @return array ['success' => bool, 'message' => string]
      */
     public static function delete_orphan_file($fileid, $dry_run = false) {
         global $DB;
 
+        $fileid = (int)$fileid;
+        $record = $DB->get_record('files', ['id' => $fileid]);
+        if (!$record) {
+            return ['success' => false, 'message' => get_string('orphan_file_not_found', 'local_question_diagnostic', $fileid)];
+        }
+        // Revérification au moment de l'exécution : on ne fait jamais confiance aux ids reçus.
+        if (!self::is_safe_to_delete($record)) {
+            return ['success' => false, 'message' => get_string('orphan_not_deletable', 'local_question_diagnostic', $fileid)];
+        }
+        if ($dry_run) {
+            return ['success' => true, 'message' => get_string('orphan_dryrun_would_delete', 'local_question_diagnostic', $fileid)];
+        }
+
+        $fs = get_file_storage();
+        $file = $fs->get_file_by_id($record->id);
+        if (!$file) {
+            return ['success' => false, 'message' => get_string('orphan_file_not_found', 'local_question_diagnostic', $fileid)];
+        }
+
+        // 1. Archivage durable du contenu : si la copie échoue, on ne supprime pas.
         try {
-            // Récupérer le fichier
-            $file_record = $DB->get_record('files', ['id' => $fileid]);
-            if (!$file_record) {
-                return ['success' => false, 'message' => 'Fichier introuvable (ID: ' . $fileid . ')'];
+            self::archive_stored_file($file, 'delete');
+        } catch (\Throwable $e) {
+            return ['success' => false,
+                'message' => get_string('orphan_archive_failed_nodelete', 'local_question_diagnostic', $fileid)];
+        }
+
+        // 2. Suppression via l'API de fichiers (enregistrement + contenu si plus référencé ailleurs).
+        try {
+            $file->delete();
+            self::delete_empty_directories($record);
+        } catch (\Throwable $e) {
+            return ['success' => false, 'message' => get_string('orphan_delete_failed', 'local_question_diagnostic', $fileid)];
+        }
+
+        return ['success' => true, 'message' => get_string('orphan_deleted_one', 'local_question_diagnostic', $fileid)];
+    }
+
+    /**
+     * Supprime les entrées « dossier » ('.') d'une zone orpheline devenue vide.
+     *
+     * @param \stdClass $record Enregistrement du fichier supprimé
+     */
+    private static function delete_empty_directories(\stdClass $record): void {
+        global $DB;
+        if (!self::is_orphan((object)['contextid' => $record->contextid, 'filename' => 'x'])) {
+            return;
+        }
+        $params = [
+            'contextid' => $record->contextid,
+            'component' => $record->component,
+            'filearea' => $record->filearea,
+            'itemid' => $record->itemid,
+        ];
+        $remaining = $DB->count_records_select('files',
+            "contextid = :contextid AND component = :component AND filearea = :filearea AND itemid = :itemid
+             AND filename <> '.'", $params);
+        if ($remaining > 0) {
+            return;
+        }
+        $fs = get_file_storage();
+        $dirs = $DB->get_records('files', $params + ['filename' => '.'], '', 'id');
+        foreach ($dirs as $dir) {
+            if ($stored = $fs->get_file_by_id($dir->id)) {
+                $stored->delete();
             }
-
-            // Vérifier la sécurité
-            if (!self::is_safe_to_delete($file_record)) {
-                return ['success' => false, 'message' => 'Fichier non sûr à supprimer (parent existe ou fichier système)'];
-            }
-
-            // Mode dry-run : simuler seulement
-            if ($dry_run) {
-                return [
-                    'success' => true, 
-                    'message' => '[DRY-RUN] Fichier SERAIT supprimé : ' . $file_record->filename
-                ];
-            }
-
-            // Supprimer via l'API File Storage
-            $fs = get_file_storage();
-            $file = $fs->get_file_by_id($fileid);
-
-            if ($file) {
-                $filename = $file->get_filename();
-                $filesize = $file->get_filesize();
-                
-                // Supprimer le fichier (BDD + filesystem)
-                $file->delete();
-
-                // Logger l'action
-                self::log_operation('delete', $fileid, $filename, $filesize);
-
-                return [
-                    'success' => true,
-                    'message' => 'Fichier supprimé avec succès : ' . $filename . ' (' . self::format_filesize($filesize) . ')'
-                ];
-            }
-
-            return ['success' => false, 'message' => 'Impossible de récupérer le fichier via l\'API'];
-
-        } catch (\Exception $e) {
-            return ['success' => false, 'message' => 'Erreur : ' . $e->getMessage()];
         }
     }
 
     /**
-     * Supprime plusieurs fichiers orphelins
+     * Supprime plusieurs fichiers orphelins (lot limité à MAX_BATCH), chacun archivé au préalable.
      *
-     * @param array $fileids Tableau d'IDs de fichiers
+     * @param int[] $fileids
      * @param bool $dry_run Mode simulation
-     * @return array ['success' => int, 'failed' => int, 'messages' => array]
+     * @return array ['success' => int, 'failed' => int, 'messages' => string[], 'deletedids' => int[]]
      */
     public static function delete_multiple_orphans($fileids, $dry_run = false) {
-        $results = ['success' => 0, 'failed' => 0, 'messages' => []];
+        $results = ['success' => 0, 'failed' => 0, 'messages' => [], 'deletedids' => []];
 
-        // Limiter à 100 fichiers par lot pour sécurité
-        if (count($fileids) > 100) {
-            $fileids = array_slice($fileids, 0, 100);
-            $results['messages'][] = '⚠️ Limité à 100 fichiers pour sécurité';
+        $fileids = array_values(array_unique(array_map('intval', (array)$fileids)));
+        if (count($fileids) > self::MAX_BATCH) {
+            $fileids = array_slice($fileids, 0, self::MAX_BATCH);
+            $results['messages'][] = get_string('orphan_batch_limited', 'local_question_diagnostic', self::MAX_BATCH);
         }
 
         foreach ($fileids as $fileid) {
             $result = self::delete_orphan_file($fileid, $dry_run);
-            
             if ($result['success']) {
                 $results['success']++;
+                if (!$dry_run) {
+                    $results['deletedids'][] = $fileid;
+                }
             } else {
                 $results['failed']++;
             }
-            
             $results['messages'][] = $result['message'];
         }
 
+        if (!$dry_run && !empty($results['deletedids'])) {
+            // Traçabilité sans données personnelles : uniquement des identifiants techniques.
+            audit_logger::log_action('orphan_files_deleted', [
+                'count' => count($results['deletedids']),
+                'fileids' => $results['deletedids'],
+                'archive' => self::ARCHIVE_SUBDIR . '/' . date('Y-m-d'),
+            ]);
+        }
+        if (!$dry_run) {
+            self::purge_orphan_cache();
+        }
         return $results;
     }
 
     /**
-     * Archive un fichier orphelin dans un dossier temporaire
+     * Archive (copie) un fichier orphelin dans l'archive durable, sans le supprimer.
      *
      * @param int $fileid ID du fichier
      * @return array ['success' => bool, 'message' => string, 'archive_path' => string]
      */
     public static function archive_orphan_file($fileid) {
-        global $DB, $CFG;
+        global $DB;
 
-        try {
-            // Récupérer le fichier
-            $fs = get_file_storage();
-            $file = $fs->get_file_by_id($fileid);
-
-            if (!$file) {
-                return ['success' => false, 'message' => 'Fichier introuvable'];
-            }
-
-            // Créer le dossier d'archive si nécessaire
-            $archive_base = $CFG->dataroot . '/temp/orphan_archive';
-            $archive_date_dir = $archive_base . '/' . date('Y-m-d');
-            
-            if (!is_dir($archive_date_dir)) {
-                mkdir($archive_date_dir, 0755, true);
-            }
-
-            // Copier le fichier dans l'archive
-            $contenthash = $file->get_contenthash();
-            $hash_dir = $archive_date_dir . '/' . substr($contenthash, 0, 2);
-            
-            if (!is_dir($hash_dir)) {
-                mkdir($hash_dir, 0755, true);
-            }
-
-            $archive_path = $hash_dir . '/' . $contenthash;
-            
-            // Copier le contenu
-            $content = $file->get_content();
-            file_put_contents($archive_path, $content);
-
-            // Sauvegarder les métadonnées
-            self::save_archive_metadata($file, $archive_path);
-
-            // Logger l'action
-            self::log_operation('archive', $fileid, $file->get_filename(), $file->get_filesize());
-
-            return [
-                'success' => true,
-                'message' => 'Fichier archivé avec succès',
-                'archive_path' => $archive_path
-            ];
-
-        } catch (\Exception $e) {
-            return ['success' => false, 'message' => 'Erreur : ' . $e->getMessage()];
+        $fileid = (int)$fileid;
+        $record = $DB->get_record('files', ['id' => $fileid]);
+        if (!$record || !self::is_orphan($record)) {
+            return ['success' => false, 'archive_path' => '',
+                'message' => get_string('orphan_not_orphan', 'local_question_diagnostic', $fileid)];
         }
+        $file = get_file_storage()->get_file_by_id($record->id);
+        if (!$file) {
+            return ['success' => false, 'archive_path' => '',
+                'message' => get_string('orphan_file_not_found', 'local_question_diagnostic', $fileid)];
+        }
+        try {
+            $path = self::archive_stored_file($file, 'archive');
+        } catch (\Throwable $e) {
+            return ['success' => false, 'archive_path' => '',
+                'message' => get_string('archive_error', 'local_question_diagnostic')];
+        }
+        return ['success' => true, 'archive_path' => $path,
+            'message' => get_string('orphan_archived_one', 'local_question_diagnostic', $fileid)];
     }
 
     /**
-     * Sauvegarde les métadonnées d'un fichier archivé
+     * Archive plusieurs fichiers orphelins (lot limité à MAX_BATCH) et trace l'opération.
      *
-     * @param object $file stored_file object
-     * @param string $archive_path Chemin d'archive
+     * @param int[] $fileids
+     * @return array ['success' => int, 'failed' => int, 'archive_dir' => string, 'archivedids' => int[]]
      */
-    private static function save_archive_metadata($file, $archive_path) {
-        global $CFG, $USER;
+    public static function archive_multiple_orphans(array $fileids): array {
+        $fileids = array_slice(array_values(array_unique(array_map('intval', $fileids))), 0, self::MAX_BATCH);
+        $results = ['success' => 0, 'failed' => 0, 'archive_dir' => self::get_archive_dir(), 'archivedids' => []];
+        foreach ($fileids as $fileid) {
+            $result = self::archive_orphan_file($fileid);
+            if ($result['success']) {
+                $results['success']++;
+                $results['archivedids'][] = $fileid;
+            } else {
+                $results['failed']++;
+            }
+        }
+        if (!empty($results['archivedids'])) {
+            audit_logger::log_action('orphan_files_archived', [
+                'count' => count($results['archivedids']),
+                'fileids' => $results['archivedids'],
+                'archive' => self::ARCHIVE_SUBDIR . '/' . date('Y-m-d'),
+            ]);
+        }
+        return $results;
+    }
 
-        $metadata_file = dirname($archive_path) . '/metadata.json';
-        
-        // Charger les métadonnées existantes ou créer nouveau
-        $metadata = [];
-        if (file_exists($metadata_file)) {
-            $metadata = json_decode(file_get_contents($metadata_file), true);
+    /**
+     * Chemin du dossier d'archive du jour, hors de temp/ pour ne pas être purgé par le cron.
+     *
+     * @return string
+     */
+    public static function get_archive_dir(): string {
+        global $CFG;
+        return $CFG->dataroot . '/' . self::ARCHIVE_SUBDIR . '/' . date('Y-m-d');
+    }
+
+    /**
+     * Copie le contenu d'un fichier dans l'archive durable et ajoute ses métadonnées à metadata.json.
+     *
+     * Les métadonnées ne contiennent aucune donnée personnelle (ni auteur, ni utilisateur) :
+     * uniquement des identifiants techniques, le nom du fichier et ses dates.
+     *
+     * @param \stored_file $file
+     * @param string $operation 'archive' ou 'delete'
+     * @return string Chemin du fichier archivé
+     * @throws \moodle_exception si la copie échoue
+     */
+    public static function archive_stored_file(\stored_file $file, string $operation): string {
+        $dir = make_writable_directory(self::get_archive_dir());
+        $contenthash = $file->get_contenthash();
+        $target = $dir . '/' . $file->get_id() . '_' . $contenthash;
+
+        if (!file_exists($target) || sha1_file($target) !== $contenthash) {
+            if (!$file->copy_content_to($target) || !file_exists($target)) {
+                throw new \moodle_exception('archive_error', 'local_question_diagnostic');
+            }
+            if (sha1_file($target) !== $contenthash) {
+                @unlink($target);
+                throw new \moodle_exception('archive_error', 'local_question_diagnostic');
+            }
         }
 
-        // Ajouter ce fichier
-        $metadata[] = [
-            'id' => $file->get_id(),
-            'filename' => $file->get_filename(),
-            'contenthash' => $file->get_contenthash(),
+        self::append_archive_metadata($dir . '/metadata.json', [
+            'fileid' => (int)$file->get_id(),
+            'contextid' => (int)$file->get_contextid(),
             'component' => $file->get_component(),
             'filearea' => $file->get_filearea(),
-            'itemid' => $file->get_itemid(),
-            'filesize' => $file->get_filesize(),
-            'contextid' => $file->get_contextid(),
-            'archived_at' => date('Y-m-d H:i:s'),
-            'archived_by' => $USER->id,
-            'archive_path' => $archive_path
-        ];
-
-        // Sauvegarder
-        file_put_contents($metadata_file, json_encode($metadata, JSON_PRETTY_PRINT));
-    }
-
-    /**
-     * Logger une opération sur fichier orphelin
-     *
-     * @param string $action Action effectuée (delete, archive)
-     * @param int $fileid ID du fichier
-     * @param string $filename Nom du fichier
-     * @param int $filesize Taille du fichier
-     */
-    private static function log_operation($action, $fileid, $filename, $filesize) {
-        global $USER;
-
-        $log_message = sprintf(
-            '[ORPHAN_FILE] Action: %s | File ID: %d | Filename: %s | Size: %s | User: %s (%d) | Time: %s',
-            strtoupper($action),
-            $fileid,
-            $filename,
-            self::format_filesize($filesize),
-            fullname($USER),
-            $USER->id,
-            date('Y-m-d H:i:s')
-        );
-
-        // Logger dans les logs Moodle
-        \core\event\base::create([
-            'context' => \context_system::instance(),
-            'other' => ['message' => $log_message]
+            'itemid' => (int)$file->get_itemid(),
+            'filepath' => $file->get_filepath(),
+            'filename' => $file->get_filename(),
+            'contenthash' => $contenthash,
+            'filesize' => (int)$file->get_filesize(),
+            'mimetype' => $file->get_mimetype(),
+            'timecreated' => (int)$file->get_timecreated(),
+            'archivedat' => time(),
+            'operation' => $operation,
+            'archivefile' => basename($target),
         ]);
-
-        // Logger aussi dans un fichier dédié
-        debugging($log_message, DEBUG_NORMAL);
+        return $target;
     }
 
     /**
-     * Formate une taille de fichier de manière lisible
+     * Ajoute une entrée au fichier metadata.json sous verrou exclusif.
      *
-     * @param int $bytes Taille en bytes
-     * @return string Taille formatée
+     * @param string $metadatafile
+     * @param array $entry
      */
-    public static function format_filesize($bytes) {
-        if ($bytes >= 1073741824) {
-            return number_format($bytes / 1073741824, 2) . ' GB';
-        } else if ($bytes >= 1048576) {
-            return number_format($bytes / 1048576, 2) . ' MB';
-        } else if ($bytes >= 1024) {
-            return number_format($bytes / 1024, 2) . ' KB';
-        } else {
-            return $bytes . ' bytes';
+    private static function append_archive_metadata(string $metadatafile, array $entry): void {
+        $handle = fopen($metadatafile, 'c+');
+        if (!$handle) {
+            throw new \moodle_exception('archive_error', 'local_question_diagnostic');
+        }
+        try {
+            flock($handle, LOCK_EX);
+            $existing = stream_get_contents($handle);
+            $metadata = $existing ? json_decode($existing, true) : [];
+            if (!is_array($metadata)) {
+                $metadata = [];
+            }
+            $metadata[] = $entry;
+            ftruncate($handle, 0);
+            rewind($handle);
+            fwrite($handle, json_encode($metadata, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+            fflush($handle);
+            flock($handle, LOCK_UN);
+        } finally {
+            fclose($handle);
         }
     }
 
     /**
-     * Purge le cache des fichiers orphelins
+     * Formate une taille de fichier de manière lisible.
      *
-     * @return bool Succès de l'opération
+     * @param int $bytes Taille en octets
+     * @return string
+     */
+    public static function format_filesize($bytes) {
+        return display_size((int)$bytes);
+    }
+
+    /**
+     * Purge le cache des fichiers orphelins.
+     *
+     * @return bool
      */
     public static function purge_orphan_cache() {
         require_once(__DIR__ . '/cache_manager.php');
@@ -548,31 +586,32 @@ class orphan_file_detector {
     }
 
     /**
-     * Export des fichiers orphelins en CSV
+     * Neutralise une cellule CSV contre l'injection de formules (=, +, -, @, tabulation, retour chariot).
      *
-     * @param array $orphans Tableau de fichiers orphelins
-     * @return string Contenu CSV
+     * @param mixed $value
+     * @return string
      */
-    public static function export_to_csv($orphans) {
-        $csv = "\xEF\xBB\xBF"; // UTF-8 BOM pour Excel
-        
-        // En-têtes
-        $headers = [
-            'ID',
-            'Filename',
-            'Component',
-            'Filearea',
-            'Item ID',
-            'Filesize',
-            'Orphan Type',
-            'Reason',
-            'Created',
-            'Age (days)',
-            'Context ID'
-        ];
-        $csv .= '"' . implode('","', $headers) . '"' . "\n";
+    public static function csv_safe_cell($value): string {
+        $value = (string)$value;
+        if ($value !== '' && in_array($value[0], ['=', '+', '-', '@', "\t", "\r"], true)) {
+            $value = "'" . $value;
+        }
+        return $value;
+    }
 
-        // Données
+    /**
+     * Écrit les fichiers orphelins au format CSV dans un flux.
+     *
+     * @param iterable $orphans Objets orphelins (voir create_orphan_object)
+     * @param resource $handle Flux de sortie
+     * @return int Nombre de lignes écrites (hors en-tête)
+     */
+    public static function write_csv(iterable $orphans, $handle): int {
+        fwrite($handle, "\xEF\xBB\xBF"); // BOM UTF-8 pour Excel.
+        $headers = ['ID', 'Filename', 'Component', 'Filearea', 'Item ID', 'Filesize', 'Orphan Type',
+            'Deletable', 'Reason', 'Created', 'Age (days)', 'Context ID'];
+        fputcsv($handle, $headers, ',', '"', '');
+        $count = 0;
         foreach ($orphans as $orphan) {
             $file = $orphan->file;
             $row = [
@@ -581,19 +620,60 @@ class orphan_file_detector {
                 $file->component,
                 $file->filearea,
                 $file->itemid,
-                $orphan->filesize_formatted,
+                $file->filesize,
                 $orphan->orphan_type,
+                $orphan->deletable ? 'yes' : 'no (' . $orphan->exclusion . ')',
                 $orphan->reason,
                 $orphan->timecreated_formatted,
                 $orphan->age_days,
-                $file->contextid
+                $file->contextid,
             ];
-            $csv .= '"' . implode('","', array_map(function($val) {
-                return str_replace('"', '""', $val);
-            }, $row)) . '"' . "\n";
+            fputcsv($handle, array_map([self::class, 'csv_safe_cell'], $row), ',', '"', '');
+            $count++;
         }
+        return $count;
+    }
 
+    /**
+     * Export des fichiers orphelins en CSV (chaîne).
+     *
+     * @param iterable $orphans
+     * @return string
+     */
+    public static function export_to_csv($orphans) {
+        $handle = fopen('php://temp', 'w+');
+        self::write_csv($orphans, $handle);
+        rewind($handle);
+        $csv = stream_get_contents($handle);
+        fclose($handle);
         return $csv;
     }
-}
 
+    /**
+     * Rend un bouton de formulaire POST (sesskey inclus) ; gère les paramètres tableaux (ids[]).
+     *
+     * @param \moodle_url $action URL cible (ses paramètres de requête sont ignorés)
+     * @param array $params Paramètres cachés ; une valeur tableau produit plusieurs champs name[]
+     * @param string $label Libellé (texte brut, échappé ici)
+     * @param string $class Classes CSS du bouton
+     * @return string HTML
+     */
+    public static function render_post_button(\moodle_url $action, array $params, string $label,
+            string $class = 'btn btn-primary'): string {
+        $html = \html_writer::start_tag('form', ['method' => 'post', 'action' => $action->out_omit_querystring(),
+            'class' => 'd-inline-block mr-2']);
+        $html .= \html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]);
+        foreach ($params as $name => $value) {
+            if (is_array($value)) {
+                foreach ($value as $v) {
+                    $html .= \html_writer::empty_tag('input', ['type' => 'hidden', 'name' => $name . '[]', 'value' => $v]);
+                }
+            } else {
+                $html .= \html_writer::empty_tag('input', ['type' => 'hidden', 'name' => $name, 'value' => $value]);
+            }
+        }
+        $html .= \html_writer::tag('button', s($label), ['type' => 'submit', 'class' => $class]);
+        $html .= \html_writer::end_tag('form');
+        return $html;
+    }
+}
